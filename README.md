@@ -70,3 +70,49 @@ This fully specifies the agent set that was used in the interaction shown in the
 ## Core Contributors
 - Noah MacCallum - [noahmacca](https://x.com/noahmacca)
 - Ilan Bigio - [ibigio](https://github.com/ibigio)
+
+## Rust Conversion TODO
+
+### Phase 1: Project Setup
+- [ ] Initialize new Rust project structure
+- [ ] Set up cargo workspace
+- [ ] Configure basic dependencies (tokio, axum, serde, etc.)
+- [ ] Create initial module structure mirroring TypeScript layout
+
+### Phase 2: Core Types & Traits
+- [ ] Define AgentConfig trait and structs
+- [ ] Implement basic agent state machine
+- [ ] Create tool abstraction layer
+- [ ] Set up agent transfer mechanism
+
+### Phase 3: Agent Implementation
+- [ ] Port greeter agent
+- [ ] Port haiku agent
+- [ ] Implement agent configuration system
+- [ ] Add tool injection system
+
+### Phase 4: API Layer
+- [ ] Set up axum web server
+- [ ] Implement WebSocket handling
+- [ ] Create REST endpoints
+- [ ] Add OpenAI integration
+
+### Phase 5: Frontend Integration
+- [ ] Set up static file serving
+- [ ] Implement WebSocket client
+- [ ] Add voice activity detection
+- [ ] Integrate audio playback
+
+### Phase 6: Testing & Documentation
+- [ ] Write unit tests for core components
+- [ ] Add integration tests
+- [ ] Create API documentation
+- [ ] Add example configurations
+
+### Phase 7: Advanced Features
+- [ ] Implement background LLM calls
+- [ ] Add authentication flow
+- [ ] Port customer service retail flow
+- [ ] Add monitoring and logging
+
+Each phase will use `unimplemented!()` initially and include mocks where needed. Testing will be done incrementally using `cargo test -- --no-capture`.
