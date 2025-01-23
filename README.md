@@ -1,13 +1,26 @@
-# Realtime API Agents Demo
+# Swarmonomicon: Rust Realtime Agents
 
-This is a Rust implementation of more advanced, agentic patterns built on top of the Realtime API. In particular, this demonstrates:
-- Sequential agent handoffs according to a defined agent graph (taking inspiration from [OpenAI Swarm](https://github.com/openai/swarm))
+## Inspiration and Credits
+
+This project is a Rust reimplementation inspired by the [OpenAI Realtime Agents Demo](https://github.com/openai/openai-realtime-agents). The original project, created by Noah MacCallum and Ilan Bigio, demonstrates advanced agentic patterns built on top of a Realtime API.
+
+### Original Project Highlights
+The original OpenAI Realtime Agents project showcases:
+- Sequential agent handoffs
+- Background escalation to intelligent models
+- State machine-driven user interactions
+- Realtime voice application prototyping
+
+## Our Implementation
+
+Our Rust implementation aims to explore similar concepts of multi-agent systems, focusing on:
 - Websocket-based realtime communication
 - Modular agent system with configurable tools and behaviors
+- Async runtime using tokio
 
-## Current Implementation Status
+### Current Implementation Status
 
-### Completed ✅
+#### Completed ✅
 - Basic agent system with registry and transfer capabilities
 - Websocket communication layer
 - REST API endpoints for agent management
@@ -15,7 +28,7 @@ This is a Rust implementation of more advanced, agentic patterns built on top of
 - Tool system with support for custom executors
 - Configuration management for agents and tools
 
-### In Progress 🚧
+#### In Progress 🚧
 - Session management with turn detection
 - Audio handling and voice activity detection
 - Background LLM calls for high-stakes decisions
@@ -59,9 +72,9 @@ Agent configurations are defined in code, with support for:
 
 ## Contributing
 
-See the [Rust Conversion TODO](https://github.com/openai/swarm/blob/main/CONTRIBUTING.md) section for areas that need work.
+Contributions are welcome! See areas for potential improvement and expansion.
 
-## Core Contributors
+## Original Project Contributors
 - Noah MacCallum - [noahmacca](https://x.com/noahmacca)
 - Ilan Bigio - [ibigio](https://github.com/ibigio)
 
