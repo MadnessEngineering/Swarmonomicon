@@ -35,21 +35,21 @@ impl GreeterAgent {
 
 #[async_trait]
 impl Agent for GreeterAgent {
-    async fn process_message(&self, message: &str) -> crate::Result<Message> {
+    async fn process_message(&mut self, _message: &str) -> crate::Result<Message> {
         // For now, just return a simple greeting
         Ok(self.create_response(
             "Hello! Would you like me to write a haiku for you?".to_string()
         ))
     }
 
-    async fn transfer_to(&self, agent_name: &str) -> crate::Result<()> {
+    async fn transfer_to(&mut self, agent_name: &str) -> crate::Result<()> {
         if !self.config.downstream_agents.contains(&agent_name.to_string()) {
             return Err("Invalid agent transfer target".into());
         }
         unimplemented!("Agent transfer mechanism not yet implemented")
     }
 
-    async fn call_tool(&self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> crate::Result<String> {
+    async fn call_tool(&mut self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> crate::Result<String> {
         unimplemented!("Tool calling not yet implemented")
     }
 
@@ -88,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn test_greeter_response() {
         let config = create_test_config();
-        let agent = GreeterAgent::new(config);
+        let mut agent = GreeterAgent::new(config);
         let response = agent.process_message("hi").await.unwrap();
         assert!(response.content.contains("haiku"));
         assert_eq!(response.role, "assistant");

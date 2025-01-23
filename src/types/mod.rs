@@ -67,9 +67,9 @@ pub struct ToolCall {
 
 #[async_trait]
 pub trait Agent: Send + Sync {
-    async fn process_message(&self, message: &str) -> crate::Result<Message>;
-    async fn transfer_to(&self, agent_name: &str) -> crate::Result<()>;
-    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> crate::Result<String>;
+    async fn process_message(&mut self, message: &str) -> crate::Result<Message>;
+    async fn transfer_to(&mut self, agent_name: &str) -> crate::Result<()>;
+    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> crate::Result<String>;
     fn get_current_state(&self) -> Option<&State>;
     fn get_config(&self) -> &AgentConfig;
 }
@@ -107,6 +107,10 @@ impl AgentStateManager {
         } else {
             None
         }
+    }
+
+    pub fn get_current_state_name(&self) -> Option<&str> {
+        self.current_state.as_deref()
     }
 }
 
