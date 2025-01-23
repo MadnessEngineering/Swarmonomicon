@@ -33,6 +33,10 @@ impl AgentRegistry {
         self.agents.get(name)
     }
 
+    pub fn get_all_agents(&self) -> Vec<&Box<dyn Agent>> {
+        self.agents.values().collect()
+    }
+
     pub fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
         
@@ -97,6 +101,10 @@ mod tests {
         let greeter = registry.get_mut("greeter").unwrap();
         let response = greeter.process_message("hi").await.unwrap();
         assert!(response.content.contains("haiku"));
+
+        // Test get all agents
+        let all_agents = registry.get_all_agents();
+        assert_eq!(all_agents.len(), 2);
     }
 
     #[tokio::test]

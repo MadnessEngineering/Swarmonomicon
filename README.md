@@ -73,25 +73,25 @@ This fully specifies the agent set that was used in the interaction shown in the
 
 ## Rust Conversion TODO
 
-### Phase 1: Project Setup
-- [ ] Initialize new Rust project structure
-- [ ] Set up cargo workspace
-- [ ] Configure basic dependencies (tokio, axum, serde, etc.)
-- [ ] Create initial module structure mirroring TypeScript layout
+### Phase 1: Project Setup ✅
+- [x] Initialize new Rust project structure
+- [x] Set up cargo workspace
+- [x] Configure basic dependencies (tokio, axum, serde, etc.)
+- [x] Create initial module structure mirroring TypeScript layout
 
-### Phase 2: Core Types & Traits
-- [ ] Define AgentConfig trait and structs
-- [ ] Implement basic agent state machine
-- [ ] Create tool abstraction layer
-- [ ] Set up agent transfer mechanism
+### Phase 2: Core Types & Traits ✅
+- [x] Define AgentConfig trait and structs
+- [x] Implement basic agent state machine
+- [x] Create tool abstraction layer
+- [x] Set up agent transfer mechanism
 
-### Phase 3: Agent Implementation
-- [ ] Port greeter agent
-- [ ] Port haiku agent
-- [ ] Implement agent configuration system
-- [ ] Add tool injection system
+### Phase 3: Agent Implementation ✅
+- [x] Port greeter agent
+- [x] Port haiku agent
+- [x] Implement agent configuration system
+- [x] Add tool injection system
 
-### Phase 4: API Layer
+### Phase 4: API Layer 🚧
 - [ ] Set up axum web server
 - [ ] Implement WebSocket handling
 - [ ] Create REST endpoints

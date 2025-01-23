@@ -9,15 +9,18 @@ description = "A Rust implementation of an agent-based workflow system"
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.7", features = ["ws", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tower-http = { version = "0.5", features = ["fs", "trace"] }
+tower = "0.4"
+hyper = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
 futures = "0.3"
+thiserror = "1.0"
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::types::{Agent, Message};
+use crate::types::{Message};
 use crate::Result;
 use super::AgentRegistry;
 
@@ -54,6 +54,10 @@ impl TransferService {
 
     pub fn get_current_agent(&self) -> Option<&str> {
         self.current_agent.as_deref()
+    }
+
+    pub fn get_registry(&self) -> &Arc<RwLock<AgentRegistry>> {
+        &self.registry
     }
 }
 
