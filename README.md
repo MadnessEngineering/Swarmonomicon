@@ -1,20 +1,28 @@
-# Swarmonomicon: Rust Realtime Agents
+# Swarmonomicon: The Mad Tinker's Codex
 
-Swarmonomicon: The Mad Tinker’s Codex
-🛠️ Welcome to the Swarmonomicon, a fusion of meticulous craftsmanship and heavily version controlled chaos.
-Inspired by OpenAI's Realtime Agents Demo, this project doesn’t just reimagine agent collaboration—it invites you to dive headfirst into the Uncharted 🌀 and the Unhinged 🤖.
+🛠️ Welcome to the Swarmonomicon,\
+A fusion of meticulous craftsmanship and heavily version controlled chaos.\
+Inspired by OpenAI's Realtime Agents Demo, this project doesn't just reimagine agent collaboration—\
+It invites you to dive headfirst into the Uncharted 🌀 and the Unhinged. 🤖🦾
 
-Here, Rust-powered agents weave intricate patterns of logic, improvisation, and mischief.
-it’s a spellbook for Mad Tinkerers ready to push boundaries and embrace the unpredictable.
-Designed for those Mad enough to who thrive on experimentation, it’s more than a toolkit—
+Here, Rust-powered agents weave intricate patterns of logic, improvisation, and mischief.\
+It's a spellbook for Mad Tinkerers ready to push boundaries and embrace the unpredictable.\
+Throw UX in the trash, grab an extra keyboard, a bin of raspiberries and Buckle up.
 
-⚙️ Tinker responsibly.
-Some assembly required.
-Unintended hilarity guaranteed.
+⚙️ Tinker responsibly. \
+Some assembly required[^1].\
+Unintended Hilarity guaranteed[^2].
+
+
+[^1]: Always assume "some" means "extensive" when dealing with Tinkers.
+
+[^2]: May cause mqtt related restructuring of your entire codebase[^3].
+
+[^3]: You're welcome, this is a feature not a bug.
 
 ## Inspiration and Credits
 
-This project is a Rust reimplementation inspired by the [OpenAI Realtime Agents Demo](https://github.com/openai/openai-realtime-agents). The original project, created by Noah MacCallum and Ilan Bigio, demonstrates advanced agentic patterns built on top of a Realtime API.
+This project is a Rust reimplementation inspired by the [OpenAI Realtime Agents Demo](https://github.com/openai/openai-realtime-agents). The original project, created by [Noah MacCallum](https://x.com/noahmacca)] and [Ilan Bigio](https://github.com/ibigio), demonstrates advanced agentic patterns built on top of a Realtime API.
 My version is designed with plans to later become a [Tinker](https://github.com/DanEdens/Tinker) module.
 
 ### Original Project Highlights
@@ -30,7 +38,7 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 - Websocket-based realtime communication
 - Modular agent system with configurable tools and behaviors
 - Async runtime using tokio
--
+
 
 ### Current Implementation Status
 
@@ -88,9 +96,14 @@ Agent configurations are defined in code, with support for:
 
 Contributions are welcome! Open Issues, I welcome them.
 
-## Original Project Contributors
-- Noah MacCallum - [noahmacca](https://x.com/noahmacca)
-- Ilan Bigio - [ibigio](https://github.com/ibigio)
-
 ## License
 MIT
+
+## Subrepo Structure
+
+Welcome, the few and the Mad, to the wondrous world of subrepos!\
+This project is but a cog in the grand machine of the [Madness Interactive](https://github.com/DanEdens/madness_interactive) repository—\
+A playground for my various Mad Science and other monstrosities of Automation.\
+Embrace the mess of modular development, each project is but a part of the glorious, interconnected ***machine***. 
+
+Ferrum Corde!
