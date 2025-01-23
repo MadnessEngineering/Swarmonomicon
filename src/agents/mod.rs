@@ -1,8 +1,10 @@
 mod greeter;
 mod haiku;
+mod transfer;
 
 pub use greeter::GreeterAgent;
 pub use haiku::HaikuAgent;
+pub use transfer::TransferService;
 
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig};
@@ -55,6 +57,8 @@ impl AgentRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![
@@ -93,5 +97,22 @@ mod tests {
         let greeter = registry.get_mut("greeter").unwrap();
         let response = greeter.process_message("hi").await.unwrap();
         assert!(response.content.contains("haiku"));
+    }
+
+    #[tokio::test]
+    async fn test_agent_workflow() {
+        let configs = create_test_configs();
+        let registry = AgentRegistry::create_default_agents(configs).unwrap();
+        let registry = Arc::new(RwLock::new(registry));
+        let mut service = TransferService::new(registry);
+
+        // Start with greeter
+        let response = service.process_message("hi").await;
+        assert!(response.is_err()); // No current agent set
+
+        // Set current agent to greeter and process message
+        service.transfer("greeter", "haiku").await.unwrap();
+        let response = service.process_message("nature").await.unwrap();
+        assert!(response.content.contains("Mocking haiku now"));
     }
 } 
