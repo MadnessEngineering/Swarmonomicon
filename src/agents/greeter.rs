@@ -25,7 +25,6 @@ impl Agent for GreeterAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_greeter_creation() {
