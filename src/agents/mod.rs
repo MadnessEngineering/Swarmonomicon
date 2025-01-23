@@ -1,6 +1,6 @@
 mod greeter;
 mod haiku;
-mod transfer;
+pub mod transfer;
 
 pub use greeter::GreeterAgent;
 pub use haiku::HaikuAgent;

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::types::{AgentConfig, Tool};
+use crate::types::{AgentConfig, Tool, ToolParameter};
 use crate::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,24 +40,39 @@ impl ConfigManager {
     }
 
     pub fn inject_transfer_tools(&mut self, agent_set: &mut AgentSet) -> Result<()> {
-        let transfer_tool_template = Tool {
-            name: "agent_transfer".to_string(),
-            description: "Transfer to another agent".to_string(),
-            parameters: {
-                let mut params = HashMap::new();
-                params.insert("target_agent".to_string(), "Name of the agent to transfer to".to_string());
-                params
-            },
-            is_background: false,
-        };
+        let transfer_tool = get_transfer_tool();
 
         for agent in &mut agent_set.agents {
             if !agent.downstream_agents.is_empty() {
-                agent.tools.push(transfer_tool_template.clone());
+                agent.tools.push(transfer_tool.clone());
             }
         }
 
         Ok(())
+    }
+}
+
+pub fn get_transfer_tool() -> Tool {
+    Tool {
+        name: "agent_transfer".to_string(),
+        description: "Transfer control to another agent".to_string(),
+        parameters: {
+            let mut params = HashMap::new();
+            params.insert(
+                "target_agent".to_string(),
+                ToolParameter {
+                    type_name: "string".to_string(),
+                    description: Some("Name of the agent to transfer to".to_string()),
+                    enum_values: None,
+                    pattern: None,
+                    properties: None,
+                    required: None,
+                    additional_properties: None,
+                    items: None,
+                }
+            );
+            params
+        },
     }
 }
 

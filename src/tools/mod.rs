@@ -89,7 +89,6 @@ mod tests {
             name: "mock".to_string(),
             description: "A mock tool".to_string(),
             parameters: HashMap::new(),
-            is_background: false,
         };
 
         let result = registry.execute(&tool, HashMap::new()).await.unwrap();

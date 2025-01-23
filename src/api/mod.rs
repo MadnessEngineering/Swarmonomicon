@@ -1,34 +1,40 @@
-mod routes;
-mod websocket;
-
 use std::sync::Arc;
 use std::net::SocketAddr;
-use tokio::sync::RwLock;
 use axum::{
-    Router,
     routing::{get, post},
-    response::IntoResponse,
-    http::StatusCode,
+    Router,
 };
-use tower_http::{
-    trace::TraceLayer,
-    services::ServeDir,
-};
-use crate::agents::{AgentRegistry, TransferService};
-use crate::Result;
+use tower_http::cors::CorsLayer;
+use tokio::sync::RwLock;
+use crate::agents::TransferService;
 
+pub mod routes;
+pub mod websocket;
+
+#[derive(Clone)]
 pub struct AppState {
-    transfer_service: Arc<RwLock<TransferService>>,
+    pub transfer_service: Arc<RwLock<TransferService>>,
 }
 
-pub async fn serve(port: u16) -> Result<()> {
-    let registry = AgentRegistry::create_default_agents(routes::default_agents())?;
+impl AppState {
+    pub fn new(transfer_service: Arc<RwLock<TransferService>>) -> Self {
+        Self { transfer_service }
+    }
+}
+
+pub async fn create_app_state() -> Arc<AppState> {
+    use crate::agents::AgentRegistry;
+    use crate::api::routes::default_agents;
+
+    let registry = AgentRegistry::create_default_agents(default_agents()).unwrap();
     let registry = Arc::new(RwLock::new(registry));
     let transfer_service = Arc::new(RwLock::new(TransferService::new(registry)));
 
-    let app_state = AppState {
-        transfer_service: transfer_service.clone(),
-    };
+    Arc::new(AppState::new(transfer_service))
+}
+
+pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferService>>) {
+    let app_state = Arc::new(AppState { transfer_service });
 
     let app = Router::new()
         .route("/", get(routes::index))
@@ -36,22 +42,14 @@ pub async fn serve(port: u16) -> Result<()> {
         .route("/api/agents/:name", get(routes::get_agent))
         .route("/api/agents/:name/message", post(routes::send_message))
         .route("/ws", get(websocket::handler))
-        .nest_service("/static", ServeDir::new("static"))
-        .layer(TraceLayer::new_for_http())
-        .with_state(Arc::new(app_state));
+        .layer(CorsLayer::permissive())
+        .with_state(app_state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    println!("Server running on http://{}", addr);
-    
+    println!("Server starting on {}", addr);
     axum::serve(
-        tokio::net::TcpListener::bind(&addr).await?,
-        app.into_make_service(),
+        tokio::net::TcpListener::bind(addr).await.unwrap(),
+        app,
     )
-    .await?;
-
-    Ok(())
-}
-
-pub async fn health_check() -> impl IntoResponse {
-    StatusCode::OK
+    .await
+    .unwrap();
 }

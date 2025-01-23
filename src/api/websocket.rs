@@ -7,7 +7,12 @@ use axum::{
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use super::AppState;
+use crate::{
+    api::AppState,
+    agents::{AgentRegistry, TransferService, GreeterAgent, HaikuAgent},
+    types::{AgentConfig, Tool},
+};
+use tokio::sync::RwLock;
 
 const CHANNEL_SIZE: usize = 32;
 
@@ -16,7 +21,21 @@ const CHANNEL_SIZE: usize = 32;
 pub enum ClientMessage {
     Connect { agent: String },
     Message { content: String },
-    Transfer { to: String },
+    Transfer { from: String, to: String },
+    UpdateSession {
+        instructions: String,
+        tools: Vec<crate::types::Tool>,
+        turn_detection: Option<TurnDetection>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnDetection {
+    pub type_name: String,
+    pub threshold: f32,
+    pub prefix_padding_ms: u32,
+    pub silence_duration_ms: u32,
+    pub create_response: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +45,7 @@ pub enum ServerMessage {
     Message { content: String },
     Error { message: String },
     Transferred { from: String, to: String },
+    SessionUpdated,
 }
 
 pub async fn handler(
@@ -79,12 +99,9 @@ async fn handle_client_message(
 
     match msg {
         ClientMessage::Connect { agent } => {
-            match transfer_service.transfer("greeter", &agent).await {
-                Ok(_) => ServerMessage::Connected { agent },
-                Err(e) => ServerMessage::Error {
-                    message: e.to_string(),
-                },
-            }
+            // Set the current agent using the public method
+            transfer_service.set_current_agent(agent.clone());
+            ServerMessage::Connected { agent }
         }
         ClientMessage::Message { content } => {
             match transfer_service.process_message(&content).await {
@@ -96,23 +113,17 @@ async fn handle_client_message(
                 },
             }
         }
-        ClientMessage::Transfer { to } => {
-            let from = transfer_service.get_current_agent().map(|s| s.to_string());
-            if let Some(from) = from {
-                match transfer_service.transfer(&from, &to).await {
-                    Ok(_) => ServerMessage::Transferred {
-                        from,
-                        to,
-                    },
-                    Err(e) => ServerMessage::Error {
-                        message: e.to_string(),
-                    },
-                }
-            } else {
-                ServerMessage::Error {
-                    message: "No current agent".to_string(),
-                }
+        ClientMessage::Transfer { from, to } => {
+            match transfer_service.transfer(&from, &to).await {
+                Ok(_) => ServerMessage::Transferred { from, to },
+                Err(e) => ServerMessage::Error {
+                    message: e.to_string(),
+                },
             }
+        }
+        ClientMessage::UpdateSession { instructions: _, tools: _, turn_detection: _ } => {
+            // TODO: Implement session update logic
+            ServerMessage::SessionUpdated
         }
     }
 }
@@ -120,15 +131,38 @@ async fn handle_client_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentRegistry, TransferService};
     use crate::api::routes::default_agents;
-    use tokio::sync::RwLock;
 
     async fn setup_test_state() -> Arc<AppState> {
-        let registry = AgentRegistry::create_default_agents(default_agents()).unwrap();
+        let mut registry = AgentRegistry::new();
+
+        // Add test agents
+        let greeter_config = AgentConfig {
+            name: "greeter".to_string(),
+            public_description: "Greets users".to_string(),
+            instructions: "Greet the user".to_string(),
+            tools: Vec::new(),
+            downstream_agents: vec!["haiku".to_string()],
+            personality: None,
+            state_machine: None,
+        };
+
+        let haiku_config = AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Creates haikus".to_string(),
+            instructions: "Create haikus".to_string(),
+            tools: Vec::new(),
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        };
+
+        registry.register("greeter".to_string(), GreeterAgent::new(greeter_config));
+        registry.register("haiku".to_string(), HaikuAgent::new(haiku_config));
+
         let registry = Arc::new(RwLock::new(registry));
         let transfer_service = Arc::new(RwLock::new(TransferService::new(registry)));
-        
+
         Arc::new(AppState {
             transfer_service,
         })
@@ -153,7 +187,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_message() {
         let state = setup_test_state().await;
-        
+
         // First connect to an agent
         let connect_msg = ClientMessage::Connect {
             agent: "greeter".to_string(),
@@ -177,7 +211,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_transfer() {
         let state = setup_test_state().await;
-        
+
         // First connect to greeter
         let connect_msg = ClientMessage::Connect {
             agent: "greeter".to_string(),
@@ -186,6 +220,7 @@ mod tests {
 
         // Then transfer to haiku
         let msg = ClientMessage::Transfer {
+            from: "greeter".to_string(),
             to: "haiku".to_string(),
         };
 
@@ -198,4 +233,4 @@ mod tests {
             _ => panic!("Expected Transferred message"),
         }
     }
-} 
+}
