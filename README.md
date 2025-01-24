@@ -107,3 +107,31 @@ A playground for my various Mad Science and other monstrosities of Automation.\
 Embrace the mess of modular development, each project is but a part of the glorious, interconnected ***machine***. 
 
 Ferrum Corde!
+
+## Features
+
+- Agent-based architecture for modular task handling
+- Tool registry for extensible functionality
+- State machine support for complex workflows
+- WebSocket API for real-time communication
+- CLI interface for common operations
+
+### Git Operations
+
+The framework includes a Git assistant agent that can be used via CLI:
+
+```bash
+# Auto-generate commit message
+swarm git
+
+# Commit with specific message
+swarm git -m "feat: add new feature"
+
+# Create and switch to new branch
+swarm git -b feature/new-branch
+
+# Merge current branch into target
+swarm git -t main
+```
+
+The Git assistant uses AI to generate meaningful commit messages based on the changes in your working directory.
