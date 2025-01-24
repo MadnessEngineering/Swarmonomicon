@@ -3,6 +3,12 @@ use std::collections::HashMap;
 use crate::types::Tool;
 use crate::Result;
 
+mod git;
+mod project;
+
+pub use git::GitTool;
+pub use project::ProjectTool;
+
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
     async fn execute(&self, params: HashMap<String, String>) -> Result<String>;
@@ -64,6 +70,18 @@ impl ToolRegistry {
         } else {
             Err("Tool not found in registry".into())
         }
+    }
+
+    pub fn create_default_tools() -> Self {
+        let mut registry = Self::new();
+        
+        // Register Git tool
+        registry.register("git".to_string(), GitTool::new());
+        
+        // Register Project tool
+        registry.register("project".to_string(), ProjectTool::new());
+        
+        registry
     }
 }
 

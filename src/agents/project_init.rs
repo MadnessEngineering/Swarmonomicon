@@ -1,16 +1,24 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use crate::types::{Agent, AgentConfig, AgentResponse};
+use std::collections::HashMap;
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State};
+use crate::tools::ToolRegistry;
 use crate::Result;
 
 pub struct ProjectInitAgent {
     config: AgentConfig,
+    tools: ToolRegistry,
+    current_state: Option<String>,
 }
 
 impl ProjectInitAgent {
     pub fn new(config: AgentConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            tools: ToolRegistry::create_default_tools(),
+            current_state: None,
+        }
     }
 
     fn init_python_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
@@ -131,15 +139,16 @@ impl Agent for ProjectInitAgent {
         &self.config
     }
 
-    async fn process_message(&self, message: &str) -> Result<AgentResponse> {
+    async fn process_message(&mut self, message: &str) -> Result<Message> {
         // Parse command: create <type> <name> <description>
         let parts: Vec<&str> = message.split_whitespace().collect();
         
         if parts.len() < 4 || parts[0] != "create" {
-            return Ok(AgentResponse {
+            return Ok(Message {
                 content: "Usage: create <type> <name> <description>".to_string(),
-                should_transfer: false,
-                transfer_to: None,
+                role: "assistant".to_string(),
+                timestamp: chrono::Utc::now().timestamp() as u64,
+                metadata: None,
             });
         }
 
@@ -149,45 +158,53 @@ impl Agent for ProjectInitAgent {
 
         // Validate project type
         if !["python", "rust", "common"].contains(&project_type) {
-            return Ok(AgentResponse {
+            return Ok(Message {
                 content: "Project type must be one of: python, rust, common".to_string(),
-                should_transfer: false,
-                transfer_to: None,
+                role: "assistant".to_string(),
+                timestamp: chrono::Utc::now().timestamp() as u64,
+                metadata: None,
             });
         }
 
-        // Create project directory
-        let base_dir = Path::new("projects").join(project_type);
-        let project_dir = base_dir.join(name);
+        // Create project using the project tool
+        let mut params = HashMap::new();
+        params.insert("type".to_string(), project_type.to_string());
+        params.insert("name".to_string(), name.to_string());
+        params.insert("description".to_string(), description.clone());
 
-        if project_dir.exists() {
-            return Ok(AgentResponse {
-                content: format!("Error: Project directory {} already exists!", project_dir.display()),
-                should_transfer: false,
-                transfer_to: None,
-            });
-        }
+        let tool_call = ToolCall {
+            tool: "project".to_string(),
+            parameters: params.clone(),
+            result: None,
+        };
 
-        fs::create_dir_all(&project_dir)?;
+        let result = self.tools.execute(&Tool {
+            name: "project".to_string(),
+            description: "Project initialization tool".to_string(),
+            parameters: HashMap::new(),
+        }, params).await?;
 
-        // Initialize project based on type
-        match project_type {
-            "python" => self.init_python_project(name, &description, &project_dir)?,
-            "rust" => self.init_rust_project(name, &description, &project_dir)?,
-            "common" => self.init_common_project(name, &description, &project_dir)?,
-            _ => unreachable!(),
-        }
-
-        Ok(AgentResponse {
-            content: format!(
-                "Project {} created successfully in {}\nType: {}\nDescription: {}",
-                name,
-                project_dir.display(),
-                project_type,
-                description
-            ),
-            should_transfer: false,
-            transfer_to: None,
+        Ok(Message {
+            content: result,
+            role: "assistant".to_string(),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+            metadata: Some(MessageMetadata {
+                tool_calls: Some(vec![tool_call]),
+                state: self.current_state.clone(),
+                confidence: None,
+            }),
         })
+    }
+
+    async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        self.tools.execute(tool, params).await
+    }
+
+    fn get_current_state(&self) -> Option<&State> {
+        None
     }
 } 
