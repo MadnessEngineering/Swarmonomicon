@@ -1,10 +1,14 @@
 mod greeter;
 mod haiku;
 pub mod transfer;
+mod git_assistant;
+mod project_init;
 
 pub use greeter::GreeterAgent;
 pub use haiku::HaikuAgent;
 pub use transfer::TransferService;
+pub use git_assistant::GitAssistantAgent;
+pub use project_init::ProjectInitAgent;
 
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig};
@@ -49,6 +53,14 @@ impl AgentRegistry {
                 "haiku" => registry.register(
                     config.name.clone(),
                     HaikuAgent::new(config),
+                ),
+                "git" => registry.register(
+                    config.name.clone(),
+                    GitAssistantAgent::new(config),
+                ),
+                "project" => registry.register(
+                    config.name.clone(),
+                    ProjectInitAgent::new(config),
                 ),
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
