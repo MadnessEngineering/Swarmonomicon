@@ -43,7 +43,7 @@ impl AgentRegistry {
 
     pub fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
-        
+
         for config in configs {
             match config.name.as_str() {
                 "greeter" => registry.register(
@@ -103,7 +103,7 @@ mod tests {
     async fn test_agent_registry() {
         let configs = create_test_configs();
         let mut registry = AgentRegistry::create_default_agents(configs).unwrap();
-        
+
         // Test immutable access
         assert!(registry.get("greeter").is_some());
         assert!(registry.get("haiku").is_some());
@@ -135,4 +135,4 @@ mod tests {
         let response = service.process_message("nature").await.unwrap();
         assert!(response.content.contains("Mocking haiku now"));
     }
-} 
+}
