@@ -36,12 +36,12 @@ impl OpenAITool {
     }
 }
 
-#[async_trait]
-impl ToolExecutor for OpenAITool {
-    async fn execute(&self, params: HashMap<String, String>) -> Result<String> {
-        unimplemented!("OpenAI tool execution not yet implemented")
-    }
-}
+// #[async_trait]
+// impl ToolExecutor for OpenAITool {
+//     async fn execute(&self, params: HashMap<String, String>) -> Result<String> {
+//         unimplemented!("OpenAI tool execution not yet implemented")
+//     }
+// }
 
 pub struct ToolRegistry {
     tools: HashMap<String, Box<dyn ToolExecutor>>,
