@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use swarmonomicon::{
-    agents::GitAssistantAgent,
+    agents::{GitAssistantAgent, ProjectInitAgent},
     types::{Agent, AgentConfig},
 };
 use std::error::Error;
@@ -27,6 +27,21 @@ enum Commands {
         /// Merge current branch into target branch
         #[arg(short = 't', long)]
         merge: Option<String>,
+    },
+
+    /// Initialize a new project
+    Init {
+        /// Project type (python, rust, or common)
+        #[arg(short = 't', long)]
+        project_type: String,
+
+        /// Project name
+        #[arg(short = 'n', long)]
+        name: String,
+
+        /// Project description
+        #[arg(short = 'd', long)]
+        description: String,
     },
 }
 
@@ -61,6 +76,26 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 "commit".to_string() // Default to auto-commit
             };
 
+            let response = agent.process_message(&command).await?;
+            println!("{}", response.content);
+        }
+        Commands::Init { project_type, name, description } => {
+            // Create Project Init agent config
+            let config = AgentConfig {
+                name: "project".to_string(),
+                public_description: "Project initialization tool".to_string(),
+                instructions: "Creates new projects with proper structure and configuration".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            };
+
+            // Create Project Init agent
+            let mut agent = ProjectInitAgent::new(config);
+
+            // Process command
+            let command = format!("create {} {} {}", project_type, name, description);
             let response = agent.process_message(&command).await?;
             println!("{}", response.content);
         }
