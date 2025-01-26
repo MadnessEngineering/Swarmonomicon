@@ -1,0 +1,3 @@
+[submodule "browser-agent"]
+	path = browser-agent
+	url = https://github.com/m1guelpf/browser-agent.git
