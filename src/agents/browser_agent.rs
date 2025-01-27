@@ -1,15 +1,15 @@
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use std::collections::HashMap;
-use browser_agent;
+use crate::agents::BrowserAgent;
 
 pub struct BrowserAgent {
-    inner: browser_agent::BrowserAgent,
+    inner: BrowserAgent,
     config: AgentConfig,
 }
 
 impl BrowserAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let inner = browser_agent::BrowserAgent::new(&config.instructions).expect("Failed to create BrowserAgent");
+        let inner = BrowserAgent::new(&config.instructions).expect("Failed to create BrowserAgent");
         Self { inner, config }
     }
 
