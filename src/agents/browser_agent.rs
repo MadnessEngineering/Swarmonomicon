@@ -1,16 +1,16 @@
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use std::collections::HashMap;
-use crate::agents::BrowserAgent;
+use browser_agent::BrowserAgent as BrowserAgentInner;
 
-pub struct BrowserAgent {
-    inner: BrowserAgent,
+pub struct BrowserAgentWrapper {
+    inner: Box<BrowserAgentInner>,
     config: AgentConfig,
 }
 
-impl BrowserAgent {
+impl BrowserAgentWrapper {
     pub fn new(config: AgentConfig) -> Self {
-        let inner = BrowserAgent::new(&config.instructions).expect("Failed to create BrowserAgent");
-        Self { inner, config }
+        let inner = BrowserAgentInner::new(&config.instructions);
+        Self { inner: Box::new(inner), config }
     }
 
     pub async fn shutdown(&self) -> Result<()> {
@@ -20,10 +20,10 @@ impl BrowserAgent {
 }
 
 #[async_trait::async_trait]
-impl Agent for BrowserAgent {
+impl Agent for BrowserAgentWrapper {
     async fn process_message(&mut self, message: &str) -> Result<Message> {
         let result = self.inner.process_message(message).await?;
-        Ok(Message::new(&result))
+        Ok(Message::new(result.as_str()))
     }
 
     async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
