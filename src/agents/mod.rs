@@ -1,14 +1,16 @@
+mod git_assistant;
 mod greeter;
 mod haiku;
-pub mod transfer;
-mod git_assistant;
 mod project_init;
+mod transfer;
+mod user_agent;
 
+pub use git_assistant::GitAssistantAgent;
 pub use greeter::GreeterAgent;
 pub use haiku::HaikuAgent;
-pub use transfer::TransferService;
-pub use git_assistant::GitAssistantAgent;
 pub use project_init::ProjectInitAgent;
+pub use transfer::TransferService;
+pub use user_agent::UserAgent;
 
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig};
