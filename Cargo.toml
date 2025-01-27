@@ -42,8 +42,3 @@ path = "src/bin/swarm.rs"
 [[bin]]
 name = "todo_worker"
 path = "src/bin/todo_worker.rs"
-
-
-[profile.dev]
-opt-level = 2
-debug = false

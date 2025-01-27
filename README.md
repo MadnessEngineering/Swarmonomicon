@@ -51,11 +51,9 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 - Configuration management for agents and tools
 
 #### In Progress 🚧
-- Session management with turn detection
-- Audio handling and voice activity detection
-- Background LLM calls for high-stakes decisions
-- State machine validation for collecting user information
-- Frontend UI components
+- adding entry point for greeter
+- update todo_worker to keep a record of tasks and to log more items
+- add mqtt logging for log agent to watch and react too
 
 ## Setup
 
@@ -104,7 +102,7 @@ MIT
 Welcome, the few and the Mad, to the wondrous world of subrepos!\
 This project is but a cog in the grand machine of the [Madness Interactive](https://github.com/DanEdens/madness_interactive) repository—\
 A playground for my various Mad Science and other monstrosities of Automation.\
-Embrace the mess of modular development, each project is but a part of the glorious, interconnected ***machine***. 
+Embrace the mess of modular development, each project is but a part of the glorious, interconnected ***machine***.
 
 Ferrum Corde!
 
