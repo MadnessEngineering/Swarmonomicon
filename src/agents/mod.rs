@@ -9,6 +9,7 @@ pub mod haiku;
 pub mod project_init;
 pub mod user_agent;
 pub mod transfer;
+pub mod browser_agent;
 
 pub use git_assistant::GitAssistantAgent;
 pub use greeter::GreeterAgent;
@@ -16,6 +17,7 @@ pub use haiku::HaikuAgent;
 pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
+pub use browser_agent::BrowserAgent;
 
 #[derive(Default)]
 pub struct AgentRegistry {
@@ -68,6 +70,7 @@ impl AgentRegistry {
                 "haiku" => registry.register(HaikuAgent::new(config))?,
                 "greeter" => registry.register(GreeterAgent::new(config))?,
                 "user" => registry.register(UserAgent::new(config))?,
+                "browser" => registry.register(BrowserAgent::new(config))?,
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
         }
@@ -159,7 +162,7 @@ mod tests {
         let configs = create_test_configs();
         let registry = AgentRegistry::create_default_agents(configs).unwrap();
         let registry = Arc::new(RwLock::new(registry));
-        let mut service = TransferService::new(registry, "greeter");
+        let mut service = TransferService::new(registry.clone());
 
         // Start with greeter
         let response = service.process_message("hi").await;
