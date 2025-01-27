@@ -247,22 +247,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_transfers() {
-        let config = create_test_config();
-        
         // Test project transfer
-        let mut agent = GreeterAgent::new(config.clone());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message("project").await.unwrap();
         assert!(response.content.contains("Project Initialization Expert"));
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_project"));
-        
+
         // Test git transfer
-        let mut agent = GreeterAgent::new(config.clone());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message("git").await.unwrap();
         assert!(response.content.contains("Git Operations Specialist"));
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_git"));
-        
+
         // Test haiku transfer
-        let mut agent = GreeterAgent::new(config.clone());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message("haiku").await.unwrap();
         assert!(response.content.contains("haiku tinkerer"));
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_haiku"));
@@ -270,29 +268,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_transfer_method() {
-        let config = create_test_config();
-        let mut agent = GreeterAgent::new(config);
-        
         // Test valid transfers
+        let mut agent = GreeterAgent::new(create_test_config());
         assert!(agent.transfer_to("project").await.is_ok());
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_project"));
 
-        let mut agent = GreeterAgent::new(config.clone());
+        let mut agent = GreeterAgent::new(create_test_config());
         assert!(agent.transfer_to("git").await.is_ok());
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_git"));
 
-        let mut agent = GreeterAgent::new(config.clone());
+        let mut agent = GreeterAgent::new(create_test_config());
         assert!(agent.transfer_to("haiku").await.is_ok());
         assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_haiku"));
 
         // Test invalid transfer
+        let mut agent = GreeterAgent::new(create_test_config());
         assert!(agent.transfer_to("invalid_agent").await.is_err());
     }
 
     #[tokio::test]
     async fn test_state_transitions() {
-        let config = create_test_config();
-        let mut agent = GreeterAgent::new(config);
+        let mut agent = GreeterAgent::new(create_test_config());
 
         // Test help transition
         let response = agent.process_message("help").await.unwrap();
@@ -307,12 +303,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_farewell_variations() {
-        let config = create_test_config();
-        let mut agent = GreeterAgent::new(config);
-        
         // Test different farewell commands
         for cmd in ["goodbye", "exit", "quit"].iter() {
-            let mut agent = GreeterAgent::new(config.clone());
+            let mut agent = GreeterAgent::new(create_test_config());
             let response = agent.process_message(cmd).await.unwrap();
             assert!(response.content.contains("Farewell") || response.content.contains("experiments"));
             assert_eq!(agent.state_manager.get_current_state_name(), Some("goodbye"));
