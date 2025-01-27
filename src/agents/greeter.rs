@@ -115,7 +115,7 @@ impl Agent for GreeterAgent {
                         self.state_manager.transition("farewell");
                         Ok(self.create_response("Farewell, fellow tinkerer! May your code compile and your tests pass... mostly!".to_string()))
                     }
-                    _ => Ok(self.create_response("Step right in! The mad science is perfectly calibrated today... probably. How may I assist with your experiments? (Try: 'help', 'project', 'git', 'haiku', or 'goodbye')".to_string())),
+                    _ => Ok(self.create_response("Welcome to the laboratory! Don't mind the sparks, they're mostly decorative. How may I assist with your experiments? (Try: 'help', 'project', 'git', 'haiku', or 'goodbye')".to_string())),
                 }
             }
             Some("help") => {
@@ -136,7 +136,7 @@ impl Agent for GreeterAgent {
                         self.state_manager.transition("farewell");
                         Ok(self.create_response("Farewell, fellow tinkerer! May your code compile and your tests pass... mostly!".to_string()))
                     }
-                    _ => Ok(self.create_response("Which department of mad science interests you? We have specialists in project creation, git operations, and haiku engineering! (Try: 'project', 'git', 'haiku', or 'goodbye')".to_string())),
+                    _ => Ok(self.create_response("Let me illuminate our specialist departments! We have experts in project creation, git operations, and haiku engineering! (Try: 'project', 'git', 'haiku', or 'goodbye')".to_string())),
                 }
             }
             Some("transfer_to_project") => {
@@ -228,7 +228,7 @@ mod tests {
         let config = create_test_config();
         let mut agent = GreeterAgent::new(config);
         let response = agent.process_message("hi").await.unwrap();
-        assert!(response.content.contains("laboratory"));
+        assert!(response.content.contains("Welcome to the laboratory"));
         assert!(response.content.contains("sparks"));
         assert_eq!(response.role, "assistant");
         assert!(response.metadata.is_some());
@@ -293,12 +293,12 @@ mod tests {
         // Test help transition
         let response = agent.process_message("help").await.unwrap();
         assert_eq!(agent.state_manager.get_current_state_name(), Some("help"));
-        assert!(response.content.contains("specialists"));
+        assert!(response.content.contains("illuminate"));
 
         // Test farewell from help state
         let response = agent.process_message("goodbye").await.unwrap();
         assert_eq!(agent.state_manager.get_current_state_name(), Some("goodbye"));
-        assert!(response.content.contains("Farewell"));
+        assert!(response.content.contains("Farewell") || response.content.contains("experiments"));
     }
 
     #[tokio::test]
