@@ -1,6 +1,6 @@
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use std::collections::HashMap;
-use browser_agent::agent::BrowserAgent as BrowserAgentInner;
+use browser_agent::BrowserAgent as BrowserAgentInner;
 
 pub struct BrowserAgentWrapper {
     inner: Box<BrowserAgentInner>,
