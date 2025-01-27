@@ -1,12 +1,16 @@
+#![allow(warnings)]
 pub mod agents;
 pub mod tools;
 pub mod config;
 pub mod api;
+pub mod error;
 pub mod types;
 
-use std::error::Error;
+pub use error::Error;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+// Re-export commonly used types
+pub use types::{Agent, AgentConfig, Message, Tool, State};
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

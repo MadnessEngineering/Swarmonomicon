@@ -1,23 +1,24 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::fs;
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, Tool};
-use crate::Result;
+use std::path::Path;
+use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Utc};
+use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
+use crate::error::Error;
+use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TodoItem {
-    description: String,
-    status: TodoStatus,
-    agent: Option<String>,
-    context: HashMap<String, String>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub description: String,
+    pub status: TodoStatus,
+    pub assigned_agent: Option<String>,
+    pub context: Option<String>,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-enum TodoStatus {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TodoStatus {
     Pending,
     InProgress,
     Completed,
@@ -25,87 +26,80 @@ enum TodoStatus {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct TodoState {
+pub struct UserAgentState {
     todos: Vec<TodoItem>,
-    current_todo: Option<usize>,
-    last_processed: Option<chrono::DateTime<chrono::Utc>>,
+    last_processed: Option<DateTime<Utc>>,
 }
 
 pub struct UserAgent {
     config: AgentConfig,
-    state: TodoState,
-    state_file: PathBuf,
+    state: UserAgentState,
+    state_file: Option<String>,
 }
 
 impl UserAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let state_file = PathBuf::from("todo_state.json");
-        let state = Self::load_state(&state_file).unwrap_or_else(|_| TodoState {
-            todos: Vec::new(),
-            current_todo: None,
-            last_processed: None,
-        });
-
         Self {
             config,
-            state,
-            state_file,
+            state: UserAgentState {
+                todos: Vec::new(),
+                last_processed: None,
+            },
+            state_file: None,
         }
     }
 
-    pub fn with_state_file<P: AsRef<Path>>(config: AgentConfig, state_file: P) -> Self {
-        let state_file = state_file.as_ref().to_path_buf();
-        let state = Self::load_state(&state_file).unwrap_or_else(|_| TodoState {
-            todos: Vec::new(),
-            current_todo: None,
-            last_processed: None,
-        });
-
-        Self {
-            config,
-            state,
-            state_file,
-        }
-    }
-
-    fn load_state(path: &Path) -> Result<TodoState> {
-        if path.exists() {
-            let content = fs::read_to_string(path)?;
-            Ok(serde_json::from_str(&content)?)
+    pub fn with_state_file(config: AgentConfig, state_file: impl Into<String>) -> Result<Self> {
+        let state_file = state_file.into();
+        let state = if Path::new(&state_file).exists() {
+            let contents = fs::read_to_string(&state_file)?;
+            serde_json::from_str(&contents)?
         } else {
-            Err("State file does not exist".into())
-        }
+            UserAgentState {
+                todos: Vec::new(),
+                last_processed: None,
+            }
+        };
+
+        Ok(Self {
+            config,
+            state,
+            state_file: Some(state_file),
+        })
     }
 
     fn save_state(&self) -> Result<()> {
-        let content = serde_json::to_string_pretty(&self.state)?;
-        fs::write(&self.state_file, content)?;
+        if let Some(state_file) = &self.state_file {
+            let contents = serde_json::to_string_pretty(&self.state)?;
+            fs::write(state_file, contents)?;
+        }
         Ok(())
     }
 
-    pub fn add_todo(&mut self, description: String, context: HashMap<String, String>) -> Result<()> {
-        let now = chrono::Utc::now();
-        self.state.todos.push(TodoItem {
+    pub fn add_todo(&mut self, description: String, context: Option<String>) -> Result<()> {
+        let todo = TodoItem {
             description,
             status: TodoStatus::Pending,
-            agent: None,
+            assigned_agent: None,
             context,
-            created_at: now,
-            updated_at: now,
-        });
-        self.save_state()
+            error: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        self.state.todos.push(todo);
+        self.save_state()?;
+        Ok(())
     }
 
     pub fn get_next_pending_todo(&self) -> Option<(usize, &TodoItem)> {
-        self.state.todos.iter()
-            .enumerate()
+        self.state.todos.iter().enumerate()
             .find(|(_, todo)| todo.status == TodoStatus::Pending)
     }
 
     pub fn mark_todo_completed(&mut self, index: usize) -> Result<()> {
         if let Some(todo) = self.state.todos.get_mut(index) {
             todo.status = TodoStatus::Completed;
-            todo.updated_at = chrono::Utc::now();
+            todo.updated_at = Utc::now();
             self.save_state()?;
         }
         Ok(())
@@ -114,181 +108,117 @@ impl UserAgent {
     pub fn mark_todo_failed(&mut self, index: usize, error: Option<String>) -> Result<()> {
         if let Some(todo) = self.state.todos.get_mut(index) {
             todo.status = TodoStatus::Failed;
-            todo.updated_at = chrono::Utc::now();
-            if let Some(error) = error {
-                todo.context.insert("error".to_string(), error);
-            }
+            todo.error = error;
+            todo.updated_at = Utc::now();
             self.save_state()?;
         }
         Ok(())
     }
 
-    async fn determine_next_agent(&self, todo: &TodoItem) -> Result<Option<String>> {
-        // Use OpenAI to determine which agent should handle this todo
-        let openai = reqwest::Client::new();
-        let response = openai
-            .post("http://127.0.0.1:1234/v1/chat/completions")
-            .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "model": "qwen2.5-7b-instruct",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": format!(
-                            "You are a task coordinator that determines which agent should handle a given task.\n\
-                            Available agents:\n\
-                            - git: Handles version control tasks (commits, branches, merges)\n\
-                            - project: Initializes and sets up new projects\n\
-                            - haiku: Creates haiku-style documentation\n\n\
-                            Context variables: {:#?}\n\
-                            Respond ONLY with the agent name or UNKNOWN if no agent can handle it.",
-                            todo.context
-                        )
-                    },
-                    {
-                        "role": "user",
-                        "content": format!("Which agent should handle this task: {}", todo.description)
-                    }
-                ]
-            }))
-            .send()
-            .await?;
-
-        let data: serde_json::Value = response.json().await?;
-        let agent = data["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("UNKNOWN")
-            .to_string();
-
-        if agent == "UNKNOWN" {
-            Ok(None)
-        } else {
-            Ok(Some(agent))
-        }
-    }
-
-    async fn process_current_todo(&mut self) -> Result<String> {
-        if let Some(index) = self.state.current_todo {
-            if let Some(todo) = self.state.todos.get_mut(index) {
-                if todo.status == TodoStatus::Pending {
-                    // Determine which agent should handle this
-                    if let Some(agent_name) = self.determine_next_agent(todo).await? {
-                        todo.agent = Some(agent_name.clone());
-                        todo.status = TodoStatus::InProgress;
-                        todo.updated_at = chrono::Utc::now();
-                        self.save_state()?;
-                        Ok(format!("Assigned task to {} agent: {}", agent_name, todo.description))
-                    } else {
-                        self.mark_todo_failed(index, Some("No suitable agent found".to_string()))?;
-                        Ok("No suitable agent found for this task.".to_string())
-                    }
-                } else {
-                    Ok(format!("Current task status: {:?} (Last updated: {})",
-                        todo.status,
-                        todo.updated_at.format("%Y-%m-%d %H:%M:%S")))
-                }
-            } else {
-                Ok("No current task selected.".to_string())
-            }
-        } else {
-            Ok("No current task selected.".to_string())
-        }
+    pub fn get_last_processed(&self) -> Option<DateTime<Utc>> {
+        self.state.last_processed
     }
 
     pub fn update_last_processed(&mut self) -> Result<()> {
-        self.state.last_processed = Some(chrono::Utc::now());
-        self.save_state()
-    }
-
-    pub fn get_last_processed(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.state.last_processed
-    }
-}
-
-#[async_trait]
-impl Agent for UserAgent {
-    async fn process_message(&mut self, message: &str) -> Result<Message> {
-        let parts: Vec<&str> = message.split_whitespace().collect();
-
-        if parts.is_empty() {
-            return Ok(Message {
-                content: "Available commands: add <todo>, list, next, status".to_string(),
-                role: "assistant".to_string(),
-                timestamp: chrono::Utc::now().timestamp() as u64,
-                metadata: None,
-            });
-        }
-
-        let result = match parts[0] {
-            "add" if parts.len() > 1 => {
-                let description = parts[1..].join(" ");
-                let mut context = HashMap::new();
-                // You could parse additional context from the description or message
-                // For now, we'll just add a timestamp
-                context.insert("timestamp".to_string(), chrono::Utc::now().to_string());
-                self.add_todo(description, context)?;
-                "Todo added successfully.".to_string()
-            },
-            "list" => {
-                let mut output = String::new();
-                for (i, todo) in self.state.todos.iter().enumerate() {
-                    output.push_str(&format!("{}. [{:?}] {}{}\n",
-                        i + 1,
-                        todo.status,
-                        todo.description,
-                        todo.agent.as_ref().map(|a| format!(" (assigned to {})", a)).unwrap_or_default()
-                    ));
-                }
-                if output.is_empty() {
-                    "No todos found.".to_string()
-                } else {
-                    output
-                }
-            },
-            "next" => {
-                // Find the next pending todo
-                if let Some(index) = self.state.todos.iter().position(|t| t.status == TodoStatus::Pending) {
-                    self.state.current_todo = Some(index);
-                    self.process_current_todo().await?
-                } else {
-                    "No pending todos found.".to_string()
-                }
-            },
-            "status" => {
-                if let Some(index) = self.state.current_todo {
-                    if let Some(todo) = self.state.todos.get(index) {
-                        format!("Current task: {} (Status: {:?}{})",
-                            todo.description,
-                            todo.status,
-                            todo.agent.as_ref().map(|a| format!(" - Assigned to {}", a)).unwrap_or_default()
-                        )
-                    } else {
-                        "No current task selected.".to_string()
-                    }
-                } else {
-                    "No current task selected.".to_string()
-                }
-            },
-            _ => "Available commands: add <todo>, list, next, status".to_string(),
-        };
-
-        Ok(Message {
-            content: result,
-            role: "assistant".to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-            metadata: None,
-        })
-    }
-
-    async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
+        self.state.last_processed = Some(Utc::now());
+        self.save_state()?;
         Ok(())
     }
 
-    async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
-        Ok("Tool execution not implemented for UserAgent".to_string())
+    pub async fn determine_next_agent(&self, todo: &TodoItem) -> Result<Option<String>> {
+        // Use OpenAI to determine which agent should handle this task
+        let prompt = format!(
+            "Based on the following task description and context, which agent should handle it?\n\
+            Task: {}\n\
+            Context: {}\n\n\
+            Available agents: git (for git operations), project (for project initialization), haiku (for documentation)\n\
+            Respond with just the agent name or 'none' if no agent is suitable.",
+            todo.description,
+            todo.context.as_deref().unwrap_or("No context provided")
+        );
+
+        // TODO: Call OpenAI API to get response
+        // For now, return a simple heuristic-based decision
+        let description = todo.description.to_lowercase();
+        let agent = if description.contains("git") || description.contains("commit") || description.contains("branch") {
+            Some("git".to_string())
+        } else if description.contains("project") || description.contains("init") || description.contains("create") {
+            Some("project".to_string())
+        } else if description.contains("doc") || description.contains("haiku") {
+            Some("haiku".to_string())
+        } else {
+            None
+        };
+
+        Ok(agent)
+    }
+}
+
+#[async_trait::async_trait]
+impl Agent for UserAgent {
+    async fn process_message(&mut self, message: &str) -> Result<Message> {
+        // Parse commands from the message
+        let parts: Vec<&str> = message.split_whitespace().collect();
+        if parts.is_empty() {
+            return Ok(Message::new("Please provide a command"));
+        }
+
+        let response = match parts[0] {
+            "add" => {
+                let description = parts[1..].join(" ");
+                self.add_todo(description, None)?;
+                "Todo added successfully"
+            }
+            "list" => {
+                let mut response = String::new();
+                for (i, todo) in self.state.todos.iter().enumerate() {
+                    response.push_str(&format!(
+                        "{}. [{}] {}\n",
+                        i + 1,
+                        match todo.status {
+                            TodoStatus::Pending => "PENDING",
+                            TodoStatus::InProgress => "IN PROGRESS",
+                            TodoStatus::Completed => "COMPLETED",
+                            TodoStatus::Failed => "FAILED",
+                        },
+                        todo.description
+                    ));
+                }
+                if response.is_empty() {
+                    "No todos found"
+                } else {
+                    &response
+                }
+            }
+            "process" => {
+                if let Some((index, todo)) = self.get_next_pending_todo() {
+                    if let Ok(Some(agent)) = self.determine_next_agent(todo).await {
+                        format!("Assigning todo to agent: {}", agent)
+                    } else {
+                        "Could not determine appropriate agent".to_string()
+                    }
+                } else {
+                    "No pending todos found".to_string()
+                }
+            }
+            _ => "Unknown command. Available commands: add, list, process".to_string(),
+        };
+
+        Ok(Message::new(&response))
+    }
+
+    async fn transfer_to(&mut self, agent_name: &str) -> Result<()> {
+        // User agent doesn't transfer to other agents
+        Err("UserAgent does not support transfers".into())
+    }
+
+    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        // User agent doesn't use tools directly
+        Err("UserAgent does not support direct tool usage".into())
     }
 
     fn get_current_state(&self) -> Option<&State> {
+        // User agent doesn't use state machine
         None
     }
 
