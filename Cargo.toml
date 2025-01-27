@@ -26,6 +26,7 @@ clap = { version = "4.0", features = ["derive"] }
 image = "0.24"
 screenshots = "0.8"
 lazy_static = "1.4"
+browser-agent = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
