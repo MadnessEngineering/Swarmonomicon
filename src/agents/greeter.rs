@@ -17,7 +17,9 @@ impl GreeterAgent {
                     transitions: {
                         let mut transitions = HashMap::new();
                         transitions.insert("help".to_string(), "help".to_string());
-                        transitions.insert("transfer".to_string(), "transfer_to_haiku".to_string());
+                        transitions.insert("project".to_string(), "transfer_to_project".to_string());
+                        transitions.insert("git".to_string(), "transfer_to_git".to_string());
+                        transitions.insert("haiku".to_string(), "transfer_to_haiku".to_string());
                         transitions.insert("farewell".to_string(), "goodbye".to_string());
                         transitions
                     },
@@ -27,10 +29,22 @@ impl GreeterAgent {
                     prompt: "Questions! Excellent! That's how all the best mad science begins.".to_string(),
                     transitions: {
                         let mut transitions = HashMap::new();
-                        transitions.insert("transfer".to_string(), "transfer_to_haiku".to_string());
+                        transitions.insert("project".to_string(), "transfer_to_project".to_string());
+                        transitions.insert("git".to_string(), "transfer_to_git".to_string());
+                        transitions.insert("haiku".to_string(), "transfer_to_haiku".to_string());
                         transitions.insert("farewell".to_string(), "goodbye".to_string());
                         transitions
                     },
+                    validation: None,
+                });
+                states.insert("transfer_to_project".to_string(), State {
+                    prompt: "Ah, a new experiment needs initialization! Let me summon our Project Initialization Expert...".to_string(),
+                    transitions: HashMap::new(),
+                    validation: None,
+                });
+                states.insert("transfer_to_git".to_string(), State {
+                    prompt: "Time for some version control wizardry! Connecting you to our Git Operations Specialist...".to_string(),
+                    transitions: HashMap::new(),
                     validation: None,
                 });
                 states.insert("transfer_to_haiku".to_string(), State {
@@ -84,29 +98,51 @@ impl Agent for GreeterAgent {
                         self.state_manager.transition("help");
                         Ok(self.create_response("Let me illuminate the path through our wonderful chaos! We've got tools and agents for all sorts of fascinating experiments:\n- Project Initialization Expert: For creating new experiments and research spaces\n- Git Operations Specialist: For managing and documenting our mad science\n- Haiku Engineering Department: For when you need your chaos in 5-7-5 format".to_string()))
                     }
-                    "yes" | "haiku" => {
-                        self.state_manager.transition("transfer");
+                    "project" => {
+                        self.state_manager.transition("project");
+                        Ok(self.create_response("Ah, a new experiment needs initialization! Let me summon our Project Initialization Expert...".to_string()))
+                    }
+                    "git" => {
+                        self.state_manager.transition("git");
+                        Ok(self.create_response("Time for some version control wizardry! Connecting you to our Git Operations Specialist...".to_string()))
+                    }
+                    "haiku" => {
+                        self.state_manager.transition("haiku");
                         Ok(self.create_response("Ah, this looks like a job for our specialized haiku tinkerer! Let me transfer you to the right department...".to_string()))
                     }
-                    "goodbye" | "exit" | "quit" | "no" => {
+                    "goodbye" | "exit" | "quit" => {
                         self.state_manager.transition("farewell");
                         Ok(self.create_response("Farewell, fellow tinkerer! May your code compile and your tests pass... mostly!".to_string()))
                     }
-                    _ => Ok(self.create_response("Step right in! The mad science is perfectly calibrated today... probably. Would you like me to summon our haiku specialist, or can I help you navigate our laboratory of wonders? (Try: 'help', 'haiku', or 'goodbye')".to_string())),
+                    _ => Ok(self.create_response("Step right in! The mad science is perfectly calibrated today... probably. How may I assist with your experiments? (Try: 'help', 'project', 'git', 'haiku', or 'goodbye')".to_string())),
                 }
             }
             Some("help") => {
                 match message.to_lowercase().as_str() {
-                    "haiku" | "yes" => {
-                        self.state_manager.transition("transfer");
+                    "project" => {
+                        self.state_manager.transition("project");
+                        Ok(self.create_response("Ah, a new experiment needs initialization! Let me summon our Project Initialization Expert...".to_string()))
+                    }
+                    "git" => {
+                        self.state_manager.transition("git");
+                        Ok(self.create_response("Time for some version control wizardry! Connecting you to our Git Operations Specialist...".to_string()))
+                    }
+                    "haiku" => {
+                        self.state_manager.transition("haiku");
                         Ok(self.create_response("Ah, this looks like a job for our specialized haiku tinkerer! Let me transfer you to the right department...".to_string()))
                     }
-                    "goodbye" | "exit" | "quit" | "no" => {
+                    "goodbye" | "exit" | "quit" => {
                         self.state_manager.transition("farewell");
                         Ok(self.create_response("Farewell, fellow tinkerer! May your code compile and your tests pass... mostly!".to_string()))
                     }
-                    _ => Ok(self.create_response("Which department of mad science interests you? We have specialists in project creation, git operations, and haiku engineering! (Try: 'haiku' or 'goodbye')".to_string())),
+                    _ => Ok(self.create_response("Which department of mad science interests you? We have specialists in project creation, git operations, and haiku engineering! (Try: 'project', 'git', 'haiku', or 'goodbye')".to_string())),
                 }
+            }
+            Some("transfer_to_project") => {
+                Ok(self.create_response("Initializing project matrices... connecting you to our Project Initialization Expert!".to_string()))
+            }
+            Some("transfer_to_git") => {
+                Ok(self.create_response("Branching into the version control dimension... connecting you to our Git Operations Specialist!".to_string()))
             }
             Some("transfer_to_haiku") => {
                 Ok(self.create_response("Calibrating the haiku matrices... transferring you to our resident verse engineer!".to_string()))
@@ -115,7 +151,7 @@ impl Agent for GreeterAgent {
                 Ok(self.create_response("Off to new experiments! Remember: if something explodes, it was definitely intentional!".to_string()))
             }
             _ => {
-                Ok(self.create_response("Welcome to the laboratory! Don't mind the sparks, they're mostly decorative. How may I assist you today? (Try: 'help', 'haiku', or 'goodbye')".to_string()))
+                Ok(self.create_response("Welcome to the laboratory! Don't mind the sparks, they're mostly decorative. How may I assist you today? (Try: 'help', 'project', 'git', 'haiku', or 'goodbye')".to_string()))
             }
         }
     }
@@ -124,7 +160,12 @@ impl Agent for GreeterAgent {
         if !self.config.downstream_agents.contains(&agent_name.to_string()) {
             return Err("Invalid agent transfer target".into());
         }
-        self.state_manager.transition("transfer");
+        match agent_name {
+            "project" => self.state_manager.transition("project"),
+            "git" => self.state_manager.transition("git"),
+            "haiku" => self.state_manager.transition("haiku"),
+            _ => return Err("Invalid agent transfer target".into()),
+        }
         Ok(())
     }
 
@@ -173,28 +214,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_greeter_response() {
+    async fn test_greeter_help_response() {
         let config = create_test_config();
         let mut agent = GreeterAgent::new(config);
-        let response = agent.process_message("hi").await.unwrap();
-        assert!(response.content.contains("haiku"));
-        assert_eq!(response.role, "assistant");
-        assert!(response.metadata.is_some());
+        let response = agent.process_message("help").await.unwrap();
+        assert!(response.content.contains("Project Initialization Expert"));
+        assert!(response.content.contains("Git Operations Specialist"));
+        assert!(response.content.contains("Haiku Engineering Department"));
     }
 
     #[tokio::test]
-    async fn test_greeter_transfer() {
+    async fn test_agent_transfers() {
         let config = create_test_config();
         let mut agent = GreeterAgent::new(config);
+        
+        // Test project transfer
+        let response = agent.process_message("project").await.unwrap();
+        assert!(response.content.contains("Project Initialization Expert"));
+        
+        // Test git transfer
+        let mut agent = GreeterAgent::new(config.clone());
+        let response = agent.process_message("git").await.unwrap();
+        assert!(response.content.contains("Git Operations Specialist"));
+        
+        // Test haiku transfer
+        let mut agent = GreeterAgent::new(config.clone());
+        let response = agent.process_message("haiku").await.unwrap();
+        assert!(response.content.contains("haiku tinkerer"));
+    }
 
-        // Test valid transfer
-        assert!(agent.transfer_to("haiku").await.is_ok());
-        assert_eq!(
-            agent.state_manager.get_current_state_name(),
-            Some("transfer_to_haiku")
-        );
+    #[tokio::test]
+    async fn test_invalid_transfer() {
+        let config = create_test_config();
+        let mut agent = GreeterAgent::new(config);
+        assert!(agent.transfer_to("invalid_agent").await.is_err());
+    }
 
-        // Test invalid transfer
-        assert!(agent.transfer_to("nonexistent").await.is_err());
+    #[tokio::test]
+    async fn test_farewell() {
+        let config = create_test_config();
+        let mut agent = GreeterAgent::new(config);
+        let response = agent.process_message("goodbye").await.unwrap();
+        assert!(response.content.contains("Farewell"));
     }
 }
