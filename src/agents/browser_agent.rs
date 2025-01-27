@@ -1,33 +1,29 @@
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
-use browser_agent::BrowserAgent as BrowserAgentInner;
 use std::collections::HashMap;
 use crate::agents::BrowserAgent;
 
 pub struct BrowserAgent {
-    inner: BrowserAgentInner,
+    inner: browser_agent::BrowserAgent,
     config: AgentConfig,
 }
 
 impl BrowserAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let inner = BrowserAgentInner::new(config.instructions.clone()).expect("Failed to create BrowserAgent");
+        let inner = browser_agent::BrowserAgent::new(config.instructions.clone()).expect("Failed to create BrowserAgent");
         Self { inner, config }
+    }
+
+    pub async fn shutdown(&self) -> Result<()> {
+        self.inner.shutdown().await?;
+        Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl Agent for BrowserAgent {
-    fn get_config(&self) -> &AgentConfig {
-        &self.config
-    }
-
     async fn process_message(&mut self, message: &str) -> Result<Message> {
         let result = self.inner.process_message(message).await?;
-        Ok(Message::text(result))
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        self.inner.shutdown().await?;
-        Ok(())
+        Ok(Message::new(&result))
     }
 
     async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
@@ -43,5 +39,9 @@ impl Agent for BrowserAgent {
     fn get_current_state(&self) -> Option<&State> {
         // TODO: Return current state
         None
+    }
+
+    fn get_config(&self) -> &AgentConfig {
+        &self.config
     }
 }
