@@ -167,7 +167,7 @@ impl Agent for UserAgent {
             "add" => {
                 let description = parts[1..].join(" ");
                 self.add_todo(description, None)?;
-                "Todo added successfully"
+                "Todo added successfully".to_string()
             }
             "list" => {
                 let mut response = String::new();
@@ -185,9 +185,9 @@ impl Agent for UserAgent {
                     ));
                 }
                 if response.is_empty() {
-                    "No todos found"
+                    "No todos found".to_string()
                 } else {
-                    &response
+                    response
                 }
             }
             "process" => {

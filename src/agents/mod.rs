@@ -8,16 +8,18 @@ pub mod greeter;
 pub mod haiku;
 pub mod project_init;
 pub mod user_agent;
+pub mod transfer;
 
 pub use git_assistant::GitAssistantAgent;
 pub use greeter::GreeterAgent;
 pub use haiku::HaikuAgent;
 pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
+pub use transfer::TransferService;
 
 #[derive(Default)]
 pub struct AgentRegistry {
-    agents: HashMap<String, Box<dyn Agent + Send + Sync>>,
+    agents: HashMap<String, Arc<Box<dyn Agent + Send + Sync>>>,
 }
 
 impl AgentRegistry {
@@ -27,26 +29,38 @@ impl AgentRegistry {
         }
     }
 
-    pub fn register<A>(&mut self, agent: A) -> Result<()> 
+    pub fn register<A>(&mut self, agent: A) -> Result<()>
     where
         A: Agent + Send + Sync + 'static,
     {
         let name = agent.get_config().name.clone();
-        self.agents.insert(name, Box::new(agent));
+        self.agents.insert(name, Arc::new(Box::new(agent)));
         Ok(())
     }
 
-    pub fn get(&self, name: &str) -> Option<&(dyn Agent + Send + Sync)> {
-        self.agents.get(name).map(|agent| agent.as_ref())
+    pub fn get(&self, name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> {
+        self.agents.get(name).cloned()
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut (dyn Agent + Send + Sync)> {
-        self.agents.get_mut(name).map(|agent| agent.as_mut())
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Agent + Send + Sync>> {
+        if let Some(agent) = self.agents.get_mut(name) {
+            if let Some(agent) = Arc::get_mut(agent) {
+                Some(agent)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_all_agents(&self) -> Vec<Arc<Box<dyn Agent + Send + Sync>>> {
+        self.agents.values().cloned().collect()
     }
 
     pub fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
-        
+
         for config in configs {
             match config.name.as_str() {
                 "git" => registry.register(GitAssistantAgent::new(config))?,
@@ -57,7 +71,7 @@ impl AgentRegistry {
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
         }
-        
+
         Ok(registry)
     }
 
@@ -77,7 +91,7 @@ pub async fn get_registry() -> Arc<RwLock<AgentRegistry>> {
 }
 
 // Helper function to register an agent globally
-pub async fn register_agent<A>(agent: A) -> Result<()> 
+pub async fn register_agent<A>(agent: A) -> Result<()>
 where
     A: Agent + Send + Sync + 'static,
 {
@@ -86,9 +100,9 @@ where
 }
 
 // Helper function to get an agent from the global registry
-pub async fn get_agent(name: &str) -> Option<Box<dyn Agent + Send + Sync>> {
+pub async fn get_agent(name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> {
     let registry = GLOBAL_REGISTRY.read().await;
-    registry.agents.get(name).map(|agent| agent.clone())
+    registry.get(name)
 }
 
 #[cfg(test)]
@@ -124,7 +138,7 @@ mod tests {
     async fn test_agent_registry() {
         let configs = create_test_configs();
         let mut registry = AgentRegistry::create_default_agents(configs).unwrap();
-        
+
         // Test immutable access
         assert!(registry.get("greeter").is_some());
         assert!(registry.get("haiku").is_some());
@@ -145,7 +159,7 @@ mod tests {
         let configs = create_test_configs();
         let registry = AgentRegistry::create_default_agents(configs).unwrap();
         let registry = Arc::new(RwLock::new(registry));
-        let mut service = TransferService::new(registry);
+        let mut service = TransferService::new(registry, "greeter");
 
         // Start with greeter
         let response = service.process_message("hi").await;
@@ -156,4 +170,4 @@ mod tests {
         let response = service.process_message("nature").await.unwrap();
         assert!(response.content.contains("Mocking haiku now"));
     }
-} 
+}

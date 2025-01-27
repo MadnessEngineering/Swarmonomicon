@@ -54,6 +54,20 @@ pub struct Message {
     pub metadata: Option<MessageMetadata>,
 }
 
+impl Message {
+    pub fn new(content: &str) -> Self {
+        Self {
+            content: content.to_string(),
+            role: "assistant".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            metadata: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageMetadata {
     pub tool_calls: Option<Vec<ToolCall>>,
