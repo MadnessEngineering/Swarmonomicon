@@ -1,29 +1,30 @@
 use crate::types::{Agent, AgentConfig, Result};
+use browser_agent::BrowserAgent as BrowserAgentInner;
 
 pub struct BrowserAgent {
-    // TODO: Add fields for browser-agent state
+    inner: BrowserAgentInner,
+    config: AgentConfig,
 }
 
 impl BrowserAgent {
     pub fn new(config: AgentConfig) -> Self {
-        // TODO: Initialize browser-agent 
-        Self {}
+        let inner = BrowserAgentInner::new(config.instructions.clone()).expect("Failed to create BrowserAgent");
+        Self { inner, config }
     }
 }
 
 impl Agent for BrowserAgent {
     fn get_config(&self) -> &AgentConfig {
-        // TODO: Return agent config
-        todo!()
+        &self.config
     }
 
     async fn process_message(&self, message: &str) -> Result<String> {
-        // TODO: Implement message processing using browser-agent
-        todo!()
+        let result = self.inner.process_message(message).await?;
+        Ok(result)
     }
 
     async fn shutdown(&self) -> Result<()> {
-        // TODO: Shutdown browser-agent
-        todo!()
+        self.inner.shutdown().await?;
+        Ok(())
     }
 }
