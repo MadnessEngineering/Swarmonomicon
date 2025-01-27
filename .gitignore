@@ -42,3 +42,4 @@ todo.md
 # Added by cargo
 
 /target
+todo_state.json
