@@ -17,7 +17,7 @@ pub use haiku::HaikuAgent;
 pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
-pub use browser_agent::BrowserAgent;
+pub use browser_agent::BrowserAgentWrapper;
 
 #[derive(Default)]
 pub struct AgentRegistry {
@@ -70,7 +70,7 @@ impl AgentRegistry {
                 "haiku" => registry.register(HaikuAgent::new(config))?,
                 "greeter" => registry.register(GreeterAgent::new(config))?,
                 "user" => registry.register(UserAgent::new(config))?,
-                "browser" => registry.register(BrowserAgent::new(config))?,
+                "browser" => registry.register(BrowserAgentWrapper::new(config))?,
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
         }
