@@ -1,4 +1,6 @@
-# lego-vision
+# THIS IS A TEMPLATE
+
+## lego-vision
 
 AI vision system for identifying and locating LEGO pieces in instruction manuals and physical builds
 

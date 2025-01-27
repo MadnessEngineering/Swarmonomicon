@@ -5,9 +5,13 @@ use crate::Result;
 
 mod git;
 mod project;
+mod object_detection;
+mod screenshot_detection;
 
 pub use git::GitTool;
 pub use project::ProjectTool;
+pub use object_detection::ObjectDetectionTool;
+pub use screenshot_detection::ScreenshotDetectionTool;
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
