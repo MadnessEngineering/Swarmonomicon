@@ -1,29 +1,52 @@
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use std::collections::HashMap;
-use browser_agent::BrowserAgent as BrowserAgentInner;
+use browser_agent::Conversation;
+use serde::Deserialize;
 
 pub struct BrowserAgentWrapper {
-    inner: Box<BrowserAgentInner>,
-    config: AgentConfig,
+    inner: Conversation,
+    config: BrowserAgentConfig,
 }
 
 impl BrowserAgentWrapper {
-    pub fn new(config: AgentConfig) -> Self {
-        let inner = BrowserAgentInner::new(&config.instructions);
-        Self { inner: Box::new(inner), config }
+    pub fn new(config: BrowserAgentConfig) -> Result<Self> {
+        let inner = Conversation::new(config.instructions.clone());
+        Ok(Self {
+            inner,
+            config,
+        })
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        self.inner.shutdown().await?;
+        // TODO: Implement shutdown logic
         Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BrowserAgentConfig {
+    pub instructions: String,
+}
+
+impl From<&BrowserAgentConfig> for AgentConfig {
+    fn from(config: &BrowserAgentConfig) -> Self {
+        AgentConfig {
+            name: "browser".to_string(),
+            public_description: "A browser agent".to_string(),
+            instructions: config.instructions.clone(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl Agent for BrowserAgentWrapper {
     async fn process_message(&mut self, message: &str) -> Result<Message> {
-        let result = self.inner.process_message(message).await?;
-        Ok(Message::new(result.as_str()))
+        // TODO: Implement process_message logic
+        Ok(Message::new(""))
     }
 
     async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
@@ -41,7 +64,7 @@ impl Agent for BrowserAgentWrapper {
         None
     }
 
-    fn get_config(&self) -> &AgentConfig {
-        &self.config
+    fn get_config(&self) -> AgentConfig {
+        AgentConfig::from(&self.config)
     }
 }
