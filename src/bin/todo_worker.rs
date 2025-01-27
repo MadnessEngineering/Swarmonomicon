@@ -1,5 +1,5 @@
 use std::time::Duration;
-use swarmonomicon::agents::{UserAgent, AgentRegistry};
+use swarmonomicon::agents::{self, UserAgent};
 use swarmonomicon::types::AgentConfig;
 
 #[tokio::main]
@@ -18,39 +18,42 @@ async fn main() -> swarmonomicon::Result<()> {
         state_machine: None,
     };
 
-    let mut user_agent = UserAgent::with_state_file(user_config, "todo_state.json");
+    let mut user_agent = UserAgent::with_state_file(user_config, "todo_state.json")?;
 
-    // Create the agent registry with all available agents
-    let mut registry = AgentRegistry::create_default_agents(vec![
-        // Add configurations for other agents
-        AgentConfig {
-            name: "git".to_string(),
-            public_description: "Handles git operations".to_string(),
-            instructions: "Manage git repositories and operations".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        },
-        AgentConfig {
-            name: "project".to_string(),
-            public_description: "Initializes projects".to_string(),
-            instructions: "Set up new project structures".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        },
-        AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Creates documentation".to_string(),
-            instructions: "Create haiku-style documentation".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        },
-    ])?;
+    // Initialize the global registry with default agents
+    let registry = agents::GLOBAL_REGISTRY.clone();
+    {
+        let mut registry = registry.write().await;
+        *registry = agents::AgentRegistry::create_default_agents(vec![
+            AgentConfig {
+                name: "git".to_string(),
+                public_description: "Handles git operations".to_string(),
+                instructions: "Manage git repositories and operations".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            },
+            AgentConfig {
+                name: "project".to_string(),
+                public_description: "Initializes projects".to_string(),
+                instructions: "Set up new project structures".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            },
+            AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Creates documentation".to_string(),
+                instructions: "Create haiku-style documentation".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            },
+        ])?;
+    }
 
     tracing::info!("Todo worker started. Checking for tasks every 2 minutes...");
 
@@ -70,7 +73,8 @@ async fn main() -> swarmonomicon::Result<()> {
 
                 // Try to determine the agent
                 if let Ok(Some(agent_name)) = user_agent.determine_next_agent(todo).await {
-                    // Get the agent from registry
+                    // Get the agent from the global registry
+                    let mut registry = registry.write().await;
                     if let Some(agent) = registry.get_mut(&agent_name) {
                         // Try to process the todo with the agent
                         match agent.process_message(&todo.description).await {
