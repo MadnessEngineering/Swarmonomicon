@@ -128,6 +128,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             let response = service.process_message(&command).await?;
             println!("{}", response.content);
         }
+        
+
         None => {
             // Interactive mode with greeter
             println!("Welcome to Swarmonomicon! Type 'help' for available commands.");

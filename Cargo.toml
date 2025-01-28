@@ -31,6 +31,7 @@ browser-agent = {path = "./browser-agent"}
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"
+tempfile = "3.8"
 
 [lib]
 name = "swarmonomicon"
