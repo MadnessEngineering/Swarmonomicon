@@ -102,6 +102,11 @@ impl MessageMetadata {
         self.transfer_target = Some(target);
         self
     }
+
+    pub fn with_context(mut self, context: HashMap<String, String>) -> Self {
+        self.context = Some(context);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -33,10 +33,10 @@ impl HaikuAgent {
                         transitions.insert("no".to_string(), "goodbye".to_string());
                         transitions
                     }),
-                    validation: Some(ValidationRule {
-                        pattern: "^(yes|no)$".to_string(),
-                        error_message: "Please respond with 'yes' to continue our poetic computations, or 'no' to conclude.".to_string(),
-                    }),
+                    validation: Some(vec![
+                        "^(yes|no)$".to_string(),
+                        "Please respond with 'yes' to continue our poetic computations, or 'no' to conclude.".to_string(),
+                    ]),
                 });
                 states.insert("goodbye".to_string(), State {
                     name: "goodbye".to_string(),
@@ -59,7 +59,7 @@ impl HaikuAgent {
     fn create_response(&self, content: String) -> Message {
         let current_state = self.state_manager.get_current_state_name();
         let metadata = MessageMetadata::new(self.config.name.clone())
-            .with_state(current_state.unwrap_or("awaiting_topic".to_string()).to_string())
+            .with_state(current_state.unwrap_or("awaiting_topic").to_string())
             .with_personality(vec![
                 "poetic".to_string(),
                 "algorithmic".to_string(),
@@ -169,7 +169,6 @@ mod tests {
         }
     }
 
-        // Test state access
     #[tokio::test]
     async fn test_state_transitions() {
         let agent = HaikuAgent::new(create_test_config());
