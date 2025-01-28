@@ -18,7 +18,7 @@ pub struct ToolParameter {
 pub struct Tool {
     pub name: String,
     pub description: String,
-    pub parameters: HashMap<String, ToolParameter>,
+    pub parameters: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +52,8 @@ pub struct Message {
     pub role: String,
     pub timestamp: u64,
     pub metadata: Option<MessageMetadata>,
+    pub tool_calls: Option<Vec<ToolCall>>,
+    pub confidence: Option<f32>,
 }
 
 impl Message {
@@ -64,20 +66,21 @@ impl Message {
                 .unwrap_or_default()
                 .as_secs(),
             metadata: None,
+            tool_calls: None,
+            confidence: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageMetadata {
-    pub tool_calls: Option<Vec<ToolCall>>,
+    pub agent: String,
     pub state: Option<String>,
-    pub confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
-    pub tool: String,
+    pub tool: Tool,
     pub parameters: HashMap<String, String>,
     pub result: Option<String>,
 }
@@ -104,7 +107,7 @@ pub struct ValidationRule {
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[async_trait]
-pub trait Agent {
+pub trait Agent: Send + Sync {
     async fn process_message(&mut self, content: &str) -> Result<Message>;
     async fn transfer_to(&mut self, agent_name: &str) -> Result<()>;
     async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
