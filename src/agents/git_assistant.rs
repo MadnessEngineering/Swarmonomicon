@@ -150,6 +150,22 @@ impl GitAssistantAgent {
             Ok(message)
         }
     }
+
+    pub async fn commit_for_agent(&mut self, agent_name: &str, message: &str) -> Result<()> {
+        // Stage all changes
+        Command::new("git")
+            .current_dir(&self.working_dir)
+            .args(["add", "."])
+            .output()?;
+
+        // Commit with provided message
+        Command::new("git")
+            .current_dir(&self.working_dir)
+            .args(["commit", "-m", &format!("[{}] {}", agent_name, message)])
+            .output()?;
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
