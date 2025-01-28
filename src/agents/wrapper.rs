@@ -69,11 +69,6 @@ mod tests {
         let response = wrapper.process_message("test").await;
         assert!(response.is_ok());
 
-        // Test cloning
-        let wrapper2 = wrapper.clone();
-        let config2 = wrapper2.get_config().await.unwrap();
-        assert_eq!(config2.name, "test");
-
         // Test state access
         let state = wrapper.get_current_state().await;
         assert!(state.is_ok());

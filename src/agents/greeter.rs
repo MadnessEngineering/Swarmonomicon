@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use serde_json::Value;
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
 
 pub struct GreeterAgent {
     config: AgentConfig,
@@ -73,6 +73,17 @@ impl GreeterAgent {
     }
 
     fn create_response(&self, content: String) -> Message {
+        let current_state = self.state_manager.get_current_state_name();
+        let metadata = MessageMetadata::new(self.config.name.clone())
+            .with_state(current_state.unwrap_or("greeting").to_string())
+            .with_personality(vec![
+                "enthusiastic".to_string(),
+                "competent_chaos".to_string(),
+                "theatrical".to_string(),
+                "helpful".to_string(),
+                "slightly_unhinged".to_string(),
+            ]);
+
         Message {
             content,
             role: "assistant".to_string(),
@@ -84,8 +95,22 @@ impl GreeterAgent {
                 agent: self.config.name.clone(),
                 state: self.state_manager.get_current_state().map(|s| s.prompt.clone()),
             }),
+            parameters: {
+                let mut params = HashMap::new();
+                params.insert("style".to_string(), "mad_scientist_receptionist".to_string());
+                params
+            },
             tool_calls: None,
             confidence: Some(1.0),
+        }
+    }
+
+    fn should_transfer(&self, message: &str) -> Option<String> {
+        match message.to_lowercase().as_str() {
+            "project" => Some("project".to_string()),
+            "git" => Some("git".to_string()),
+            "haiku" => Some("haiku".to_string()),
+            _ => None,
         }
     }
 }
@@ -179,7 +204,7 @@ impl Agent for GreeterAgent {
         }
     }
 
-    async fn call_tool(&mut self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> Result<String> {
+    async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
         Err("Tool calling not yet implemented".into())
     }
 
@@ -241,8 +266,8 @@ mod tests {
         }).await.unwrap();
         assert!(response.content.contains("Welcome to the laboratory"));
         assert!(response.content.contains("sparks"));
-        assert_eq!(response.role, "assistant");
-        assert!(response.metadata.is_some());
+        assert_eq!(response.metadata.agent, "greeter");
+        assert!(response.metadata.personality_traits.is_some());
     }
 
     #[tokio::test]
@@ -267,54 +292,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_transfers() {
+    async fn test_transfer_capabilities() {
+        let agent = GreeterAgent::new(create_test_config());
+
         // Test project transfer
-        let mut agent = GreeterAgent::new(create_test_config());
-        let response = agent.process_message(Message {
-            content: "project".to_string(),
-            role: "user".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            metadata: None,
-            tool_calls: None,
-            confidence: None,
-        }).await.unwrap();
+        let response = agent.process_message(Message::new("project")).await.unwrap();
         assert!(response.content.contains("Project Initialization Expert"));
-        assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_project"));
+        assert_eq!(response.metadata.transfer_target, Some("project".to_string()));
 
         // Test git transfer
-        let mut agent = GreeterAgent::new(create_test_config());
-        let response = agent.process_message(Message {
-            content: "git".to_string(),
-            role: "user".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            metadata: None,
-            tool_calls: None,
-            confidence: None,
-        }).await.unwrap();
+        let response = agent.process_message(Message::new("git")).await.unwrap();
         assert!(response.content.contains("Git Operations Specialist"));
-        assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_git"));
+        assert_eq!(response.metadata.transfer_target, Some("git".to_string()));
 
         // Test haiku transfer
-        let mut agent = GreeterAgent::new(create_test_config());
-        let response = agent.process_message(Message {
-            content: "haiku".to_string(),
-            role: "user".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            metadata: None,
-            tool_calls: None,
-            confidence: None,
-        }).await.unwrap();
+        let response = agent.process_message(Message::new("haiku")).await.unwrap();
         assert!(response.content.contains("haiku tinkerer"));
-        assert_eq!(agent.state_manager.get_current_state_name(), Some("transfer_to_haiku"));
+        assert_eq!(response.metadata.transfer_target, Some("haiku".to_string()));
     }
 
     #[tokio::test]

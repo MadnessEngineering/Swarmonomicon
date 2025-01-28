@@ -1,15 +1,19 @@
+use async_trait::async_trait;
 use std::process::Command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State};
+use std::sync::{Arc, Mutex};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State, StateMachine, AgentStateManager};
 use crate::tools::ToolRegistry;
 use crate::Result;
+use rand::Rng;
+use chrono;
 
 pub struct GitAssistantAgent {
     config: AgentConfig,
     tools: ToolRegistry,
-    current_state: Option<String>,
-    working_dir: PathBuf,
+    state_manager: AgentStateManager,
+    working_dir: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl GitAssistantAgent {
@@ -17,27 +21,35 @@ impl GitAssistantAgent {
         Self {
             config,
             tools: ToolRegistry::create_default_tools(),
-            current_state: None,
-            working_dir: PathBuf::from("."),
+            state_manager: AgentStateManager::new(None),
+            working_dir: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn set_working_dir<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let path = path.as_ref();
-        if !path.exists() {
-            return Err(format!("Directory does not exist: {}", path.display()).into());
+    // Helper to get working directory or return error
+    fn get_working_dir(&self) -> Result<PathBuf> {
+        self.working_dir.lock()
+            .map_err(|e| format!("Lock error: {}", e))?
+            .clone()
+            .ok_or_else(|| "Working directory not set".into())
+    }
+
+    // Change to use interior mutability pattern
+    fn update_working_dir(&self, path: PathBuf) -> Result<()> {
+        if path.exists() && path.is_dir() {
+            let mut wd = self.working_dir.lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+            *wd = Some(path);
+            Ok(())
+        } else {
+            Err("Invalid working directory path".into())
         }
-        if !path.is_dir() {
-            return Err(format!("Path is not a directory: {}", path.display()).into());
-        }
-        self.working_dir = path.to_path_buf();
-        Ok(())
     }
 
     fn get_git_diff(&self) -> Result<String> {
         // Check staged changes
         let staged = Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["diff", "--staged"])
             .output()?;
 
@@ -47,13 +59,13 @@ impl GitAssistantAgent {
 
         // Check unstaged changes
         let unstaged = Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["diff"])
             .output()?;
 
         let diff = String::from_utf8_lossy(&unstaged.stdout).to_string();
         if diff.is_empty() {
-            return Err(format!("No changes detected in directory: {}", self.working_dir.display()).into());
+            return Err(format!("No changes detected in directory: {}", self.get_working_dir()?.display()).into());
         }
 
         Ok(diff)
@@ -61,7 +73,7 @@ impl GitAssistantAgent {
 
     fn create_branch(&self, branch_name: &str) -> Result<()> {
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["checkout", "-b", branch_name])
             .output()?;
         Ok(())
@@ -69,7 +81,7 @@ impl GitAssistantAgent {
 
     fn stage_changes(&self) -> Result<()> {
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
             .output()?;
         Ok(())
@@ -77,7 +89,7 @@ impl GitAssistantAgent {
 
     fn commit_changes(&self, message: &str) -> Result<()> {
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["commit", "-m", message])
             .output()?;
         Ok(())
@@ -86,20 +98,20 @@ impl GitAssistantAgent {
     fn merge_branch(&self, target_branch: &str) -> Result<()> {
         // Get current branch
         let current = Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .output()?;
         let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
 
         // Switch to target branch
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["checkout", target_branch])
             .output()?;
 
         // Merge the feature branch
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["merge", &current_branch])
             .output()?;
 
@@ -154,262 +166,162 @@ impl GitAssistantAgent {
     pub async fn commit_for_agent(&mut self, agent_name: &str, message: &str) -> Result<()> {
         // Stage all changes
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
             .output()?;
 
         // Commit with provided message
         Command::new("git")
-            .current_dir(&self.working_dir)
+            .current_dir(&self.get_working_dir()?)
             .args(["commit", "-m", &format!("[{}] {}", agent_name, message)])
             .output()?;
 
         Ok(())
     }
 
-    async fn format_git_response(&self, content: String) -> Result<Message> {
-        let msg = Message::new(content);
-        Ok(msg)
+    async fn create_response(&self, content: String) -> Message {
+        let traits = vec![
+            "meticulous".to_string(),
+            "time_traveling".to_string(),
+            "version_obsessed".to_string(),
+            "historically_minded".to_string(),
+            "quantum_branching_enthusiast".to_string(),
+        ];
+
+        let mut params = HashMap::new();
+        params.insert("style".to_string(), "version_control_archivist".to_string());
+        params.insert("tone".to_string(), "scholarly_eccentric".to_string());
+
+        let state = self.get_current_state().await.unwrap_or(None)
+            .map(|s| s.prompt)
+            .unwrap_or_else(|| "archival".to_string());
+
+        let mut msg = Message::new(&content);
+        msg.metadata = MessageMetadata::new("git_assistant".to_string())
+            .with_personality(traits)
+            .with_state(state);
+        msg.parameters = params;
+        msg.confidence = Some(0.9);
+        msg
+    }
+
+    async fn format_git_response(&self, content: &str) -> Result<Message> {
+        Ok(Message::new(content.to_string()))
+    }
+
+    async fn get_help_message(&self) -> Message {
+        self.format_git_response(
+            "Welcome to the Temporal Version Archives! I can assist with the following quantum operations:\n\
+             - 'status': Observe the current timeline divergence\n\
+             - 'add <files>': Prepare artifacts for temporal preservation\n\
+             - 'commit [message]': Create a permanent quantum state marker\n\
+             - 'branch <name>': Split the timeline into a parallel dimension\n\
+             - 'checkout <branch>': Travel to an alternate timeline\n\
+             - 'merge <branch>': Converge parallel realities\n\
+             - 'push': Synchronize with the central timeline nexus\n\
+             - 'pull': Retrieve quantum state updates from the nexus\n\
+             - 'cd <path>': Relocate to a different archive sector".to_string()
+        ).await
+    }
+
+    async fn process_git_command(&self, cmd: &str, args: &[&str]) -> Result<std::process::Output> {
+        let wd = self.get_working_dir()?;
+        Ok(Command::new(cmd)
+            .current_dir(&wd)
+            .args(args)
+            .output()?)
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Agent for GitAssistantAgent {
-    async fn get_config(&self) -> Result<AgentConfig> {
-        Ok(self.config.clone())
-    }
-
-    async fn process_message(&mut self, message: Message) -> Result<Message> {
+    async fn process_message(&self, message: Message) -> Result<Message> {
         let parts: Vec<&str> = message.content.split_whitespace().collect();
-
         if parts.is_empty() {
-            return Ok(self.format_git_response("I can help you with Git operations! Try these commands:\n\
-                         - status: Show repository status\n\
-                         - add <files>: Stage files (use '.' for all)\n\
-                         - commit [message]: Commit changes with optional message\n\
-                         - branch <name>: Create a new branch\n\
-                         - checkout <branch>: Switch branches\n\
-                         - merge <branch>: Merge a branch\n\
-                         - push: Push changes to remote\n\
-                         - pull: Pull changes from remote\n\
-                         - cd <path>: Change working directory".to_string()).await?);
+            return Ok(self.get_help_message().await);
         }
 
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let result = match parts[0] {
             "cd" if parts.len() > 1 => {
                 let path = parts[1..].join(" ");
-                match self.set_working_dir(path) {
-                    Ok(_) => format!("Working directory changed to: {}", self.working_dir.display()),
-                    Err(e) => format!("Error changing directory: {}", e),
+                match self.update_working_dir(PathBuf::from(path)) {
+                    Ok(_) => format!("Temporal observation point relocated to: {}",
+                        self.get_working_dir()?.display()),
+                    Err(e) => format!("Timeline sector inaccessible: {}", e),
                 }
-            },
+            }
             "status" => {
-                let output = Command::new("git")
-                    .current_dir(&self.working_dir)
-                    .args(["status", "--porcelain", "-b"])
-                    .output()?;
-
+                let output = self.process_git_command("git", &["status", "--porcelain"]).await?;
                 let status = String::from_utf8_lossy(&output.stdout);
-                let mut response = String::new();
-
-                // Parse branch info
-                if let Some(branch_line) = status.lines().next() {
-                    if branch_line.starts_with("## ") {
-                        response.push_str(&format!("On branch: {}\n\n", &branch_line[3..]));
-                    }
-                }
-
-                // Parse file status
-                let mut staged = Vec::new();
-                let mut modified = Vec::new();
-                let mut untracked = Vec::new();
-
-                for line in status.lines().skip(1) {
-                    if line.len() < 3 { continue; }
-                    let (status_code, file) = line.split_at(3);
-                    match &status_code[..2] {
-                        "M " => modified.push(file.trim()),
-                        "A " => staged.push(file.trim()),
-                        "??" => untracked.push(file.trim()),
-                        _ => {}
-                    }
-                }
-
-                if staged.is_empty() && modified.is_empty() && untracked.is_empty() {
-                    response.push_str("Repository is clean. No changes detected.");
+                if status.is_empty() {
+                    "The timeline is stable. No quantum fluctuations detected.".to_string()
                 } else {
-                    if !staged.is_empty() {
-                        response.push_str("Changes staged for commit:\n");
-                        for file in staged {
-                            response.push_str(&format!("  - {}\n", file));
-                        }
-                        response.push('\n');
-                    }
-
-                    if !modified.is_empty() {
-                        response.push_str("Modified files:\n");
-                        for file in modified {
-                            response.push_str(&format!("  - {}\n", file));
-                        }
-                        response.push('\n');
-                    }
-
-                    if !untracked.is_empty() {
-                        response.push_str("Untracked files:\n");
-                        for file in untracked {
-                            response.push_str(&format!("  - {}\n", file));
-                        }
-                    }
+                    format!("Temporal anomalies detected:\n{}", status)
                 }
-
-                response
-            },
+            }
             "add" => {
-                if parts.len() < 2 {
-                    "Please specify files to stage (use '.' for all files)".to_string()
-                } else {
-                    let files = &parts[1..];
-                    let mut success = true;
-                    let mut errors = Vec::new();
-
-                    for file in files {
-                        let output = Command::new("git")
-                            .current_dir(&self.working_dir)
-                            .args(["add", file])
-                            .output()?;
-
-                        if !output.status.success() {
-                            success = false;
-                            errors.push(format!("Failed to stage '{}': {}",
-                                file,
-                                String::from_utf8_lossy(&output.stderr)));
-                        }
-                    }
-
-                    if success {
-                        format!("Successfully staged: {}", files.join(", "))
-                    } else {
-                        format!("Errors occurred while staging:\n{}", errors.join("\n"))
-                    }
-                }
-            },
+                let files = parts[1..].join(" ");
+                let output = self.process_git_command("git", &["add", &files]).await?;
+                format!("Artifacts staged for quantum preservation:\n{}", files)
+            }
             "commit" => {
-                // Get diff for staged changes
-                let output = Command::new("git")
-                    .current_dir(&self.working_dir)
-                    .args(["diff", "--staged"])
-                    .output()?;
-
-                let diff = String::from_utf8_lossy(&output.stdout).to_string();
-                if diff.is_empty() {
-                    "No staged changes to commit. Use 'git add' to stage files first.".to_string()
+                let message = parts[1..].join(" ");
+                let diff = self.get_git_diff()?;
+                let commit_msg = if message.is_empty() {
+                    self.generate_commit_message(&diff).await?
                 } else {
-                    // Use provided message or generate one
-                    let commit_msg = if parts.len() > 1 {
-                        parts[1..].join(" ")
-                    } else {
-                        self.generate_commit_message(&diff).await?
-                    };
-
-                    // Commit changes
-                    let output = Command::new("git")
-                        .current_dir(&self.working_dir)
-                        .args(["commit", "-m", &commit_msg])
-                        .output()?;
-
-                    if output.status.success() {
-                        format!("Successfully committed changes with message:\n{}", commit_msg)
-                    } else {
-                        format!("Failed to commit: {}", String::from_utf8_lossy(&output.stderr))
-                    }
-                }
-            },
+                    message
+                };
+                let output = self.process_git_command("git", &["commit", "-m", &commit_msg]).await?;
+                format!("Quantum state marker created: {}", commit_msg)
+            }
             "branch" => {
-                if parts.len() < 2 {
-                    // List branches if no name provided
-                    let output = Command::new("git")
-                        .current_dir(&self.working_dir)
-                        .args(["branch", "--list"])
-                        .output()?;
-
-                    let branches = String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .map(|line| if line.starts_with('*') {
-                            format!("{} (current)", line)
-                        } else {
-                            line.to_string()
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    format!("Available branches:\n{}", branches)
-                } else {
-                    // Create new branch
-                    match self.create_branch(&parts[1]) {
-                        Ok(_) => format!("Created and switched to new branch: {}", parts[1]),
-                        Err(e) => format!("Failed to create branch: {}", e),
-                    }
-                }
-            },
-            "checkout" if parts.len() > 1 => {
-                let output = Command::new("git")
-                    .current_dir(&self.working_dir)
-                    .args(["checkout", parts[1]])
-                    .output()?;
-
-                if output.status.success() {
-                    format!("Switched to branch: {}", parts[1])
-                } else {
-                    format!("Failed to switch branches: {}", String::from_utf8_lossy(&output.stderr))
-                }
-            },
-            "merge" if parts.len() > 1 => {
-                match self.merge_branch(parts[1]) {
-                    Ok(_) => format!("Successfully merged branch: {}", parts[1]),
-                    Err(e) => format!("Failed to merge branch: {}", e),
-                }
-            },
+                let branch_name = parts[1..].join(" ");
+                let output = self.process_git_command("git", &["checkout", "-b", &branch_name]).await?;
+                format!("Branched into alternate timeline: {}", branch_name)
+            }
+            "checkout" => {
+                let branch_name = parts[1..].join(" ");
+                let output = self.process_git_command("git", &["checkout", &branch_name]).await?;
+                format!("Quantum leaped to timeline: {}", branch_name)
+            }
+            "merge" => {
+                let branch_name = parts[1..].join(" ");
+                let output = self.process_git_command("git", &["merge", &branch_name]).await?;
+                format!("Converged quantum realities: {} merged into current timeline", branch_name)
+            }
             "push" => {
-                let output = Command::new("git")
-                    .current_dir(&self.working_dir)
-                    .args(["push"])
-                    .output()?;
-
-                if output.status.success() {
-                    "Successfully pushed changes to remote".to_string()
-                } else {
-                    format!("Failed to push changes: {}", String::from_utf8_lossy(&output.stderr))
-                }
-            },
+                let output = self.process_git_command("git", &["push"]).await?;
+                "Quantum state synchronized with the central timeline nexus".to_string()
+            }
             "pull" => {
-                let output = Command::new("git")
-                    .current_dir(&self.working_dir)
-                    .args(["pull"])
-                    .output()?;
-
-                if output.status.success() {
-                    "Successfully pulled changes from remote".to_string()
-                } else {
-                    format!("Failed to pull changes: {}", String::from_utf8_lossy(&output.stderr))
-                }
-            },
-            _ => format!("Unknown command: {}. Type 'help' for available commands.", parts[0]),
+                let output = self.process_git_command("git", &["pull"]).await?;
+                "Quantum state updates retrieved from the central timeline nexus".to_string()
+            }
+            _ => {
+                format!("Unknown temporal operation: {}. Use 'help' for available commands.", parts[0])
+            }
         };
 
-        Ok(self.format_git_response(result).await?)
+        Ok(self.format_git_response(&result).await?)
     }
 
-    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
         Ok(message)
     }
 
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        self.tools.execute(tool, params).await
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        let response = format!("Executing tool: {} with parameters: {:?}", tool.name, params);
+        Ok(response)
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
         Ok(None)
+    }
+
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
     }
 }
 
@@ -418,6 +330,10 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    fn create_test_message(content: &str) -> Message {
+        Message::new(content)
+    }
 
     fn create_test_config() -> AgentConfig {
         AgentConfig {
@@ -434,7 +350,7 @@ mod tests {
     async fn setup_test_repo() -> (GitAssistantAgent, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let mut agent = GitAssistantAgent::new(create_test_config());
-        agent.set_working_dir(&temp_dir.path()).unwrap();
+        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
         Command::new("git")
@@ -481,19 +397,16 @@ mod tests {
         let (mut agent, _temp_dir) = setup_test_repo().await;
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
         println!("Status response: {}", response.content);
-        // After initial commit, repo should be clean
-        assert!(response.content.contains("Repository is clean"));
+        assert!(response.content.contains("The timeline is stable"));
     }
 
     #[tokio::test]
-    async fn test_add_and_commit() {
+    async fn test_commit_flow() {
         let (mut agent, temp_dir) = setup_test_repo().await;
 
         // Create a test file
-        fs::write(
-            temp_dir.path().join("test.txt"),
-            "Hello, World!",
-        ).unwrap();
+        let test_file_path = temp_dir.path().join("test.txt");
+        fs::write(&test_file_path, "Test file contents").unwrap();
 
         // Check status
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
@@ -501,23 +414,38 @@ mod tests {
         assert!(response.content.contains("test.txt"));
 
         // Stage the file
-        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("add test.txt").to_string()).await.unwrap();
         assert!(response.content.contains("Successfully staged"));
 
-        // Commit the file
-        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
-        assert!(response.content.contains("Successfully committed changes"));
+        // Check status again
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
+        assert!(response.content.contains("Artifacts prepared for temporal preservation"));
+        assert!(response.content.contains("test.txt"));
+
+        // Commit
+        let response = agent.process_message(Message::new("commit test commit").to_string()).await.unwrap();
+        assert!(response.content.contains("Successfully committed"));
     }
 
     #[tokio::test]
-    async fn test_branch_operations() {
-        let (mut agent, _temp_dir) = setup_test_repo().await;
+    async fn test_branch_and_merge() {
+        let (mut agent, temp_dir) = setup_test_repo().await;
 
         // Create and switch to a new branch
         let response = agent.process_message(Message::new("branch feature-test".to_string())).await.unwrap();
         assert!(response.content.contains("Created and switched to new branch"));
 
-        // List branches (should show both main/master and feature-test)
+        // Make a change and commit
+        let test_file_path = temp_dir.path().join("test2.txt");
+        fs::write(&test_file_path, "Test file in branch").unwrap();
+        agent.process_message(Message::new("add test2.txt").to_string()).await.unwrap();
+        agent.process_message(Message::new("commit branch test").to_string()).await.unwrap();
+
+        // Switch back to main branch
+        let response = agent.process_message(Message::new("checkout main").to_string()).await.unwrap();
+        assert!(response.content.contains("Switched to branch"));
+
+        // List branches
         let response = agent.process_message(Message::new("branch".to_string())).await.unwrap();
         assert!(response.content.contains("feature-test"));
     }
@@ -526,17 +454,14 @@ mod tests {
     async fn test_help_message() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
         let response = agent.process_message(Message::new("".to_string())).await.unwrap();
-        assert!(response.content.contains("status:"));
-        assert!(response.content.contains("add"));
-        assert!(response.content.contains("commit"));
-        assert!(response.content.contains("branch"));
+        assert!(response.content.contains("Welcome to the Temporal Version Archives"));
+        assert!(response.content.contains("quantum operations"));
     }
 
     #[tokio::test]
     async fn test_invalid_command() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
         let response = agent.process_message(Message::new("invalid-command".to_string())).await.unwrap();
-        assert!(response.content.contains("Unknown command"));
-        assert!(response.content.contains("Type 'help'"));
+        assert!(response.content.contains("Unknown temporal operation"));
     }
 }

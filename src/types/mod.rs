@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use chrono;
+use std::str::FromStr;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameter {
@@ -49,25 +52,18 @@ pub struct TranscriptItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub content: String,
-    pub role: String,
-    pub timestamp: u64,
     pub metadata: Option<MessageMetadata>,
-    pub tool_calls: Option<Vec<ToolCall>>,
-    pub confidence: Option<f32>,
+    pub role: Option<String>,
+    pub timestamp: Option<i64>,
 }
 
 impl Message {
     pub fn new(content: String) -> Self {
         Self {
             content,
-            role: "assistant".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
             metadata: None,
-            tool_calls: None,
-            confidence: None,
+            role: Some("assistant".to_string()),
+            timestamp: Some(chrono::Utc::now().timestamp()),
         }
     }
 }
@@ -76,6 +72,36 @@ impl Message {
 pub struct MessageMetadata {
     pub agent: String,
     pub state: Option<String>,
+    pub personality_traits: Option<Vec<String>>,
+    pub transfer_target: Option<String>,
+    pub context: Option<HashMap<String, String>>,
+}
+
+impl MessageMetadata {
+    pub fn new(agent: String) -> Self {
+        Self {
+            agent,
+            state: None,
+            personality_traits: None,
+            transfer_target: None,
+            context: None,
+        }
+    }
+
+    pub fn with_state(mut self, state: String) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    pub fn with_personality(mut self, traits: Vec<String>) -> Self {
+        self.personality_traits = Some(traits);
+        self
+    }
+
+    pub fn with_transfer(mut self, target: String) -> Self {
+        self.transfer_target = Some(target);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,9 +119,25 @@ pub struct StateMachine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
-    pub prompt: String,
-    pub transitions: HashMap<String, String>,
-    pub validation: Option<ValidationRule>,
+    pub name: String,
+    pub data: Option<String>,
+    pub prompt: Option<String>,
+    pub transitions: Option<HashMap<String, String>>,
+    pub validation: Option<Vec<String>>,
+}
+
+impl FromStr for State {
+    type Err = Box<dyn std::error::Error + Send + Sync>;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(State {
+            name: s.to_string(),
+            data: None,
+            prompt: None,
+            transitions: None,
+            validation: None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,9 +150,9 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 
 #[async_trait]
 pub trait Agent: Send + Sync {
-    async fn process_message(&mut self, message: Message) -> Result<Message>;
-    async fn transfer_to(&mut self, target_agent: String, message: Message) -> Result<Message>;
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
+    async fn process_message(&self, message: Message) -> Result<Message>;
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message>;
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
     async fn get_current_state(&self) -> Result<Option<State>>;
     async fn get_config(&self) -> Result<AgentConfig>;
 }
@@ -133,7 +175,7 @@ impl AgentStateManager {
     pub fn transition(&mut self, event: &str) -> Option<&State> {
         if let (Some(state_machine), Some(current_state)) = (&self.state_machine, &self.current_state) {
             if let Some(current) = state_machine.states.get(current_state) {
-                if let Some(next_state) = current.transitions.get(event) {
+                if let Some(next_state) = current.transitions.as_ref().and_then(|transitions| transitions.get(event)) {
                     self.current_state = Some(next_state.clone());
                     return state_machine.states.get(next_state);
                 }
@@ -158,3 +200,11 @@ impl AgentStateManager {
 // More types will be added as needed
 #[allow(dead_code)]
 pub struct Unimplemented;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentInfo {
+    pub name: String,
+    pub description: String,
+    pub tools: Vec<Tool>,
+    pub downstream_agents: Vec<String>,
+}

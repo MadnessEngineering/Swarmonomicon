@@ -7,18 +7,26 @@ use axum::{
 use tower_http::cors::CorsLayer;
 use tokio::sync::RwLock;
 use crate::agents::TransferService;
+use std::collections::HashMap;
+use crate::agents::Agent;
+use crate::{
+    agents::{AgentRegistry, TransferService},
+    api::routes::{default_agents, websocket_handler},
+    types::Agent,
+    AppState,
+};
 
 pub mod routes;
 pub mod websocket;
 
-#[derive(Clone)]
 pub struct AppState {
     pub transfer_service: Arc<RwLock<TransferService>>,
+    pub agents: Arc<RwLock<AgentRegistry>>,
 }
 
 impl AppState {
     pub fn new(transfer_service: Arc<RwLock<TransferService>>) -> Self {
-        Self { transfer_service }
+        Self { transfer_service, agents: Arc::new(RwLock::new(AgentRegistry::new())) }
     }
 }
 
@@ -34,7 +42,11 @@ pub async fn create_app_state() -> Arc<AppState> {
 }
 
 pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferService>>) {
-    let app_state = Arc::new(AppState { transfer_service });
+    let registry = AgentRegistry::create_default_agents(default_agents()).await.unwrap();
+    let app_state = Arc::new(AppState {
+        transfer_service,
+        agents: Arc::new(RwLock::new(registry)),
+    });
 
     let app = Router::new()
         .route("/", get(routes::index))
@@ -52,4 +64,18 @@ pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferServic
     )
     .await
     .unwrap();
+}
+
+pub async fn create_router() -> Router {
+    let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+    let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
+    
+    let app_state = Arc::new(AppState {
+        transfer_service,
+        agents: registry,
+    });
+
+    Router::new()
+        .route("/ws", get(websocket_handler))
+        .with_state(app_state)
 }

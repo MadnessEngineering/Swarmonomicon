@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use crate::error::Error;
 use std::collections::HashMap;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
@@ -154,71 +155,21 @@ impl UserAgent {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Agent for UserAgent {
-    async fn process_message(&mut self, message: Message) -> Result<Message> {
-        // Parse commands from the message
-        let parts: Vec<&str> = message.content.split_whitespace().collect();
-        if parts.is_empty() {
-            return Ok(Message::new("Please provide a command".to_string()));
-        }
-
-        let response = match parts[0] {
-            "add" => {
-                let description = parts[1..].join(" ");
-                self.add_todo(description, None)?;
-                "Todo added successfully".to_string()
-            }
-            "list" => {
-                let mut response = String::new();
-                for (i, todo) in self.state.todos.iter().enumerate() {
-                    response.push_str(&format!(
-                        "{}. [{}] {}\n",
-                        i + 1,
-                        match todo.status {
-                            TodoStatus::Pending => "PENDING",
-                            TodoStatus::InProgress => "IN PROGRESS",
-                            TodoStatus::Completed => "COMPLETED",
-                            TodoStatus::Failed => "FAILED",
-                        },
-                        todo.description
-                    ));
-                }
-                if response.is_empty() {
-                    "No todos found".to_string()
-                } else {
-                    response
-                }
-            }
-            "process" => {
-                if let Some((index, todo)) = self.get_next_pending_todo() {
-                    if let Ok(Some(agent)) = self.determine_next_agent(todo).await {
-                        format!("Assigning todo to agent: {}", agent)
-                    } else {
-                        "Could not determine appropriate agent".to_string()
-                    }
-                } else {
-                    "No pending todos found".to_string()
-                }
-            }
-            _ => "Unknown command. Available commands: add, list, process".to_string(),
-        };
-
-        Ok(Message::new(response))
+    async fn process_message(&self, message: Message) -> Result<Message> {
+        Ok(Message::new(format!("User received: {}", message.content)))
     }
 
-    async fn transfer_to(&mut self, _target_agent: String, _message: Message) -> Result<Message> {
-        // User agent doesn't transfer to other agents
-        Err("UserAgent does not support transfers".into())
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+        Ok(message)
     }
 
-    async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
-        // User agent doesn't use tools directly
-        Err("UserAgent does not support direct tool usage".into())
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        Ok(format!("Called tool {} with params {:?}", tool.name, params))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        // User agent doesn't use state machine
         Ok(None)
     }
 

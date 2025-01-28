@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::collections::HashMap;
+use async_trait::async_trait;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State};
 use crate::tools::ToolRegistry;
 use crate::Result;
@@ -133,72 +134,27 @@ This is a {project_type} project created with the project initialization tool.
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Agent for ProjectInitAgent {
-    async fn get_config(&self) -> Result<AgentConfig> {
-        Ok(self.config.clone())
+    async fn process_message(&self, message: Message) -> Result<Message> {
+        let mut response = Message::new(&format!("Processing project init request: {}", message.content));
+        response.metadata.state = self.current_state.clone();
+        Ok(response)
     }
 
-    async fn process_message(&mut self, message: Message) -> Result<Message> {
-        // Parse command: create <type> <name> <description>
-        let parts: Vec<&str> = message.content.split_whitespace().collect();
-        
-        if parts.len() < 4 || parts[0] != "create" {
-            return Ok(Message::new("Usage: create <type> <name> <description>".to_string()));
-        }
-
-        let project_type = parts[1];
-        let name = parts[2];
-        let description = parts[3..].join(" ");
-
-        // Validate project type
-        if !["python", "rust", "common"].contains(&project_type) {
-            return Ok(Message::new("Project type must be one of: python, rust, common".to_string()));
-        }
-
-        // Create project using the project tool
-        let mut params = HashMap::new();
-        params.insert("type".to_string(), project_type.to_string());
-        params.insert("name".to_string(), name.to_string());
-        params.insert("description".to_string(), description.clone());
-
-        let tool_call = ToolCall {
-            tool: Tool {
-                name: "project".to_string(),
-                description: "Project initialization tool".to_string(),
-                parameters: HashMap::new(),
-            },
-            parameters: params.clone(),
-            result: None,
-        };
-
-        let result = self.tools.execute(&tool_call.tool, params).await?;
-
-        Ok(Message {
-            content: result,
-            role: "assistant".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            metadata: Some(MessageMetadata {
-                agent: self.config.name.clone(),
-                state: self.current_state.clone(),
-            }),
-            tool_calls: Some(vec![tool_call]),
-            confidence: Some(1.0),
-        })
-    }
-
-    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
         Ok(message)
     }
 
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        self.tools.execute(tool, params).await
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        Ok(format!("Tool {} called with params: {:?}", tool.name, params))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(None)
+        Ok(self.current_state.clone().map(|s| State::from_str(&s)))
     }
-} 
+
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
+    }
+}

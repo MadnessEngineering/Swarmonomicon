@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use axum::{
-    extract::ws::{WebSocket, Message as WsMessage},
+    extract::ws::{WebSocket, Message as WsMessage, WebSocketUpgrade},
     extract::{State, WebSocketUpgrade},
     response::IntoResponse,
 };
@@ -50,45 +50,34 @@ pub enum ServerMessage {
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
+    state: Arc<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
-    let (tx, _rx) = broadcast::channel(CHANNEL_SIZE);
-    let tx2 = tx.clone();
 
-    // Handle incoming messages
-    let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            if let WsMessage::Text(text) = msg {
-                if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
-                    let response = handle_client_message(client_msg, state.clone()).await;
-                    if let Ok(response) = serde_json::to_string(&response) {
-                        let _ = tx.send(WsMessage::Text(response));
+    while let Some(Ok(msg)) = receiver.next().await {
+        if let WsMessage::Text(content) = msg {
+            let transfer_service = state.transfer_service.read().await;
+            match transfer_service.process_message(Message::new(content.to_string())).await {
+                Ok(response) => {
+                    if let Err(e) = sender.send(WsMessage::Text(response.content)).await {
+                        eprintln!("Error sending response: {}", e);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error processing message: {}", e);
+                    if let Err(e) = sender.send(WsMessage::Text(format!("Error: {}", e))).await {
+                        eprintln!("Error sending error response: {}", e);
+                        return;
                     }
                 }
             }
         }
-    });
-
-    // Handle outgoing messages
-    let mut send_task = tokio::spawn(async move {
-        let mut rx = tx2.subscribe();
-        while let Ok(msg) = rx.recv().await {
-            if sender.send(msg).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // Wait for either task to finish
-    tokio::select! {
-        _ = (&mut recv_task) => send_task.abort(),
-        _ = (&mut send_task) => recv_task.abort(),
-    };
+    }
 }
 
 async fn handle_client_message(
@@ -105,12 +94,19 @@ async fn handle_client_message(
         }
         ClientMessage::Message { content } => {
             match transfer_service.process_message(Message::new(content)).await {
-                Ok(response) => ServerMessage::Message {
-                    content: response.content,
-                },
-                Err(e) => ServerMessage::Error {
-                    message: e.to_string(),
-                },
+                Ok(response) => {
+                    if let Err(e) = tx.send(Message::Text(response.content)).await {
+                        eprintln!("Error sending response: {}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error processing message: {}", e);
+                    if let Err(e) = tx.send(Message::Text(format!("Error: {}", e))).await {
+                        eprintln!("Error sending error response: {}", e);
+                        break;
+                    }
+                }
             }
         }
         ClientMessage::Transfer { from, to } => {

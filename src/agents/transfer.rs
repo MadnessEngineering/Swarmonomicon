@@ -6,17 +6,15 @@ use crate::{
 };
 
 pub struct TransferService {
-    registry: Arc<RwLock<AgentRegistry>>,
     current_agent: Option<String>,
-    session_id: Option<String>,
+    registry: Arc<RwLock<AgentRegistry>>,
 }
 
 impl TransferService {
     pub fn new(registry: Arc<RwLock<AgentRegistry>>) -> Self {
         Self {
-            registry,
             current_agent: None,
-            session_id: None,
+            registry,
         }
     }
 
@@ -32,38 +30,23 @@ impl TransferService {
         self.current_agent = Some(agent);
     }
 
-    pub async fn transfer(&mut self, from: &str, to: &str) -> Result<()> {
-        let mut registry = self.registry.write().await;
-        
-        // Validate both agents exist
-        if registry.get(from).is_none() {
-            return Err(format!("Source agent '{}' not found", from).into());
+    pub async fn process_message(&self, message: Message) -> Result<Message> {
+        if let Some(agent_name) = &self.current_agent {
+            let registry = self.registry.read().await;
+            if let Some(agent) = registry.get(agent_name) {
+                return agent.process_message(message).await;
+            }
         }
-        if registry.get(to).is_none() {
-            return Err(format!("Target agent '{}' not found", to).into());
-        }
+        Err("No current agent set".into())
+    }
 
-        // Get source agent and perform transfer
-        if let Some(source_agent) = registry.get_mut(from) {
-            source_agent.transfer_to(to).await?;
+    pub async fn transfer(&mut self, from: &str, to: &str) -> Result<()> {
+        let registry = self.registry.read().await;
+        if registry.get(to).is_some() {
             self.current_agent = Some(to.to_string());
             Ok(())
         } else {
-            Err(format!("Failed to get mutable reference to agent '{}'", from).into())
-        }
-    }
-
-    pub async fn process_message(&mut self, content: &str) -> Result<Message> {
-        let mut registry = self.registry.write().await;
-        
-        if let Some(current_agent) = &self.current_agent {
-            if let Some(agent) = registry.get_mut(current_agent) {
-                agent.process_message(content).await
-            } else {
-                Err(format!("Current agent '{}' not found", current_agent).into())
-            }
-        } else {
-            Err("No current agent set".into())
+            Err(format!("Agent {} not found", to).into())
         }
     }
 
@@ -86,7 +69,7 @@ mod tests {
     async fn test_transfer_service() {
         // Create a test registry
         let mut registry = AgentRegistry::new();
-        
+
         // Add test agents
         let greeter = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
@@ -97,7 +80,7 @@ mod tests {
             personality: None,
             state_machine: None,
         });
-        
+
         let haiku = HaikuAgent::new(AgentConfig {
             name: "haiku".to_string(),
             public_description: "Test haiku".to_string(),
@@ -107,10 +90,10 @@ mod tests {
             personality: None,
             state_machine: None,
         });
-        
+
         registry.register(greeter).unwrap();
         registry.register(haiku).unwrap();
-        
+
         let registry = Arc::new(RwLock::new(registry));
         let mut service = TransferService::new(registry);
 
@@ -133,4 +116,4 @@ mod tests {
         let result = service.transfer("nonexistent", "haiku").await;
         assert!(result.is_err());
     }
-} 
+}

@@ -18,7 +18,6 @@ pub use haiku::HaikuAgent;
 pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
-pub use browser_agent::BrowserAgentWrapper;
 pub use wrapper::AgentWrapper;
 
 #[derive(Default)]
@@ -37,7 +36,8 @@ impl AgentRegistry {
     where
         A: Agent + Send + Sync + 'static,
     {
-        let name = agent.get_config().await?.name;
+        let config = agent.get_config().await?;
+        let name = config.name.clone();
         self.agents.insert(name, AgentWrapper::new(agent));
         Ok(())
     }
@@ -54,17 +54,16 @@ impl AgentRegistry {
         self.agents.values().map(|wrapper| wrapper.clone()).collect()
     }
 
-    pub fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
+    pub async fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
 
         for config in configs {
             match config.name.as_str() {
-                "git" => registry.register(GitAssistantAgent::new(config))?,
-                "project" => registry.register(ProjectInitAgent::new(config))?,
-                "haiku" => registry.register(HaikuAgent::new(config))?,
-                "greeter" => registry.register(GreeterAgent::new(config))?,
-                "user" => registry.register(UserAgent::new(config))?,
-                "browser" => registry.register(BrowserAgentWrapper::new(config)?)?,
+                "git" => registry.register(GitAssistantAgent::new(config)).await?,
+                "project" => registry.register(ProjectInitAgent::new(config)).await?,
+                "haiku" => registry.register(HaikuAgent::new(config)).await?,
+                "greeter" => registry.register(GreeterAgent::new(config)).await?,
+                "user" => registry.register(UserAgent::new(config)).await?,
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
         }
@@ -105,6 +104,7 @@ pub async fn get_agent(name: &str) -> Option<AgentWrapper> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Message;
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![
@@ -132,7 +132,7 @@ mod tests {
     #[tokio::test]
     async fn test_agent_registry() {
         let configs = create_test_configs();
-        let mut registry = AgentRegistry::create_default_agents(configs).unwrap();
+        let mut registry = AgentRegistry::create_default_agents(configs).await.unwrap();
 
         // Test immutable access
         assert!(registry.get("greeter").is_some());
@@ -141,7 +141,7 @@ mod tests {
 
         // Test mutable access
         let greeter = registry.get_mut("greeter").unwrap();
-        let response = greeter.process_message("hi").await.unwrap();
+        let response = greeter.process_message(Message::new("hi")).await.unwrap();
         assert!(response.content.contains("haiku"));
 
         // Test get all agents
@@ -152,17 +152,106 @@ mod tests {
     #[tokio::test]
     async fn test_agent_workflow() {
         let configs = create_test_configs();
-        let registry = AgentRegistry::create_default_agents(configs).unwrap();
+        let registry = AgentRegistry::create_default_agents(configs).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
         let mut service = TransferService::new(registry.clone());
 
         // Start with greeter
-        let response = service.process_message("hi").await;
+        let response = service.process_message(Message::new("hi")).await;
         assert!(response.is_err()); // No current agent set
 
         // Set current agent to greeter and process message
         service.transfer("greeter", "haiku").await.unwrap();
-        let response = service.process_message("nature").await.unwrap();
+        let response = service.process_message(Message::new("nature")).await.unwrap();
         assert!(response.content.contains("Mocking haiku now"));
     }
+}
+
+#[cfg(feature = "git-agent")]
+pub mod git_assistant;
+#[cfg(feature = "git-agent")]
+pub use git_assistant::GitAssistantAgent;
+
+#[cfg(feature = "haiku-agent")]
+pub mod haiku;
+#[cfg(feature = "haiku-agent")]
+pub use haiku::HaikuAgent;
+
+#[cfg(feature = "greeter-agent")]
+pub mod greeter;
+#[cfg(feature = "greeter-agent")]
+pub use greeter::GreeterAgent;
+
+#[cfg(feature = "browser-agent")]
+pub mod browser_agent;
+#[cfg(feature = "browser-agent")]
+pub use browser_agent::BrowserAgentWrapper;
+
+#[cfg(feature = "project-init-agent")]
+pub mod project_init;
+#[cfg(feature = "project-init-agent")]
+pub use project_init::ProjectInitAgent;
+
+pub mod wrapper;
+pub use wrapper::AgentWrapper;
+
+pub fn default_agents() -> Vec<AgentConfig> {
+    let mut agents = Vec::new();
+
+    #[cfg(feature = "greeter-agent")]
+    agents.push(AgentConfig {
+        name: "greeter".to_string(),
+        public_description: "Agent that greets the user.".to_string(),
+        instructions: "Greet users and make them feel welcome.".to_string(),
+        tools: Vec::new(),
+        downstream_agents: Vec::new(),
+        personality: None,
+        state_machine: None,
+    });
+
+    #[cfg(feature = "haiku-agent")]
+    agents.push(AgentConfig {
+        name: "haiku".to_string(),
+        public_description: "Agent that creates haikus.".to_string(),
+        instructions: "Create haikus based on user input.".to_string(),
+        tools: Vec::new(),
+        downstream_agents: Vec::new(),
+        personality: None,
+        state_machine: None,
+    });
+
+    #[cfg(feature = "git-agent")]
+    agents.push(AgentConfig {
+        name: "git".to_string(),
+        public_description: "Agent that helps with git operations.".to_string(),
+        instructions: "Help users with git operations like commit, branch, merge etc.".to_string(),
+        tools: Vec::new(),
+        downstream_agents: Vec::new(),
+        personality: None,
+        state_machine: None,
+    });
+
+    #[cfg(feature = "project-init-agent")]
+    agents.push(AgentConfig {
+        name: "project-init".to_string(),
+        public_description: "Agent that helps initialize new projects.".to_string(),
+        instructions: "Help users create new projects with proper structure and configuration.".to_string(),
+        tools: Vec::new(),
+        downstream_agents: Vec::new(),
+        personality: None,
+        state_machine: None,
+    });
+
+    #[cfg(feature = "browser-agent")]
+    agents.push(AgentConfig {
+        name: "browser".to_string(),
+        public_description: "Agent that controls browser automation.".to_string(),
+        instructions: "Help users with browser automation tasks.".to_string(),
+        tools: Vec::new(),
+        downstream_agents: Vec::new(),
+        personality: None,
+        state_machine: None,
+    });
+
+    agents
 }

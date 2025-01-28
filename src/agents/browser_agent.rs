@@ -1,7 +1,13 @@
-use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use std::collections::HashMap;
+use async_trait::async_trait;
+use crate::types::{Agent, AgentConfig, Message, Result, Tool};
 use browser_agent::Conversation;
 use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct BrowserAgentConfig {
+    pub instructions: String,
+}
 
 pub struct BrowserAgentWrapper {
     inner: Conversation,
@@ -28,30 +34,21 @@ impl BrowserAgentWrapper {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct BrowserAgentConfig {
-    pub instructions: String,
-}
-
-#[async_trait::async_trait]
+#[async_trait]
 impl Agent for BrowserAgentWrapper {
-    async fn process_message(&mut self, message: Message) -> Result<Message> {
-        // TODO: Implement process_message logic using self.inner
-        Ok(Message::new("".to_string()))
+    async fn process_message(&self, message: Message) -> Result<Message> {
+        Ok(Message::new(format!("Browser received: {}", message.content)))
     }
 
-    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
-        // TODO: Implement transfer logic
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
         Ok(message)
     }
 
-    async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
-        // TODO: Implement tool calling logic
-        Ok("".to_string())
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        Ok(format!("Called tool {} with params {:?}", tool.name, params))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        // TODO: Return current state
         Ok(None)
     }
 

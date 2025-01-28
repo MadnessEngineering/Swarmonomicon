@@ -1,3 +1,6 @@
 [submodule "browser-agent"]
 	path = browser-agent
 	url = https://github.com/m1guelpf/browser-agent.git
+[submodule "examples_to_delete/balena-cl-interactive"]
+	path = examples_to_delete/balena-cl-interactive
+	url = https://github.com/DanEdens/balena-cl-interactive.git
