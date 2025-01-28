@@ -101,16 +101,16 @@ pub struct ValidationRule {
     pub error_message: String,
 }
 
-#[async_trait]
-pub trait Agent: Send + Sync {
-    async fn process_message(&mut self, message: &str) -> crate::Result<Message>;
-    async fn transfer_to(&mut self, agent_name: &str) -> crate::Result<()>;
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> crate::Result<String>;
-    fn get_current_state(&self) -> Option<&State>;
-    fn get_config(&self) -> &AgentConfig;
-}
-
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+#[async_trait]
+pub trait Agent {
+    async fn process_message(&mut self, content: &str) -> Result<Message>;
+    async fn transfer_to(&mut self, agent_name: &str) -> Result<()>;
+    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
+    async fn get_current_state(&self) -> Result<Option<State>>;
+    async fn get_config(&self) -> Result<AgentConfig>;
+}
 
 // Implement a basic agent state manager
 pub struct AgentStateManager {

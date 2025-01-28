@@ -47,18 +47,14 @@ impl Agent for AgentWrapper {
         agent.call_tool(tool, params).await
     }
 
-    fn get_current_state(&self) -> Option<&State> {
-        // Note: This is a blocking operation, but it's only used for read-only access
-        // and the lock is held very briefly
-        let agent = self.inner.blocking_read();
-        agent.get_current_state()
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        let agent = self.inner.read().await;
+        agent.get_current_state().await
     }
 
-    fn get_config(&self) -> &AgentConfig {
-        // Note: This is a blocking operation, but it's only used for read-only access
-        // and the lock is held very briefly
-        let agent = self.inner.blocking_read();
-        agent.get_config()
+    async fn get_config(&self) -> Result<AgentConfig> {
+        let agent = self.inner.read().await;
+        agent.get_config().await
     }
 }
 
@@ -83,7 +79,8 @@ mod tests {
         let mut wrapper = AgentWrapper::new(agent);
 
         // Test that we can get the config
-        assert_eq!(wrapper.get_config().name, "test");
+        let config = wrapper.get_config().await.unwrap();
+        assert_eq!(config.name, "test");
 
         // Test that we can process messages
         let response = wrapper.process_message("test").await;
@@ -91,6 +88,11 @@ mod tests {
 
         // Test cloning
         let wrapper2 = wrapper.clone();
-        assert_eq!(wrapper2.get_config().name, "test");
+        let config2 = wrapper2.get_config().await.unwrap();
+        assert_eq!(config2.name, "test");
+
+        // Test state access
+        let state = wrapper.get_current_state().await;
+        assert!(state.is_ok());
     }
 } 
