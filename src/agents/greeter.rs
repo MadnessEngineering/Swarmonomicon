@@ -13,21 +13,10 @@ impl GreeterAgent {
         let state_machine = Some(StateMachine {
             states: {
                 let mut states = HashMap::new();
-                });
-                states.insert("transfer_to_haiku".to_string(), State {
-                    prompt: "Ah, this looks like a job for our specialized haiku tinkerer! Let me transfer you to the right department...".to_string(),
-                    transitions: HashMap::new(),
-                    validation: None,
-                });
-                states.insert("goodbye".to_string(), State {
-                    prompt: "Farewell, fellow tinkerer! May your code compile and your tests pass... mostly!".to_string(),
-                    transitions: HashMap::new(),
-                    validation: None,
-                });
                 states.insert("awaiting_input".to_string(), State {
-                    name: Some("awaiting_input".to_string()),
+                    name: "awaiting_input".to_string(),
                     data: None,
-                    prompt: Some("👋 Hello! I'm your friendly greeter. How can I assist you today?".to_string()),
+                    prompt: Some("Welcome to the laboratory! Don't mind the sparks, they're mostly decorative.".to_string()),
                     transitions: Some({
                         let mut transitions = HashMap::new();
                         transitions.insert("project".to_string(), "project_transfer".to_string());
@@ -38,7 +27,7 @@ impl GreeterAgent {
                     validation: None,
                 });
                 states.insert("project_transfer".to_string(), State {
-                    name: Some("project_transfer".to_string()),
+                    name: "project_transfer".to_string(),
                     data: None,
                     prompt: Some("🚀 Let me connect you with the Project Assistant...".to_string()),
                     transitions: Some(HashMap::new()),
