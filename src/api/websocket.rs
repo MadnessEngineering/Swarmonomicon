@@ -157,8 +157,8 @@ mod tests {
             state_machine: None,
         };
 
-        registry.register("greeter".to_string(), GreeterAgent::new(greeter_config));
-        registry.register("haiku".to_string(), HaikuAgent::new(haiku_config));
+        registry.register(GreeterAgent::new(greeter_config)).expect("Failed to register greeter agent");
+        registry.register(HaikuAgent::new(haiku_config)).expect("Failed to register haiku agent");
 
         let registry = Arc::new(RwLock::new(registry));
         let transfer_service = Arc::new(RwLock::new(TransferService::new(registry)));

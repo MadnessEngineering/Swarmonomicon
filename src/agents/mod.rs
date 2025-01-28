@@ -70,7 +70,7 @@ impl AgentRegistry {
                 "haiku" => registry.register(HaikuAgent::new(config))?,
                 "greeter" => registry.register(GreeterAgent::new(config))?,
                 "user" => registry.register(UserAgent::new(config))?,
-                "browser" => registry.register(BrowserAgentWrapper::new(config))?,
+                "browser" => registry.register(BrowserAgentWrapper::new(config)?)?,
                 _ => return Err(format!("Unknown agent type: {}", config.name).into()),
             }
         }
