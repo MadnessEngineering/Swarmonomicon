@@ -5,15 +5,20 @@ use serde::Deserialize;
 
 pub struct BrowserAgentWrapper {
     inner: Conversation,
-    config: BrowserAgentConfig,
+    browser_config: BrowserAgentConfig,
+    agent_config: AgentConfig,
 }
 
 impl BrowserAgentWrapper {
-    pub fn new(config: BrowserAgentConfig) -> Result<Self> {
-        let inner = Conversation::new(config.instructions.clone());
+    pub fn new(config: AgentConfig) -> Result<Self> {
+        let browser_config = BrowserAgentConfig {
+            instructions: config.instructions.clone(),
+        };
+        let inner = Conversation::new(browser_config.instructions.clone());
         Ok(Self {
             inner,
-            config,
+            browser_config,
+            agent_config: config,
         })
     }
 
@@ -28,24 +33,10 @@ pub struct BrowserAgentConfig {
     pub instructions: String,
 }
 
-impl From<&BrowserAgentConfig> for AgentConfig {
-    fn from(config: &BrowserAgentConfig) -> Self {
-        AgentConfig {
-            name: "browser".to_string(),
-            public_description: "A browser agent".to_string(),
-            instructions: config.instructions.clone(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        }
-    }
-}
-
 #[async_trait::async_trait]
 impl Agent for BrowserAgentWrapper {
     async fn process_message(&mut self, message: &str) -> Result<Message> {
-        // TODO: Implement process_message logic
+        // TODO: Implement process_message logic using self.inner
         Ok(Message::new(""))
     }
 
@@ -64,7 +55,7 @@ impl Agent for BrowserAgentWrapper {
         None
     }
 
-    fn get_config(&self) -> AgentConfig {
-        AgentConfig::from(&self.config)
+    fn get_config(&self) -> &AgentConfig {
+        &self.agent_config
     }
 }
