@@ -195,7 +195,7 @@ impl Agent for GitAssistantAgent {
                          - cd <path>: Change working directory".to_string()).await?);
         }
 
-        let mut tool_calls = Vec::new();
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
         let result = match parts[0] {
             "cd" if parts.len() > 1 => {
                 let path = parts[1..].join(" ");
@@ -479,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_repo_status() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message(Message::new("status")).await.unwrap();
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
         println!("Status response: {}", response.content);
         // After initial commit, repo should be clean
         assert!(response.content.contains("Repository is clean"));
@@ -496,16 +496,16 @@ mod tests {
         ).unwrap();
 
         // Check status
-        let response = agent.process_message(Message::new("status")).await.unwrap();
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
         assert!(response.content.contains("Untracked files"));
         assert!(response.content.contains("test.txt"));
 
         // Stage the file
-        let response = agent.process_message(Message::new("add test.txt")).await.unwrap();
+        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("Successfully staged"));
 
         // Commit the file
-        let response = agent.process_message(Message::new("commit Initial commit")).await.unwrap();
+        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
         assert!(response.content.contains("Successfully committed changes"));
     }
 
@@ -514,18 +514,18 @@ mod tests {
         let (mut agent, _temp_dir) = setup_test_repo().await;
 
         // Create and switch to a new branch
-        let response = agent.process_message(Message::new("branch feature-test")).await.unwrap();
+        let response = agent.process_message(Message::new("branch feature-test".to_string())).await.unwrap();
         assert!(response.content.contains("Created and switched to new branch"));
 
         // List branches (should show both main/master and feature-test)
-        let response = agent.process_message(Message::new("branch")).await.unwrap();
+        let response = agent.process_message(Message::new("branch".to_string())).await.unwrap();
         assert!(response.content.contains("feature-test"));
     }
 
     #[tokio::test]
     async fn test_help_message() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message(Message::new("")).await.unwrap();
+        let response = agent.process_message(Message::new("".to_string())).await.unwrap();
         assert!(response.content.contains("status:"));
         assert!(response.content.contains("add"));
         assert!(response.content.contains("commit"));
@@ -535,7 +535,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_command() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message(Message::new("invalid-command")).await.unwrap();
+        let response = agent.process_message(Message::new("invalid-command".to_string())).await.unwrap();
         assert!(response.content.contains("Unknown command"));
         assert!(response.content.contains("Type 'help'"));
     }

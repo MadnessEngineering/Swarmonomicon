@@ -32,12 +32,12 @@ impl Agent for AgentWrapper {
         self.inner.call_tool(tool, params).await
     }
 
-    async fn get_current_state(&self) -> Result<Option<String>> {
-        self.inner.get_current_state().await.map(|state| state.map(|s| s.name))
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        self.inner.get_current_state().await
     }
 
-    async fn get_config(&self) -> Result<String> {
-        self.inner.get_config().await.map(|config| serde_json::to_string(&config).unwrap())
+    async fn get_config(&self) -> Result<AgentConfig> {
+        self.inner.get_config().await
     }
 }
 

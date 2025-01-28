@@ -179,8 +179,8 @@ impl Agent for GreeterAgent {
         }
     }
 
-    async fn call_tool(&mut self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> crate::Result<String> {
-        unimplemented!("Tool calling not yet implemented")
+    async fn call_tool(&mut self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> Result<String> {
+        Err("Tool calling not yet implemented".into())
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
