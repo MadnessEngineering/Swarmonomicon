@@ -135,21 +135,16 @@ This is a {project_type} project created with the project initialization tool.
 
 #[async_trait::async_trait]
 impl Agent for ProjectInitAgent {
-    fn get_config(&self) -> &AgentConfig {
-        &self.config
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
     }
 
-    async fn process_message(&mut self, message: &str) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         // Parse command: create <type> <name> <description>
-        let parts: Vec<&str> = message.split_whitespace().collect();
+        let parts: Vec<&str> = message.content.split_whitespace().collect();
         
         if parts.len() < 4 || parts[0] != "create" {
-            return Ok(Message {
-                content: "Usage: create <type> <name> <description>".to_string(),
-                role: "assistant".to_string(),
-                timestamp: chrono::Utc::now().timestamp() as u64,
-                metadata: None,
-            });
+            return Ok(Message::new("Usage: create <type> <name> <description>".to_string()));
         }
 
         let project_type = parts[1];
@@ -158,12 +153,7 @@ impl Agent for ProjectInitAgent {
 
         // Validate project type
         if !["python", "rust", "common"].contains(&project_type) {
-            return Ok(Message {
-                content: "Project type must be one of: python, rust, common".to_string(),
-                role: "assistant".to_string(),
-                timestamp: chrono::Utc::now().timestamp() as u64,
-                metadata: None,
-            });
+            return Ok(Message::new("Project type must be one of: python, rust, common".to_string()));
         }
 
         // Create project using the project tool
@@ -173,38 +163,42 @@ impl Agent for ProjectInitAgent {
         params.insert("description".to_string(), description.clone());
 
         let tool_call = ToolCall {
-            tool: "project".to_string(),
+            tool: Tool {
+                name: "project".to_string(),
+                description: "Project initialization tool".to_string(),
+                parameters: HashMap::new(),
+            },
             parameters: params.clone(),
             result: None,
         };
 
-        let result = self.tools.execute(&Tool {
-            name: "project".to_string(),
-            description: "Project initialization tool".to_string(),
-            parameters: HashMap::new(),
-        }, params).await?;
+        let result = self.tools.execute(&tool_call.tool, params).await?;
 
         Ok(Message {
             content: result,
             role: "assistant".to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             metadata: Some(MessageMetadata {
-                tool_calls: Some(vec![tool_call]),
+                agent: self.config.name.clone(),
                 state: self.current_state.clone(),
-                confidence: None,
             }),
+            tool_calls: Some(vec![tool_call]),
+            confidence: Some(1.0),
         })
     }
 
-    async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
-        Ok(())
+    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
+        Ok(message)
     }
 
     async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
         self.tools.execute(tool, params).await
     }
 
-    fn get_current_state(&self) -> Option<&State> {
-        None
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        Ok(None)
     }
 } 

@@ -33,11 +33,11 @@ impl AgentRegistry {
         }
     }
 
-    pub fn register<A>(&mut self, agent: A) -> Result<()>
+    pub async fn register<A>(&mut self, agent: A) -> Result<()>
     where
         A: Agent + Send + Sync + 'static,
     {
-        let name = agent.get_config().name.clone();
+        let name = agent.get_config().await?.name;
         self.agents.insert(name, AgentWrapper::new(agent));
         Ok(())
     }

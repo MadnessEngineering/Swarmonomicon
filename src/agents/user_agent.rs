@@ -156,11 +156,11 @@ impl UserAgent {
 
 #[async_trait::async_trait]
 impl Agent for UserAgent {
-    async fn process_message(&mut self, message: &str) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         // Parse commands from the message
-        let parts: Vec<&str> = message.split_whitespace().collect();
+        let parts: Vec<&str> = message.content.split_whitespace().collect();
         if parts.is_empty() {
-            return Ok(Message::new("Please provide a command"));
+            return Ok(Message::new("Please provide a command".to_string()));
         }
 
         let response = match parts[0] {
@@ -204,25 +204,25 @@ impl Agent for UserAgent {
             _ => "Unknown command. Available commands: add, list, process".to_string(),
         };
 
-        Ok(Message::new(&response))
+        Ok(Message::new(response))
     }
 
-    async fn transfer_to(&mut self, agent_name: &str) -> Result<()> {
+    async fn transfer_to(&mut self, _target_agent: String, _message: Message) -> Result<Message> {
         // User agent doesn't transfer to other agents
         Err("UserAgent does not support transfers".into())
     }
 
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+    async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
         // User agent doesn't use tools directly
         Err("UserAgent does not support direct tool usage".into())
     }
 
-    fn get_current_state(&self) -> Option<&State> {
+    async fn get_current_state(&self) -> Result<Option<State>> {
         // User agent doesn't use state machine
-        None
+        Ok(None)
     }
 
-    fn get_config(&self) -> &AgentConfig {
-        &self.config
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
     }
 }

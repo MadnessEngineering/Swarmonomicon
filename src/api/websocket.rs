@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 use crate::{
     api::AppState,
     agents::{AgentRegistry, TransferService, GreeterAgent, HaikuAgent},
-    types::{AgentConfig, Tool},
+    types::{AgentConfig, Tool, Message},
 };
 use tokio::sync::RwLock;
 
@@ -48,7 +48,7 @@ pub enum ServerMessage {
     SessionUpdated,
 }
 
-pub async fn handler(
+pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -104,7 +104,7 @@ async fn handle_client_message(
             ServerMessage::Connected { agent }
         }
         ClientMessage::Message { content } => {
-            match transfer_service.process_message(&content).await {
+            match transfer_service.process_message(Message::new(content)).await {
                 Ok(response) => ServerMessage::Message {
                     content: response.content,
                 },

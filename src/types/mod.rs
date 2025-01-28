@@ -57,9 +57,9 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(content: &str) -> Self {
+    pub fn new(content: String) -> Self {
         Self {
-            content: content.to_string(),
+            content,
             role: "assistant".to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -108,8 +108,8 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 
 #[async_trait]
 pub trait Agent: Send + Sync {
-    async fn process_message(&mut self, content: &str) -> Result<Message>;
-    async fn transfer_to(&mut self, agent_name: &str) -> Result<()>;
+    async fn process_message(&mut self, message: Message) -> Result<Message>;
+    async fn transfer_to(&mut self, target_agent: String, message: Message) -> Result<Message>;
     async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
     async fn get_current_state(&self) -> Result<Option<State>>;
     async fn get_config(&self) -> Result<AgentConfig>;
@@ -157,4 +157,4 @@ impl AgentStateManager {
 
 // More types will be added as needed
 #[allow(dead_code)]
-pub struct Unimplemented; 
+pub struct Unimplemented;

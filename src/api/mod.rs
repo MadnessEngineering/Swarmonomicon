@@ -26,7 +26,7 @@ pub async fn create_app_state() -> Arc<AppState> {
     use crate::agents::AgentRegistry;
     use crate::api::routes::default_agents;
 
-    let registry = AgentRegistry::create_default_agents(default_agents()).unwrap();
+    let registry = AgentRegistry::create_default_agents(default_agents()).await.unwrap();
     let registry = Arc::new(RwLock::new(registry));
     let transfer_service = Arc::new(RwLock::new(TransferService::new(registry)));
 
@@ -41,7 +41,7 @@ pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferServic
         .route("/api/agents", get(routes::list_agents))
         .route("/api/agents/:name", get(routes::get_agent))
         .route("/api/agents/:name/message", post(routes::send_message))
-        .route("/ws", get(websocket::handler))
+        .route("/ws", get(websocket::websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 

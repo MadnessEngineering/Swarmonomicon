@@ -59,10 +59,11 @@ impl HaikuAgent {
                 .unwrap()
                 .as_secs(),
             metadata: Some(MessageMetadata {
-                tool_calls: None,
+                agent: self.config.name.clone(),
                 state: self.state_manager.get_current_state().map(|s| s.prompt.clone()),
-                confidence: Some(1.0),
             }),
+            tool_calls: None,
+            confidence: Some(1.0),
         }
     }
 
@@ -77,29 +78,16 @@ impl HaikuAgent {
 
 #[async_trait]
 impl Agent for HaikuAgent {
-    async fn process_message(&mut self, content: &str) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         // Mock haiku generation for now
-        Ok(Message {
-            content: format!("Generated haiku:\n{}", content),
-            role: "assistant".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            metadata: Some(MessageMetadata {
-                agent: self.config.name.clone(),
-                state: self.state_manager.get_current_state_name().map(|s| s.to_string()),
-            }),
-            tool_calls: None,
-            confidence: Some(0.9), // High confidence for generated haikus
-        })
+        Ok(self.create_response(format!("Generated haiku:\n{}", message.content)))
     }
 
-    async fn transfer_to(&mut self, agent_name: &str) -> Result<()> {
-        if !self.config.downstream_agents.contains(&agent_name.to_string()) {
+    async fn transfer_to(&mut self, target_agent: String, message: Message) -> Result<Message> {
+        if !self.config.downstream_agents.contains(&target_agent) {
             return Err("Invalid agent transfer target".into());
         }
-        Ok(())
+        Ok(message)
     }
 
     async fn call_tool(&mut self, _tool: &crate::types::Tool, _params: HashMap<String, String>) -> Result<String> {
@@ -136,7 +124,20 @@ mod tests {
         let mut agent = HaikuAgent::new(create_test_config());
 
         // Test message processing
-        let response = agent.process_message("test").await.unwrap();
+        let response = agent.process_message(Message {
+            content: "test".to_string(),
+            role: "assistant".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            metadata: Some(MessageMetadata {
+                agent: "haiku".to_string(),
+                state: Some("What would you like a haiku about?".to_string()),
+            }),
+            tool_calls: None,
+            confidence: Some(1.0),
+        }).await.unwrap();
         assert!(response.content.contains("Generated haiku:"));
 
         // Test config access

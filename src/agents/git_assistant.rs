@@ -166,20 +166,24 @@ impl GitAssistantAgent {
 
         Ok(())
     }
+
+    async fn format_git_response(&self, content: String) -> Result<Message> {
+        let msg = Message::new(content);
+        Ok(msg)
+    }
 }
 
 #[async_trait::async_trait]
 impl Agent for GitAssistantAgent {
-    fn get_config(&self) -> &AgentConfig {
-        &self.config
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
     }
 
-    async fn process_message(&mut self, message: &str) -> Result<Message> {
-        let parts: Vec<&str> = message.split_whitespace().collect();
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
+        let parts: Vec<&str> = message.content.split_whitespace().collect();
 
         if parts.is_empty() {
-            return Ok(Message {
-                content: "I can help you with Git operations! Try these commands:\n\
+            return Ok(self.format_git_response("I can help you with Git operations! Try these commands:\n\
                          - status: Show repository status\n\
                          - add <files>: Stage files (use '.' for all)\n\
                          - commit [message]: Commit changes with optional message\n\
@@ -188,11 +192,7 @@ impl Agent for GitAssistantAgent {
                          - merge <branch>: Merge a branch\n\
                          - push: Push changes to remote\n\
                          - pull: Pull changes from remote\n\
-                         - cd <path>: Change working directory".to_string(),
-                role: "assistant".to_string(),
-                timestamp: chrono::Utc::now().timestamp() as u64,
-                metadata: None,
-            });
+                         - cd <path>: Change working directory".to_string()).await?);
         }
 
         let mut tool_calls = Vec::new();
@@ -397,31 +397,19 @@ impl Agent for GitAssistantAgent {
             _ => format!("Unknown command: {}. Type 'help' for available commands.", parts[0]),
         };
 
-        Ok(Message {
-            content: result,
-            role: "assistant".to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-            metadata: if tool_calls.is_empty() {
-                None
-            } else {
-                Some(MessageMetadata {
-                    tool_calls: Some(tool_calls),
-                    ..Default::default()
-                })
-            },
-        })
+        Ok(self.format_git_response(result).await?)
     }
 
-    async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
-        Ok(())
+    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
+        Ok(message)
     }
 
     async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
         self.tools.execute(tool, params).await
     }
 
-    fn get_current_state(&self) -> Option<&State> {
-        None
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        Ok(None)
     }
 }
 
@@ -491,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_repo_status() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message("status").await.unwrap();
+        let response = agent.process_message(Message::new("status")).await.unwrap();
         println!("Status response: {}", response.content);
         // After initial commit, repo should be clean
         assert!(response.content.contains("Repository is clean"));
@@ -508,16 +496,16 @@ mod tests {
         ).unwrap();
 
         // Check status
-        let response = agent.process_message("status").await.unwrap();
+        let response = agent.process_message(Message::new("status")).await.unwrap();
         assert!(response.content.contains("Untracked files"));
         assert!(response.content.contains("test.txt"));
 
         // Stage the file
-        let response = agent.process_message("add test.txt").await.unwrap();
+        let response = agent.process_message(Message::new("add test.txt")).await.unwrap();
         assert!(response.content.contains("Successfully staged"));
 
         // Commit the file
-        let response = agent.process_message("commit Initial commit").await.unwrap();
+        let response = agent.process_message(Message::new("commit Initial commit")).await.unwrap();
         assert!(response.content.contains("Successfully committed changes"));
     }
 
@@ -526,18 +514,18 @@ mod tests {
         let (mut agent, _temp_dir) = setup_test_repo().await;
 
         // Create and switch to a new branch
-        let response = agent.process_message("branch feature-test").await.unwrap();
+        let response = agent.process_message(Message::new("branch feature-test")).await.unwrap();
         assert!(response.content.contains("Created and switched to new branch"));
 
         // List branches (should show both main/master and feature-test)
-        let response = agent.process_message("branch").await.unwrap();
+        let response = agent.process_message(Message::new("branch")).await.unwrap();
         assert!(response.content.contains("feature-test"));
     }
 
     #[tokio::test]
     async fn test_help_message() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message("").await.unwrap();
+        let response = agent.process_message(Message::new("")).await.unwrap();
         assert!(response.content.contains("status:"));
         assert!(response.content.contains("add"));
         assert!(response.content.contains("commit"));
@@ -547,7 +535,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_command() {
         let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message("invalid-command").await.unwrap();
+        let response = agent.process_message(Message::new("invalid-command")).await.unwrap();
         assert!(response.content.contains("Unknown command"));
         assert!(response.content.contains("Type 'help'"));
     }

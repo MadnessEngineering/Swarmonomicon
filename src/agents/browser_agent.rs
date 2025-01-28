@@ -35,14 +35,14 @@ pub struct BrowserAgentConfig {
 
 #[async_trait::async_trait]
 impl Agent for BrowserAgentWrapper {
-    async fn process_message(&mut self, message: &str) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         // TODO: Implement process_message logic using self.inner
-        Ok(Message::new(""))
+        Ok(Message::new("".to_string()))
     }
 
-    async fn transfer_to(&mut self, _agent_name: &str) -> Result<()> {
+    async fn transfer_to(&mut self, _target_agent: String, message: Message) -> Result<Message> {
         // TODO: Implement transfer logic
-        Ok(())
+        Ok(message)
     }
 
     async fn call_tool(&mut self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
@@ -50,12 +50,12 @@ impl Agent for BrowserAgentWrapper {
         Ok("".to_string())
     }
 
-    fn get_current_state(&self) -> Option<&State> {
+    async fn get_current_state(&self) -> Result<Option<State>> {
         // TODO: Return current state
-        None
+        Ok(None)
     }
 
-    fn get_config(&self) -> &AgentConfig {
-        &self.agent_config
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.agent_config.clone())
     }
 }

@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     api::AppState,
-    types::{Message, AgentConfig, Agent},
+    types::{Message, AgentConfig, Agent, AgentInfo},
     agents::AgentRegistry,
 };
 
@@ -34,9 +34,11 @@ pub async fn list_agents(State(state): State<Arc<AppState>>) -> Response {
     let registry = transfer_service.get_registry().read().await;
     let agents = registry.get_all_agents()
         .iter()
-        .map(|agent| AgentResponse {
-            name: agent.get_config().name.clone(),
-            description: agent.get_config().public_description.clone(),
+        .map(|agent| AgentInfo {
+            name: agent.get_config().await.unwrap().name,
+            description: agent.get_config().await.unwrap().public_description,
+            tools: agent.get_config().await.unwrap().tools,
+            downstream_agents: agent.get_config().await.unwrap().downstream_agents,
         })
         .collect::<Vec<_>>();
 
@@ -50,9 +52,11 @@ pub async fn get_agent(
     let transfer_service = state.transfer_service.read().await;
     let registry = transfer_service.get_registry().read().await;
     match registry.get(&name) {
-        Some(agent) => Json(AgentResponse {
-            name: agent.get_config().name.clone(),
-            description: agent.get_config().public_description.clone(),
+        Some(agent) => Json(AgentInfo {
+            name: agent.get_config().await.unwrap().name,
+            description: agent.get_config().await.unwrap().public_description,
+            tools: agent.get_config().await.unwrap().tools,
+            downstream_agents: agent.get_config().await.unwrap().downstream_agents,
         }).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -72,15 +76,7 @@ pub async fn send_message(
     let registry = transfer_service.get_registry().read().await;
     match registry.get(&name) {
         Some(_) => {
-            let response = Message {
-                content: "Connected to agent system".to_string(),
-                role: "assistant".to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                metadata: None,
-            };
+            let response = Message::new("Connected to agent system".to_string());
             Json(response).into_response()
         }
         None => (

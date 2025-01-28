@@ -8,53 +8,36 @@ use crate::types::{Agent, Message, Tool, State, AgentConfig, Result};
 /// This provides a consistent interface for working with agents while
 /// handling the necessary thread-safety and dynamic dispatch requirements.
 pub struct AgentWrapper {
-    inner: Arc<RwLock<Box<dyn Agent + Send + Sync>>>,
+    inner: Box<dyn Agent + Send + Sync>,
 }
 
 impl AgentWrapper {
     /// Create a new AgentWrapper from any type that implements Agent
-    pub fn new<A>(agent: A) -> Self 
-    where 
-        A: Agent + Send + Sync + 'static 
-    {
-        Self {
-            inner: Arc::new(RwLock::new(Box::new(agent)))
-        }
-    }
-
-    /// Clone the wrapper, creating a new reference to the same agent
-    pub fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone()
-        }
+    pub fn new(agent: Box<dyn Agent + Send + Sync>) -> Self {
+        Self { inner: agent }
     }
 }
 
 #[async_trait]
 impl Agent for AgentWrapper {
-    async fn process_message(&mut self, content: &str) -> Result<Message> {
-        let mut agent = self.inner.write().await;
-        agent.process_message(content).await
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
+        self.inner.process_message(message).await
     }
 
-    async fn transfer_to(&mut self, agent_name: &str) -> Result<()> {
-        let mut agent = self.inner.write().await;
-        agent.transfer_to(agent_name).await
+    async fn transfer_to(&mut self, target_agent: String, message: Message) -> Result<Message> {
+        self.inner.transfer_to(target_agent, message).await
     }
 
     async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        let mut agent = self.inner.write().await;
-        agent.call_tool(tool, params).await
+        self.inner.call_tool(tool, params).await
     }
 
-    async fn get_current_state(&self) -> Result<Option<State>> {
-        let agent = self.inner.read().await;
-        agent.get_current_state().await
+    async fn get_current_state(&self) -> Result<Option<String>> {
+        self.inner.get_current_state().await.map(|state| state.map(|s| s.name))
     }
 
-    async fn get_config(&self) -> Result<AgentConfig> {
-        let agent = self.inner.read().await;
-        agent.get_config().await
+    async fn get_config(&self) -> Result<String> {
+        self.inner.get_config().await.map(|config| serde_json::to_string(&config).unwrap())
     }
 }
 
@@ -76,7 +59,7 @@ mod tests {
         };
 
         let agent = HaikuAgent::new(config.clone());
-        let mut wrapper = AgentWrapper::new(agent);
+        let mut wrapper = AgentWrapper::new(Box::new(agent));
 
         // Test that we can get the config
         let config = wrapper.get_config().await.unwrap();
