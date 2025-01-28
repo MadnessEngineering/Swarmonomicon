@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     api::AppState,
-    types::{Message, AgentConfig},
+    types::{Message, AgentConfig, Agent},
     agents::AgentRegistry,
 };
 

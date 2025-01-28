@@ -10,6 +10,7 @@ pub mod project_init;
 pub mod user_agent;
 pub mod transfer;
 pub mod browser_agent;
+pub mod wrapper;
 
 pub use git_assistant::GitAssistantAgent;
 pub use greeter::GreeterAgent;
@@ -18,10 +19,11 @@ pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
 pub use browser_agent::BrowserAgentWrapper;
+pub use wrapper::AgentWrapper;
 
 #[derive(Default)]
 pub struct AgentRegistry {
-    agents: HashMap<String, Arc<Box<dyn Agent + Send + Sync>>>,
+    agents: HashMap<String, AgentWrapper>,
 }
 
 impl AgentRegistry {
@@ -36,28 +38,20 @@ impl AgentRegistry {
         A: Agent + Send + Sync + 'static,
     {
         let name = agent.get_config().name.clone();
-        self.agents.insert(name, Arc::new(Box::new(agent)));
+        self.agents.insert(name, AgentWrapper::new(agent));
         Ok(())
     }
 
-    pub fn get(&self, name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> {
-        self.agents.get(name).cloned()
+    pub fn get(&self, name: &str) -> Option<AgentWrapper> {
+        self.agents.get(name).map(|wrapper| wrapper.clone())
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Agent + Send + Sync>> {
-        if let Some(agent) = self.agents.get_mut(name) {
-            if let Some(agent) = Arc::get_mut(agent) {
-                Some(agent)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut AgentWrapper> {
+        self.agents.get_mut(name)
     }
 
-    pub fn get_all_agents(&self) -> Vec<Arc<Box<dyn Agent + Send + Sync>>> {
-        self.agents.values().cloned().collect()
+    pub fn get_all_agents(&self) -> Vec<AgentWrapper> {
+        self.agents.values().map(|wrapper| wrapper.clone()).collect()
     }
 
     pub fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
@@ -103,7 +97,7 @@ where
 }
 
 // Helper function to get an agent from the global registry
-pub async fn get_agent(name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> {
+pub async fn get_agent(name: &str) -> Option<AgentWrapper> {
     let registry = GLOBAL_REGISTRY.read().await;
     registry.get(name)
 }
@@ -111,8 +105,6 @@ pub async fn get_agent(name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![

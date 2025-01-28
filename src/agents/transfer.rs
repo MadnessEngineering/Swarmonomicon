@@ -1,9 +1,8 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::{
-    types::{Message, Agent},
+    types::{Message, Result, Agent},
     agents::AgentRegistry,
-    Result,
 };
 
 pub struct TransferService {
@@ -81,10 +80,38 @@ impl TransferService {
 mod tests {
     use super::*;
     use crate::types::AgentConfig;
+    use crate::agents::{AgentRegistry, GreeterAgent, HaikuAgent};
 
     #[tokio::test]
     async fn test_transfer_service() {
-        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+        // Create a test registry
+        let mut registry = AgentRegistry::new();
+        
+        // Add test agents
+        let greeter = GreeterAgent::new(AgentConfig {
+            name: "greeter".to_string(),
+            public_description: "Test greeter".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec!["haiku".to_string()],
+            personality: None,
+            state_machine: None,
+        });
+        
+        let haiku = HaikuAgent::new(AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Test haiku".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        });
+        
+        registry.register(greeter).unwrap();
+        registry.register(haiku).unwrap();
+        
+        let registry = Arc::new(RwLock::new(registry));
         let mut service = TransferService::new(registry);
 
         // Test no current agent
@@ -92,8 +119,18 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "No current agent set");
 
+        // Test setting current agent and processing message
+        service.set_current_agent("greeter".to_string());
+        let result = service.process_message("hi").await;
+        assert!(result.is_ok());
+
+        // Test transfer
+        let result = service.transfer("greeter", "haiku").await;
+        assert!(result.is_ok());
+        assert_eq!(service.get_current_agent(), Some("haiku"));
+
         // Test invalid transfer
-        let result = service.transfer("nonexistent", "also_nonexistent").await;
+        let result = service.transfer("nonexistent", "haiku").await;
         assert!(result.is_err());
     }
 } 
