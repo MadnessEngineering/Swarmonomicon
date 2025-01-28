@@ -162,7 +162,16 @@ impl Agent for GitAssistantAgent {
 
         if parts.is_empty() {
             return Ok(Message {
-                content: "Please provide a Git command or changes to commit. Use 'cd <path>' to change working directory.".to_string(),
+                content: "I can help you with Git operations! Try these commands:\n\
+                         - status: Show repository status\n\
+                         - add <files>: Stage files (use '.' for all)\n\
+                         - commit [message]: Commit changes with optional message\n\
+                         - branch <name>: Create a new branch\n\
+                         - checkout <branch>: Switch branches\n\
+                         - merge <branch>: Merge a branch\n\
+                         - push: Push changes to remote\n\
+                         - pull: Pull changes from remote\n\
+                         - cd <path>: Change working directory".to_string(),
                 role: "assistant".to_string(),
                 timestamp: chrono::Utc::now().timestamp() as u64,
                 metadata: None,
@@ -178,31 +187,108 @@ impl Agent for GitAssistantAgent {
                     Err(e) => format!("Error changing directory: {}", e),
                 }
             },
-            "commit" => {
-                // Get diff
-                let mut params = HashMap::new();
-                params.insert("command".to_string(), "diff".to_string());
-                params.insert("path".to_string(), self.working_dir.to_string_lossy().to_string());
-                let diff = self.tools.execute(&Tool {
-                    name: "git".to_string(),
-                    description: "Git operations".to_string(),
-                    parameters: HashMap::new(),
-                }, params).await?;
+            "status" => {
+                let output = Command::new("git")
+                    .current_dir(&self.working_dir)
+                    .args(["status", "--porcelain", "-b"])
+                    .output()?;
 
-                if diff.is_empty() {
-                    "No changes detected to commit.".to_string()
+                if output.stdout.is_empty() {
+                    "Repository is clean. No changes detected.".to_string()
                 } else {
-                    // Stage changes
-                    let mut params = HashMap::new();
-                    params.insert("command".to_string(), "stage".to_string());
-                    params.insert("path".to_string(), self.working_dir.to_string_lossy().to_string());
-                    self.tools.execute(&Tool {
-                        name: "git".to_string(),
-                        description: "Git operations".to_string(),
-                        parameters: HashMap::new(),
-                    }, params).await?;
+                    let status = String::from_utf8_lossy(&output.stdout);
+                    let mut response = String::new();
 
-                    // Generate or use provided commit message
+                    // Parse branch info
+                    if let Some(branch_line) = status.lines().next() {
+                        if branch_line.starts_with("## ") {
+                            response.push_str(&format!("On branch: {}\n\n", &branch_line[3..]));
+                        }
+                    }
+
+                    // Parse file status
+                    let mut staged = Vec::new();
+                    let mut modified = Vec::new();
+                    let mut untracked = Vec::new();
+
+                    for line in status.lines().skip(1) {
+                        if line.len() < 3 { continue; }
+                        let (status_code, file) = line.split_at(3);
+                        match &status_code[..2] {
+                            "M " => modified.push(file.trim()),
+                            "A " => staged.push(file.trim()),
+                            "??" => untracked.push(file.trim()),
+                            _ => {}
+                        }
+                    }
+
+                    if !staged.is_empty() {
+                        response.push_str("Changes staged for commit:\n");
+                        for file in staged {
+                            response.push_str(&format!("  - {}\n", file));
+                        }
+                        response.push('\n');
+                    }
+
+                    if !modified.is_empty() {
+                        response.push_str("Modified files:\n");
+                        for file in modified {
+                            response.push_str(&format!("  - {}\n", file));
+                        }
+                        response.push('\n');
+                    }
+
+                    if !untracked.is_empty() {
+                        response.push_str("Untracked files:\n");
+                        for file in untracked {
+                            response.push_str(&format!("  - {}\n", file));
+                        }
+                    }
+
+                    response
+                }
+            },
+            "add" => {
+                if parts.len() < 2 {
+                    "Please specify files to stage (use '.' for all files)".to_string()
+                } else {
+                    let files = &parts[1..];
+                    let mut success = true;
+                    let mut errors = Vec::new();
+
+                    for file in files {
+                        let output = Command::new("git")
+                            .current_dir(&self.working_dir)
+                            .args(["add", file])
+                            .output()?;
+
+                        if !output.status.success() {
+                            success = false;
+                            errors.push(format!("Failed to stage '{}': {}",
+                                file,
+                                String::from_utf8_lossy(&output.stderr)));
+                        }
+                    }
+
+                    if success {
+                        format!("Successfully staged: {}", files.join(", "))
+                    } else {
+                        format!("Errors occurred while staging:\n{}", errors.join("\n"))
+                    }
+                }
+            },
+            "commit" => {
+                // Get diff for staged changes
+                let output = Command::new("git")
+                    .current_dir(&self.working_dir)
+                    .args(["diff", "--staged"])
+                    .output()?;
+
+                let diff = String::from_utf8_lossy(&output.stdout).to_string();
+                if diff.is_empty() {
+                    "No staged changes to commit. Use 'git add' to stage files first.".to_string()
+                } else {
+                    // Use provided message or generate one
                     let commit_msg = if parts.len() > 1 {
                         parts[1..].join(" ")
                     } else {
@@ -210,66 +296,88 @@ impl Agent for GitAssistantAgent {
                     };
 
                     // Commit changes
-                    let mut params = HashMap::new();
-                    params.insert("command".to_string(), "commit".to_string());
-                    params.insert("message".to_string(), commit_msg.clone());
-                    params.insert("path".to_string(), self.working_dir.to_string_lossy().to_string());
+                    let output = Command::new("git")
+                        .current_dir(&self.working_dir)
+                        .args(["commit", "-m", &commit_msg])
+                        .output()?;
 
-                    let tool_call = ToolCall {
-                        tool: "git".to_string(),
-                        parameters: params.clone(),
-                        result: None,
-                    };
-                    tool_calls.push(tool_call);
-
-                    self.tools.execute(&Tool {
-                        name: "git".to_string(),
-                        description: "Git operations".to_string(),
-                        parameters: HashMap::new(),
-                    }, params).await?;
-
-                    format!("Changes committed with message: {}", commit_msg)
+                    if output.status.success() {
+                        format!("Successfully committed changes with message:\n{}", commit_msg)
+                    } else {
+                        format!("Failed to commit: {}", String::from_utf8_lossy(&output.stderr))
+                    }
                 }
             },
-            "branch" if parts.len() > 1 => {
-                let mut params = HashMap::new();
-                params.insert("command".to_string(), "branch".to_string());
-                params.insert("name".to_string(), parts[1].to_string());
-                params.insert("path".to_string(), self.working_dir.to_string_lossy().to_string());
+            "branch" => {
+                if parts.len() < 2 {
+                    // List branches if no name provided
+                    let output = Command::new("git")
+                        .current_dir(&self.working_dir)
+                        .args(["branch", "--list"])
+                        .output()?;
 
-                let tool_call = ToolCall {
-                    tool: "git".to_string(),
-                    parameters: params.clone(),
-                    result: None,
-                };
-                tool_calls.push(tool_call);
+                    let branches = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .map(|line| if line.starts_with('*') {
+                            format!("{} (current)", line)
+                        } else {
+                            line.to_string()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
 
-                self.tools.execute(&Tool {
-                    name: "git".to_string(),
-                    description: "Git operations".to_string(),
-                    parameters: HashMap::new(),
-                }, params).await?
+                    format!("Available branches:\n{}", branches)
+                } else {
+                    // Create new branch
+                    match self.create_branch(&parts[1]) {
+                        Ok(_) => format!("Created and switched to new branch: {}", parts[1]),
+                        Err(e) => format!("Failed to create branch: {}", e),
+                    }
+                }
+            },
+            "checkout" if parts.len() > 1 => {
+                let output = Command::new("git")
+                    .current_dir(&self.working_dir)
+                    .args(["checkout", parts[1]])
+                    .output()?;
+
+                if output.status.success() {
+                    format!("Switched to branch: {}", parts[1])
+                } else {
+                    format!("Failed to switch branches: {}", String::from_utf8_lossy(&output.stderr))
+                }
             },
             "merge" if parts.len() > 1 => {
-                let mut params = HashMap::new();
-                params.insert("command".to_string(), "merge".to_string());
-                params.insert("target".to_string(), parts[1].to_string());
-                params.insert("path".to_string(), self.working_dir.to_string_lossy().to_string());
-
-                let tool_call = ToolCall {
-                    tool: "git".to_string(),
-                    parameters: params.clone(),
-                    result: None,
-                };
-                tool_calls.push(tool_call);
-
-                self.tools.execute(&Tool {
-                    name: "git".to_string(),
-                    description: "Git operations".to_string(),
-                    parameters: HashMap::new(),
-                }, params).await?
+                match self.merge_branch(parts[1]) {
+                    Ok(_) => format!("Successfully merged branch: {}", parts[1]),
+                    Err(e) => format!("Failed to merge branch: {}", e),
+                }
             },
-            _ => "Available commands: cd <path>, commit [message], branch <name>, merge <target>".to_string(),
+            "push" => {
+                let output = Command::new("git")
+                    .current_dir(&self.working_dir)
+                    .args(["push"])
+                    .output()?;
+
+                if output.status.success() {
+                    "Successfully pushed changes to remote".to_string()
+                } else {
+                    format!("Failed to push changes: {}", String::from_utf8_lossy(&output.stderr))
+                }
+            },
+            "pull" => {
+                let output = Command::new("git")
+                    .current_dir(&self.working_dir)
+                    .args(["pull"])
+                    .output()?;
+
+                if output.status.success() {
+                    "Successfully pulled changes from remote".to_string()
+                } else {
+                    format!("Failed to pull changes: {}", String::from_utf8_lossy(&output.stderr))
+                }
+            },
+            _ => format!("Unknown command: {}. Type 'help' for available commands.", parts[0]),
         };
 
         Ok(Message {
@@ -281,8 +389,7 @@ impl Agent for GitAssistantAgent {
             } else {
                 Some(MessageMetadata {
                     tool_calls: Some(tool_calls),
-                    state: self.current_state.clone(),
-                    confidence: None,
+                    ..Default::default()
                 })
             },
         })

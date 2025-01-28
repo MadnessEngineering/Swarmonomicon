@@ -68,7 +68,7 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MessageMetadata {
     pub tool_calls: Option<Vec<ToolCall>>,
     pub state: Option<String>,
