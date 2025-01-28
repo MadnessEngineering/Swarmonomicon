@@ -122,6 +122,7 @@ impl GitAssistantAgent {
             .post("http://127.0.0.1:1234/v1/chat/completions")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
+                // "model": "qwen2.5-7b-instruct",
                 "model": "qwen2.5-7b-instruct",
                 "messages": [
                     {
@@ -193,35 +194,35 @@ impl Agent for GitAssistantAgent {
                     .args(["status", "--porcelain", "-b"])
                     .output()?;
 
-                if output.stdout.is_empty() {
-                    "Repository is clean. No changes detected.".to_string()
+                let status = String::from_utf8_lossy(&output.stdout);
+                let mut response = String::new();
+
+                // Parse branch info
+                if let Some(branch_line) = status.lines().next() {
+                    if branch_line.starts_with("## ") {
+                        response.push_str(&format!("On branch: {}\n\n", &branch_line[3..]));
+                    }
+                }
+
+                // Parse file status
+                let mut staged = Vec::new();
+                let mut modified = Vec::new();
+                let mut untracked = Vec::new();
+
+                for line in status.lines().skip(1) {
+                    if line.len() < 3 { continue; }
+                    let (status_code, file) = line.split_at(3);
+                    match &status_code[..2] {
+                        "M " => modified.push(file.trim()),
+                        "A " => staged.push(file.trim()),
+                        "??" => untracked.push(file.trim()),
+                        _ => {}
+                    }
+                }
+
+                if staged.is_empty() && modified.is_empty() && untracked.is_empty() {
+                    response.push_str("Repository is clean. No changes detected.");
                 } else {
-                    let status = String::from_utf8_lossy(&output.stdout);
-                    let mut response = String::new();
-
-                    // Parse branch info
-                    if let Some(branch_line) = status.lines().next() {
-                        if branch_line.starts_with("## ") {
-                            response.push_str(&format!("On branch: {}\n\n", &branch_line[3..]));
-                        }
-                    }
-
-                    // Parse file status
-                    let mut staged = Vec::new();
-                    let mut modified = Vec::new();
-                    let mut untracked = Vec::new();
-
-                    for line in status.lines().skip(1) {
-                        if line.len() < 3 { continue; }
-                        let (status_code, file) = line.split_at(3);
-                        match &status_code[..2] {
-                            "M " => modified.push(file.trim()),
-                            "A " => staged.push(file.trim()),
-                            "??" => untracked.push(file.trim()),
-                            _ => {}
-                        }
-                    }
-
                     if !staged.is_empty() {
                         response.push_str("Changes staged for commit:\n");
                         for file in staged {
@@ -244,9 +245,9 @@ impl Agent for GitAssistantAgent {
                             response.push_str(&format!("  - {}\n", file));
                         }
                     }
-
-                    response
                 }
+
+                response
             },
             "add" => {
                 if parts.len() < 2 {
@@ -405,5 +406,133 @@ impl Agent for GitAssistantAgent {
 
     fn get_current_state(&self) -> Option<&State> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn create_test_config() -> AgentConfig {
+        AgentConfig {
+            name: "git".to_string(),
+            public_description: "Git operations assistant".to_string(),
+            instructions: "Help with git operations".to_string(),
+            tools: Vec::new(),
+            downstream_agents: Vec::new(),
+            personality: None,
+            state_machine: None,
+        }
+    }
+
+    async fn setup_test_repo() -> (GitAssistantAgent, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let mut agent = GitAssistantAgent::new(create_test_config());
+        agent.set_working_dir(&temp_dir.path()).unwrap();
+
+        // Initialize git repo
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["init"])
+            .output()
+            .unwrap();
+
+        // Configure git user for commits
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["config", "user.name", "Test User"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["config", "user.email", "test@example.com"])
+            .output()
+            .unwrap();
+
+        // Create initial commit to allow branch creation
+        fs::write(
+            temp_dir.path().join("initial.txt"),
+            "Initial commit",
+        ).unwrap();
+
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["add", "initial.txt"])
+            .output()
+            .unwrap();
+
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["commit", "-m", "Initial commit"])
+            .output()
+            .unwrap();
+
+        (agent, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_empty_repo_status() {
+        let (mut agent, _temp_dir) = setup_test_repo().await;
+        let response = agent.process_message("status").await.unwrap();
+        println!("Status response: {}", response.content);
+        // After initial commit, repo should be clean
+        assert!(response.content.contains("Repository is clean"));
+    }
+
+    #[tokio::test]
+    async fn test_add_and_commit() {
+        let (mut agent, temp_dir) = setup_test_repo().await;
+
+        // Create a test file
+        fs::write(
+            temp_dir.path().join("test.txt"),
+            "Hello, World!",
+        ).unwrap();
+
+        // Check status
+        let response = agent.process_message("status").await.unwrap();
+        assert!(response.content.contains("Untracked files"));
+        assert!(response.content.contains("test.txt"));
+
+        // Stage the file
+        let response = agent.process_message("add test.txt").await.unwrap();
+        assert!(response.content.contains("Successfully staged"));
+
+        // Commit the file
+        let response = agent.process_message("commit Initial commit").await.unwrap();
+        assert!(response.content.contains("Successfully committed changes"));
+    }
+
+    #[tokio::test]
+    async fn test_branch_operations() {
+        let (mut agent, _temp_dir) = setup_test_repo().await;
+
+        // Create and switch to a new branch
+        let response = agent.process_message("branch feature-test").await.unwrap();
+        assert!(response.content.contains("Created and switched to new branch"));
+
+        // List branches (should show both main/master and feature-test)
+        let response = agent.process_message("branch").await.unwrap();
+        assert!(response.content.contains("feature-test"));
+    }
+
+    #[tokio::test]
+    async fn test_help_message() {
+        let (mut agent, _temp_dir) = setup_test_repo().await;
+        let response = agent.process_message("").await.unwrap();
+        assert!(response.content.contains("status:"));
+        assert!(response.content.contains("add"));
+        assert!(response.content.contains("commit"));
+        assert!(response.content.contains("branch"));
+    }
+
+    #[tokio::test]
+    async fn test_invalid_command() {
+        let (mut agent, _temp_dir) = setup_test_repo().await;
+        let response = agent.process_message("invalid-command").await.unwrap();
+        assert!(response.content.contains("Unknown command"));
+        assert!(response.content.contains("Type 'help'"));
     }
 }
