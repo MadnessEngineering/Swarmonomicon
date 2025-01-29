@@ -2,183 +2,99 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use serde_json::Value;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use crate::ai::AiClient;
 
 pub struct GreeterAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
+    ai_client: AiClient,
+    conversation_history: Vec<Message>,
 }
 
 impl GreeterAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let state_machine = Some(StateMachine {
-            states: {
-                let mut states = HashMap::new();
-                states.insert("awaiting_input".to_string(), State {
-                    name: "awaiting_input".to_string(),
-                    data: None,
-                    prompt: Some("Welcome to the laboratory! Don't mind the sparks, they're mostly decorative.".to_string()),
-                    transitions: Some({
-                        let mut transitions = HashMap::new();
-                        transitions.insert("project".to_string(), "project_transfer".to_string());
-                        transitions.insert("git".to_string(), "git_transfer".to_string());
-                        transitions.insert("haiku".to_string(), "haiku_transfer".to_string());
-                        transitions
-                    }),
-                    validation: None,
-                });
-                states.insert("project_transfer".to_string(), State {
-                    name: "project_transfer".to_string(),
-                    data: None,
-                    prompt: Some("🚀 Let me connect you with the Project Assistant...".to_string()),
-                    transitions: Some(HashMap::new()),
-                    validation: None,
-                });
-                states.insert("git_transfer".to_string(), State {
-                    name: "git_transfer".to_string(),
-                    data: None,
-                    prompt: Some("🌳 Transferring you to the Git Assistant...".to_string()),
-                    transitions: Some(HashMap::new()),
-                    validation: None,
-                });
-                states.insert("haiku_transfer".to_string(), State {
-                    name: "haiku_transfer".to_string(),
-                    data: None,
-                    prompt: Some("🌸 Connecting you with the Haiku Assistant...".to_string()),
-                    transitions: Some(HashMap::new()),
-                    validation: None,
-                });
-                states
-            },
-            initial_state: "awaiting_input".to_string(),
-        });
-
-        let mut config = config;
-        config.state_machine = state_machine.clone();
-
         Self {
             config,
-            state_manager: AgentStateManager::new(state_machine),
+            state_manager: AgentStateManager::new(None),
+            ai_client: AiClient::new(),
+            conversation_history: Vec::new(),
         }
     }
 
-    fn create_response(&self, content: String) -> Message {
-        let current_state = self.state_manager.get_current_state_name();
-        let metadata = MessageMetadata::new(self.config.name.clone())
-            .with_state(current_state.unwrap_or("awaiting_input").to_string())
-            .with_personality(vec![
-                "friendly".to_string(),
-                "helpful".to_string(),
-                "welcoming".to_string(),
-            ]);
+    async fn get_ai_response(&self, prompt: &str) -> Result<String> {
+        let messages = self.build_conversation_messages(prompt);
+        let system_prompt = format!(
+            "You are a friendly AI greeter assistant named {}. Your role is to: \
+            1. Welcome users and understand their needs \
+            2. Direct them to specialized agents for specific tasks (git, haiku, or project initialization) \
+            3. Maintain a helpful and engaging conversation \
+            4. If the user mentions anything related to git, suggest transferring to the git agent \
+            5. If the user mentions poetry or nature, suggest transferring to the haiku agent \
+            6. If the user mentions creating or starting a project, suggest transferring to the project-init agent \
+            Be concise but friendly in your responses.",
+            self.config.name
+        );
 
-        Message {
-            content,
-            role: Some("assistant".to_string()),
-            timestamp: Some(chrono::Utc::now().timestamp()),
-            metadata: Some(metadata),
-        }
+        self.ai_client.chat(&system_prompt, messages).await
     }
 
-    fn should_transfer(&self, message: &str) -> Option<String> {
-        match message.to_lowercase().as_str() {
-            "project" => Some("project".to_string()),
-            "git" => Some("git".to_string()),
-            "haiku" => Some("haiku".to_string()),
+    fn build_conversation_messages(&self, current_prompt: &str) -> Vec<HashMap<String, String>> {
+        let mut messages = Vec::new();
+
+        // Add conversation history
+        for message in &self.conversation_history {
+            messages.push(HashMap::from([
+                ("role".to_string(), "user".to_string()),
+                ("content".to_string(), message.content.clone()),
+            ]));
+        }
+
+        // Add current prompt
+        messages.push(HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), current_prompt.to_string()),
+        ]));
+
+        messages
+    }
+
+    async fn handle_greeting(&self, message: &str) -> Result<Message> {
+        // Check for direct transfer requests first
+        let transfer_agent = match message.to_lowercase().as_str() {
+            msg if msg.contains("haiku") || msg.contains("poetry") || msg.contains("nature") => Some("haiku"),
+            msg if msg.contains("git") || msg.contains("version") || msg.contains("repository") => Some("git"),
+            msg if msg.contains("project") || msg.contains("init") || msg.contains("create") => Some("project-init"),
             _ => None,
+        };
+
+        if let Some(agent) = transfer_agent {
+            let mut response = Message::new(format!("Let me transfer you to our {} specialist...", agent));
+            response.metadata = Some(MessageMetadata::new("greeter".to_string())
+                .with_transfer(agent.to_string()));
+            return Ok(response);
         }
+
+        // Get AI response for conversation
+        let ai_response = self.get_ai_response(message).await?;
+        
+        let mut response = Message::new(ai_response);
+        response.metadata = Some(MessageMetadata::new("greeter".to_string())
+            .with_personality(vec!["friendly".to_string(), "helpful".to_string()]));
+        Ok(response)
     }
 }
 
 #[async_trait]
 impl Agent for GreeterAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
-        let current_state = self.state_manager.get_current_state_name();
-        let response = match current_state {
-            Some("awaiting_input") => {
-                match message.content.as_str() {
-                    "project" => {
-                        let metadata = MessageMetadata::new(self.config.name.clone())
-                            .with_state("project_transfer".to_string())
-                            .with_transfer("project".to_string())
-                            .with_personality(vec![
-                                "friendly".to_string(),
-                                "helpful".to_string(),
-                                "welcoming".to_string(),
-                            ]);
-                        Message {
-                            content: "🚀 Let me connect you with the Project Assistant...".to_string(),
-                            role: Some("assistant".to_string()),
-                            timestamp: Some(chrono::Utc::now().timestamp()),
-                            metadata: Some(metadata),
-                        }
-                    }
-                    "git" => {
-                        let metadata = MessageMetadata::new(self.config.name.clone())
-                            .with_state("git_transfer".to_string())
-                            .with_transfer("git".to_string())
-                            .with_personality(vec![
-                                "friendly".to_string(),
-                                "helpful".to_string(),
-                                "welcoming".to_string(),
-                            ]);
-                        Message {
-                            content: "🌳 Transferring you to the Git Assistant...".to_string(),
-                            role: Some("assistant".to_string()),
-                            timestamp: Some(chrono::Utc::now().timestamp()),
-                            metadata: Some(metadata),
-                        }
-                    }
-                    "haiku" => {
-                        let metadata = MessageMetadata::new(self.config.name.clone())
-                            .with_state("haiku_transfer".to_string())
-                            .with_transfer("haiku".to_string())
-                            .with_personality(vec![
-                                "friendly".to_string(),
-                                "helpful".to_string(),
-                                "welcoming".to_string(),
-                            ]);
-                        Message {
-                            content: "🌸 Connecting you with the Haiku Assistant...".to_string(),
-                            role: Some("assistant".to_string()),
-                            timestamp: Some(chrono::Utc::now().timestamp()),
-                            metadata: Some(metadata),
-                        }
-                    }
-                    _ => Message {
-                        content: "👋 Hello! I'm your friendly greeter. How can I assist you today?".to_string(),
-                        role: Some("assistant".to_string()),
-                        timestamp: Some(chrono::Utc::now().timestamp()),
-                        metadata: Some(MessageMetadata::new(self.config.name.clone())
-                            .with_state(current_state.unwrap_or("awaiting_input").to_string())
-                            .with_personality(vec![
-                                "friendly".to_string(),
-                                "helpful".to_string(),
-                                "welcoming".to_string(),
-                            ])),
-                    },
-                }
-            }
-            _ => Message {
-                content: "👋 Hello! I'm your friendly greeter. How can I assist you today?".to_string(),
-                role: Some("assistant".to_string()),
-                timestamp: Some(chrono::Utc::now().timestamp()),
-                metadata: Some(MessageMetadata::new(self.config.name.clone())
-                    .with_state(current_state.unwrap_or("awaiting_input").to_string())
-                    .with_personality(vec![
-                        "friendly".to_string(),
-                        "helpful".to_string(),
-                        "welcoming".to_string(),
-                    ])),
-            },
-        };
-        Ok(response)
+        self.handle_greeting(&message.content).await
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        if !self.config.downstream_agents.contains(&target_agent) {
-            return Err("Invalid agent transfer target".into());
-        }
-        Ok(message)
+        let mut response = message;
+        response.metadata = Some(MessageMetadata::new("greeter".to_string())
+            .with_transfer(target_agent));
+        Ok(response)
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {

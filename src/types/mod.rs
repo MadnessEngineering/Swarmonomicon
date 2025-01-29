@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use chrono;
 use std::str::FromStr;
 use thiserror::Error;
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameter {
@@ -80,6 +81,12 @@ impl Message {
     pub fn with_timestamp(mut self, timestamp: Option<i64>) -> Self {
         self.timestamp = timestamp;
         self
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.content)
     }
 }
 

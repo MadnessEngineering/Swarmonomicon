@@ -141,7 +141,7 @@ impl Agent for ProjectInitAgent {
         if let Some(metadata) = message.metadata {
             let state = self.current_state.clone().unwrap_or_else(|| "initial".to_string());
             let metadata = MessageMetadata::new("project_init".to_string())
-                .with_personality_traits(vec!["helpful".to_string(), "technical".to_string()])
+                .with_personality(vec!["helpful".to_string(), "technical".to_string()])
                 .with_state(state);
             response.metadata = Some(metadata);
         }
@@ -161,7 +161,13 @@ impl Agent for ProjectInitAgent {
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(self.current_state.clone().map(State::from))
+        Ok(self.current_state.clone().map(|s| State {
+            name: s,
+            data: None,
+            prompt: None,
+            transitions: None,
+            validation: None,
+        }))
     }
 }
 

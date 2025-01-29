@@ -5,6 +5,7 @@ pub mod config;
 pub mod api;
 pub mod error;
 pub mod types;
+pub mod ai;
 
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

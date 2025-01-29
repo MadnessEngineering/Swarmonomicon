@@ -94,7 +94,7 @@ async fn handle_client_message(msg: ClientMessage, state: Arc<AppState>) -> Resu
             Ok(ServerMessage::Connected { agent })
         },
         ClientMessage::Message { content } => {
-            let transfer_service = state.transfer_service.read().await;
+            let mut transfer_service = state.transfer_service.write().await;
             match transfer_service.process_message(Message::new(content)).await {
                 Ok(response) => Ok(ServerMessage::Message { content: response.content }),
                 Err(e) => Err(e.to_string()),

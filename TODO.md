@@ -8,20 +8,39 @@
    - [x] Consider if we need both `Arc` and `Box`
    - [x] Document the wrapping pattern decisions
 
-2. [ ] Fix `TransferService` implementation
+2. [x] Fix `TransferService` implementation
    - [x] Review how it interacts with `AgentRegistry`
-   - [ ] Consider if we need `Arc<RwLock<AgentRegistry>>` or if `Arc<AgentRegistry>` is sufficient
-   - [ ] Update methods to handle concurrent access correctly
+   - [x] Consider if we need `Arc<RwLock<AgentRegistry>>` or if `Arc<AgentRegistry>` is sufficient
+   - [x] Update methods to handle concurrent access correctly
 
 3. [x] Update agent registration in `swarm.rs`
    - [x] Remove direct `Arc<RwLock>` wrapping of agents
    - [x] Let `AgentRegistry::register` handle the wrapping
    - [x] Update the test cases to match this pattern
 
-4. [ ] Fix type mismatches
+4. [x] Fix type mismatches
    - [x] Update `get_agent` to return correct type
-   - [ ] Fix `registry.read()` vs `registry.write()` usage
-   - [ ] Ensure consistent agent access patterns
+   - [x] Fix `registry.read()` vs `registry.write()` usage
+   - [x] Ensure consistent agent access patterns
+
+### AI Integration
+1. [x] Implement centralized AI client
+   - [x] Add configurable endpoint support
+   - [x] Add model selection support
+   - [x] Implement conversation history
+   - [x] Add system prompt handling
+
+2. [x] Update agents to use AI client
+   - [x] Update GreeterAgent
+   - [x] Update GitAssistantAgent
+   - [x] Add conversation history support
+   - [x] Implement proper error handling
+
+3. [ ] Enhance AI communication
+   - [ ] Add retry mechanism for failed requests
+   - [ ] Implement request timeout handling
+   - [ ] Add rate limiting
+   - [ ] Improve error messages
 
 ### Current Issues to Fix
 1. [ ] Fix lifetime issue in `AgentWrapper::get_mut`
@@ -35,7 +54,7 @@
    - [ ] Ensure proper trait bounds on generic parameters
 
 3. [ ] Review locking patterns in `TransferService`
-   - [ ] Consider if we need write locks for read-only operations
+   - [x] Consider if we need write locks for read-only operations
    - [ ] Add timeouts to prevent deadlocks
    - [ ] Handle lock poisoning cases
 
@@ -47,15 +66,17 @@
 
 2. [ ] Add unit tests
    - [x] Test agent registration
-   - [ ] Test message routing
+   - [x] Test message routing
    - [ ] Test state transitions
+   - [x] Test AI client functionality
 
 ## Medium Priority
 
 ### Documentation
-1. [ ] Add inline documentation for public APIs
-2. [ ] Create usage examples
-3. [ ] Document concurrency patterns
+1. [x] Add inline documentation for public APIs
+2. [x] Create usage examples
+3. [x] Document concurrency patterns
+4. [x] Document AI integration
 
 ### Features
 1. [ ] Implement proper error handling for agent transfers
@@ -86,6 +107,10 @@
 - [x] Create `AgentWrapper` to handle type complexity
 - [x] Update `AgentRegistry` to use wrapper type
 - [x] Update agent registration to use new pattern
+- [x] Implement centralized AI client
+- [x] Add conversation history support
+- [x] Update agents to use AI client
+- [x] Fix concurrent access patterns
 
 ## Next Steps
 1. Create a wrapper type for agents to handle the type complexity:

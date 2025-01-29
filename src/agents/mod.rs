@@ -86,7 +86,7 @@ impl AgentRegistry {
                 "git" => registry.register(GitAssistantAgent::new(config)).await?,
                 #[cfg(feature = "browser-agent")]
                 "browser" => {
-                    let agent = BrowserAgentWrapper::new(config).await?;
+                    let agent = BrowserAgentWrapper::new(config)?;
                     registry.register(agent).await?
                 },
                 #[cfg(feature = "project-init-agent")]

@@ -49,19 +49,38 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 - Greeter and Haiku example agents
 - Tool system with support for custom executors
 - Configuration management for agents and tools
+- Centralized AI client with LM Studio integration
+- Intelligent conversation handling with history
+- Git operations with AI-powered commit messages
 
 #### In Progress 🚧
-- adding entry point for greeter
-- update todo_worker to keep a record of tasks and to log more items
-- add mqtt logging for log agent to watch and react too
+- Adding entry point for greeter
+- Update todo_worker to keep a record of tasks and to log more items
+- Add mqtt logging for log agent to watch and react to
+- Enhance conversation context preservation
+- Improve error handling for AI communication
+- Add more sophisticated state machine transitions
 
 ## Setup
 
-- This is a Rust project using tokio for async runtime
-- Install dependencies with `cargo build`
-- Run tests with `cargo test`
-- Start the server with `cargo run`
-- The server will start on [http://localhost:3000](http://localhost:3000)
+### Prerequisites
+- Rust toolchain (latest stable)
+- LM Studio running locally (default: http://127.0.0.1:1234)
+- Git (for version control features)
+
+### Installation
+1. Clone the repository
+2. Install dependencies with `cargo build`
+3. Start LM Studio with the Qwen model
+4. Run tests with `cargo test`
+5. Start the server with `cargo run`
+6. The server will start on [http://localhost:3000](http://localhost:3000)
+
+### Configuration
+The system can be configured through environment variables:
+- `AI_ENDPOINT`: LLM API endpoint (default: http://127.0.0.1:1234)
+- `AI_MODEL`: Model to use (default: qwen2.5-7b-instruct)
+- `RUST_LOG`: Logging level (default: info)
 
 ## Architecture
 
@@ -71,11 +90,13 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
    - `AgentRegistry`: Manages available agents
    - `TransferService`: Handles agent transfers and message routing
    - `Agent` trait: Interface for implementing custom agents
+   - `AiClient`: Centralized LLM communication
 
 2. **API Layer**
    - REST endpoints for agent management
    - Websocket handler for realtime communication
-   - Session management (in progress)
+   - Session management
+   - AI-powered conversation handling
 
 3. **Tool System**
    - `ToolExecutor` trait for implementing custom tools

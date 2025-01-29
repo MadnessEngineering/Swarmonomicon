@@ -8,6 +8,7 @@ use crate::tools::ToolRegistry;
 use crate::Result;
 use rand::Rng;
 use chrono;
+use crate::ai::AiClient;
 
 pub struct GitAssistantAgent {
     config: AgentConfig,
@@ -15,6 +16,7 @@ pub struct GitAssistantAgent {
     state_manager: AgentStateManager,
     working_dir: Arc<Mutex<Option<PathBuf>>>,
     current_state: Option<State>,
+    ai_client: AiClient,
 }
 
 impl GitAssistantAgent {
@@ -25,6 +27,7 @@ impl GitAssistantAgent {
             state_manager: AgentStateManager::new(None),
             working_dir: Arc::new(Mutex::new(None)),
             current_state: None,
+            ai_client: AiClient::new(),
         }
     }
 
@@ -121,42 +124,22 @@ impl GitAssistantAgent {
     }
 
     async fn generate_commit_message(&self, diff: &str) -> Result<String> {
-        // Check if diff is too large (>4000 chars is a reasonable limit for context)
-        const MAX_DIFF_SIZE: usize = 4000;
-        if diff.len() > MAX_DIFF_SIZE {
-            return Ok(format!(
-                "feat: large update ({} files changed)\n\nLarge changeset detected. Please review the changes and provide a manual commit message.",
-                diff.matches("diff --git").count()
-            ));
-        }
+        let system_prompt = "You are a helpful assistant that generates clear and concise git commit messages. \
+            You analyze git diffs and create conventional commit messages that follow best practices. \
+            Focus on describing WHAT changed and WHY, being specific but concise. \
+            Use the conventional commits format: type(scope): Detailed description\n\n\
+            Types: feat, fix, docs, style, refactor, test, chore\n\
+            Example: feat(auth): add password reset functionality";
 
-        // Use OpenAI to generate commit message
-        let openai = reqwest::Client::new();
-        let response = openai
-            .post("http://127.0.0.1:1234/v1/chat/completions")
-            .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                // "model": "qwen2.5-7b-instruct",
-                "model": "qwen2.5-7b-instruct",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant that generates clear and concise git commit messages. You analyze git diffs and create conventional commit messages that follow best practices. Focus on describing WHAT changed and WHY, being specific but concise. Use the conventional commits format: type(scope): Detailed description\n\nTypes: feat, fix, docs, style, refactor, test, chore\nExample: feat(auth): add password reset functionality"
-                    },
-                    {
-                        "role": "user",
-                        "content": format!("Generate a commit message for these changes. If you can't determine the changes clearly, respond with 'NEED_MORE_CONTEXT':\n\n{}", diff)
-                    }
-                ]
-            }))
-            .send()
-            .await?;
+        let messages = vec![HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), format!(
+                "Generate a commit message for these changes. If you can't determine the changes clearly, respond with 'NEED_MORE_CONTEXT':\n\n{}", 
+                diff
+            )),
+        ])];
 
-        let data: serde_json::Value = response.json().await?;
-        let message = data["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("NEED_MORE_CONTEXT")
-            .to_string();
+        let message = self.ai_client.chat(system_prompt, messages).await?;
 
         if message == "NEED_MORE_CONTEXT" {
             Ok("Please provide a commit message. The changes are too complex for automatic generation.".to_string())
@@ -191,8 +174,8 @@ impl GitAssistantAgent {
         ];
 
         let state = self.get_current_state().await.unwrap_or(None)
-            .map(|s| s.prompt.clone())
-            .unwrap_or_else(|| Some("archival".to_string()));
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "archival".to_string());
 
         Message::new(content)
             .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
@@ -202,7 +185,9 @@ impl GitAssistantAgent {
 
     fn format_git_response(&self, content: String) -> Message {
         let traits = vec!["helpful".to_string(), "technical".to_string()];
-        let state = self.current_state.clone().map(|s| s.prompt.clone()).unwrap_or_else(|| Some("archival".to_string()));
+        let state = self.current_state.as_ref()
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "archival".to_string());
         
         Message::new(content)
             .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
@@ -221,58 +206,58 @@ impl Agent for GitAssistantAgent {
         let command = message.content.trim().to_lowercase();
         
         match command.as_str() {
-            "help" | "" => self.handle_git_command(&command).await,
+            "help" | "" => Ok(self.handle_git_command(&command)),
             cmd if cmd.starts_with("add") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Preparing to preserve the following artifacts in the temporal archive: {}", 
                         &command[4..].trim())
-                ).await
+                ))
             },
             cmd if cmd.starts_with("commit") => {
                 let msg = &command[7..].trim().to_string();
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Creating quantum state marker: {}", 
                         if msg.is_empty() { "archival" } else { msg })
-                ).await
+                ))
             },
             cmd if cmd.starts_with("branch") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Initiating parallel timeline branch: {}", 
                         &command[7..].trim())
-                ).await
+                ))
             },
             cmd if cmd.starts_with("checkout") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Shifting to timeline: {}", 
                         &command[9..].trim())
-                ).await
+                ))
             },
             cmd if cmd.starts_with("merge") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Converging timeline {} with current timeline", 
                         &command[6..].trim())
-                ).await
+                ))
             },
             cmd if cmd.starts_with("push") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     "Synchronizing local quantum states with the temporal nexus...".to_string()
-                ).await
+                ))
             },
             cmd if cmd.starts_with("pull") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     "Retrieving quantum state updates from the temporal nexus...".to_string()
-                ).await
+                ))
             },
             cmd if cmd.starts_with("cd") => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Relocating to archive sector: {}", 
                         &command[3..].trim())
-                ).await
+                ))
             },
             _ => {
-                self.format_git_response(
+                Ok(self.format_git_response(
                     format!("Unknown temporal operation: {}. Use 'help' to see available commands.", command)
-                ).await
+                ))
             }
         }
     }
@@ -302,7 +287,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn create_test_message(content: &str) -> Message {
-        Message::new(content)
+        Message::new(content.to_string())
     }
 
     fn create_test_config() -> AgentConfig {
@@ -384,7 +369,7 @@ mod tests {
         assert!(response.content.contains("test.txt"));
 
         // Stage the file
-        let response = agent.process_message(Message::new("add test.txt").to_string()).await.unwrap();
+        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("Successfully staged"));
 
         // Check status again
@@ -393,7 +378,7 @@ mod tests {
         assert!(response.content.contains("test.txt"));
 
         // Commit
-        let response = agent.process_message(Message::new("commit test commit").to_string()).await.unwrap();
+        let response = agent.process_message(Message::new("commit test commit".to_string())).await.unwrap();
         assert!(response.content.contains("Successfully committed"));
     }
 
@@ -408,8 +393,8 @@ mod tests {
         // Make a change and commit
         let test_file_path = temp_dir.path().join("test2.txt");
         fs::write(&test_file_path, "Test file in branch").unwrap();
-        agent.process_message(Message::new("add test2.txt").to_string()).await.unwrap();
-        agent.process_message(Message::new("commit branch test").to_string()).await.unwrap();
+        agent.process_message(Message::new("add test2.txt".to_string())).await.unwrap();
+        agent.process_message(Message::new("commit branch test".to_string())).await.unwrap();
 
         // Switch back to main branch
         let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
@@ -447,12 +432,10 @@ mod tests {
             state_machine: None,
         };
         let agent = GitAssistantAgent::new(config);
-        let response_future = agent.process_message(Message::new("add test.txt".to_string()));
-        let response = response_future.await;
+        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("Preparing to preserve"));
 
-        let response_future = agent.process_message(Message::new("commit test commit".to_string()));
-        let response = response_future.await;
+        let response = agent.process_message(Message::new("commit test commit".to_string())).await.unwrap();
         assert!(response.content.contains("Creating quantum state marker"));
 
         // Test branch creation and checkout
@@ -466,11 +449,10 @@ mod tests {
             state_machine: None,
         };
         let mut agent = GitAssistantAgent::new(config);
-        let _ = agent.process_message(Message::new("add test2.txt".to_string())).await;
-        let _ = agent.process_message(Message::new("commit branch test".to_string())).await;
+        let _ = agent.process_message(Message::new("add test2.txt".to_string())).await.unwrap();
+        let _ = agent.process_message(Message::new("commit branch test".to_string())).await.unwrap();
 
-        let response_future = agent.process_message(Message::new("checkout main".to_string()));
-        let response = response_future.await;
+        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
         assert!(response.content.contains("Shifting to timeline"));
     }
 }
