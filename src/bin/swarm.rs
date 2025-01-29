@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         });
 
         #[cfg(feature = "git-agent")]
-        git_assistant.set_working_dir("./").unwrap_or_else(|e| eprintln!("Warning: Failed to set git working directory: {}", e));
+        git_assistant.update_working_dir("./".into()).unwrap_or_else(|e| eprintln!("Warning: Failed to set git working directory: {}", e));
 
         #[cfg(feature = "haiku-agent")]
         let haiku_agent = HaikuAgent::new(AgentConfig {

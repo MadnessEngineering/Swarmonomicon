@@ -40,7 +40,7 @@ impl GitAssistantAgent {
     }
 
     // Change to use interior mutability pattern
-    fn update_working_dir(&self, path: PathBuf) -> Result<()> {
+    pub fn update_working_dir(&self, path: PathBuf) -> Result<()> {
         if path.exists() && path.is_dir() {
             let mut wd = self.working_dir.lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
@@ -134,7 +134,7 @@ impl GitAssistantAgent {
         let messages = vec![HashMap::from([
             ("role".to_string(), "user".to_string()),
             ("content".to_string(), format!(
-                "Generate a commit message for these changes. If you can't determine the changes clearly, respond with 'NEED_MORE_CONTEXT':\n\n{}", 
+                "Generate a commit message for these changes. If you can't determine the changes clearly, respond with 'NEED_MORE_CONTEXT':\n\n{}",
                 diff
             )),
         ])];
@@ -188,7 +188,7 @@ impl GitAssistantAgent {
         let state = self.current_state.as_ref()
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "archival".to_string());
-        
+
         Message::new(content)
             .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
                 .with_personality(traits)
@@ -204,37 +204,37 @@ impl GitAssistantAgent {
 impl Agent for GitAssistantAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
         let command = message.content.trim().to_lowercase();
-        
+
         match command.as_str() {
             "help" | "" => Ok(self.handle_git_command(&command)),
             cmd if cmd.starts_with("add") => {
                 Ok(self.format_git_response(
-                    format!("Preparing to preserve the following artifacts in the temporal archive: {}", 
+                    format!("Preparing to preserve the following artifacts in the temporal archive: {}",
                         &command[4..].trim())
                 ))
             },
             cmd if cmd.starts_with("commit") => {
                 let msg = &command[7..].trim().to_string();
                 Ok(self.format_git_response(
-                    format!("Creating quantum state marker: {}", 
+                    format!("Creating quantum state marker: {}",
                         if msg.is_empty() { "archival" } else { msg })
                 ))
             },
             cmd if cmd.starts_with("branch") => {
                 Ok(self.format_git_response(
-                    format!("Initiating parallel timeline branch: {}", 
+                    format!("Initiating parallel timeline branch: {}",
                         &command[7..].trim())
                 ))
             },
             cmd if cmd.starts_with("checkout") => {
                 Ok(self.format_git_response(
-                    format!("Shifting to timeline: {}", 
+                    format!("Shifting to timeline: {}",
                         &command[9..].trim())
                 ))
             },
             cmd if cmd.starts_with("merge") => {
                 Ok(self.format_git_response(
-                    format!("Converging timeline {} with current timeline", 
+                    format!("Converging timeline {} with current timeline",
                         &command[6..].trim())
                 ))
             },
@@ -250,7 +250,7 @@ impl Agent for GitAssistantAgent {
             },
             cmd if cmd.starts_with("cd") => {
                 Ok(self.format_git_response(
-                    format!("Relocating to archive sector: {}", 
+                    format!("Relocating to archive sector: {}",
                         &command[3..].trim())
                 ))
             },
