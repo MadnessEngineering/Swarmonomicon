@@ -66,6 +66,21 @@ impl Message {
             timestamp: Some(chrono::Utc::now().timestamp()),
         }
     }
+
+    pub fn with_metadata(mut self, metadata: Option<MessageMetadata>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn with_role(mut self, role: Option<String>) -> Self {
+        self.role = role;
+        self
+    }
+
+    pub fn with_timestamp(mut self, timestamp: Option<i64>) -> Self {
+        self.timestamp = timestamp;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

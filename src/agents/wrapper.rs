@@ -7,28 +7,29 @@ use crate::types::{Agent, Message, Tool, State, AgentConfig, Result};
 /// A wrapper type that handles the complexity of agent type management.
 /// This provides a consistent interface for working with agents while
 /// handling the necessary thread-safety and dynamic dispatch requirements.
+#[derive(Clone)]
 pub struct AgentWrapper {
-    inner: Box<dyn Agent + Send + Sync>,
+    inner: Arc<Box<dyn Agent + Send + Sync>>,
 }
 
 impl AgentWrapper {
     /// Create a new AgentWrapper from any type that implements Agent
     pub fn new(agent: Box<dyn Agent + Send + Sync>) -> Self {
-        Self { inner: agent }
+        Self { inner: Arc::new(agent) }
     }
 }
 
 #[async_trait]
 impl Agent for AgentWrapper {
-    async fn process_message(&mut self, message: Message) -> Result<Message> {
+    async fn process_message(&self, message: Message) -> Result<Message> {
         self.inner.process_message(message).await
     }
 
-    async fn transfer_to(&mut self, target_agent: String, message: Message) -> Result<Message> {
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
         self.inner.transfer_to(target_agent, message).await
     }
 
-    async fn call_tool(&mut self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
         self.inner.call_tool(tool, params).await
     }
 

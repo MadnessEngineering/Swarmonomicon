@@ -3,19 +3,35 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::types::{Agent, AgentConfig, Result};
 
+#[cfg(feature = "git-agent")]
 pub mod git_assistant;
-pub mod greeter;
+#[cfg(feature = "git-agent")]
+pub use git_assistant::GitAssistantAgent;
+
+#[cfg(feature = "haiku-agent")]
 pub mod haiku;
+#[cfg(feature = "haiku-agent")]
+pub use haiku::HaikuAgent;
+
+#[cfg(feature = "greeter-agent")]
+pub mod greeter;
+#[cfg(feature = "greeter-agent")]
+pub use greeter::GreeterAgent;
+
+#[cfg(feature = "browser-agent")]
+pub mod browser_agent;
+#[cfg(feature = "browser-agent")]
+pub use browser_agent::BrowserAgentWrapper;
+
+#[cfg(feature = "project-init-agent")]
 pub mod project_init;
+#[cfg(feature = "project-init-agent")]
+pub use project_init::ProjectInitAgent;
+
 pub mod user_agent;
 pub mod transfer;
-pub mod browser_agent;
 pub mod wrapper;
 
-pub use git_assistant::GitAssistantAgent;
-pub use greeter::GreeterAgent;
-pub use haiku::HaikuAgent;
-pub use project_init::ProjectInitAgent;
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
 pub use wrapper::AgentWrapper;
@@ -38,12 +54,16 @@ impl AgentRegistry {
     {
         let config = agent.get_config().await?;
         let name = config.name.clone();
-        self.agents.insert(name, AgentWrapper::new(agent));
+        self.agents.insert(name, AgentWrapper::new(Box::new(agent)));
         Ok(())
     }
 
-    pub fn get(&self, name: &str) -> Option<AgentWrapper> {
-        self.agents.get(name).map(|wrapper| wrapper.clone())
+    pub fn get(&self, name: &str) -> Option<&AgentWrapper> {
+        self.agents.get(name)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &AgentWrapper> {
+        self.agents.values()
     }
 
     pub fn get_mut(&mut self, name: &str) -> Option<&mut AgentWrapper> {
@@ -51,21 +71,23 @@ impl AgentRegistry {
     }
 
     pub fn get_all_agents(&self) -> Vec<AgentWrapper> {
-        self.agents.values().map(|wrapper| wrapper.clone()).collect()
+        self.agents.values().cloned().collect()
     }
 
     pub async fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
 
         for config in configs {
-            match config.name.as_str() {
-                "git" => registry.register(GitAssistantAgent::new(config)).await?,
-                "project" => registry.register(ProjectInitAgent::new(config)).await?,
-                "haiku" => registry.register(HaikuAgent::new(config)).await?,
-                "greeter" => registry.register(GreeterAgent::new(config)).await?,
-                "user" => registry.register(UserAgent::new(config)).await?,
-                _ => return Err(format!("Unknown agent type: {}", config.name).into()),
-            }
+            let name = config.name.clone();
+            let agent = match name.as_str() {
+                git if git == "git" => AgentWrapper::new(Box::new(GitAssistantAgent::new(config))),
+                project if project == "project" => AgentWrapper::new(Box::new(ProjectInitAgent::new(config))),
+                haiku if haiku == "haiku" => AgentWrapper::new(Box::new(HaikuAgent::new(config))),
+                greeter if greeter == "greeter" => AgentWrapper::new(Box::new(GreeterAgent::new(config))),
+                user if user == "user" => AgentWrapper::new(Box::new(UserAgent::new(config))),
+                _ => return Err(format!("Unknown agent type: {}", name).into()),
+            };
+            registry.agents.insert(name, agent);
         }
 
         Ok(registry)
@@ -92,35 +114,36 @@ where
     A: Agent + Send + Sync + 'static,
 {
     let mut registry = GLOBAL_REGISTRY.write().await;
-    registry.register(agent)
+    registry.register(agent).await
 }
 
 // Helper function to get an agent from the global registry
 pub async fn get_agent(name: &str) -> Option<AgentWrapper> {
     let registry = GLOBAL_REGISTRY.read().await;
-    registry.get(name)
+    registry.get(name).cloned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::Message;
+    use crate::agents::greeter::GreeterAgent;
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![
             AgentConfig {
-                name: "greeter".to_string(),
-                public_description: "Greets users".to_string(),
-                instructions: "Greet the user".to_string(),
+                name: String::from("greeter"),
+                public_description: String::from("Greets users"),
+                instructions: String::from("Greet the user"),
                 tools: vec![],
-                downstream_agents: vec!["haiku".to_string()],
+                downstream_agents: vec![String::from("haiku")],
                 personality: None,
                 state_machine: None,
             },
             AgentConfig {
-                name: "haiku".to_string(),
-                public_description: "Creates haikus".to_string(),
-                instructions: "Create haikus".to_string(),
+                name: String::from("haiku"),
+                public_description: String::from("Creates haikus"),
+                instructions: String::from("Create haikus"),
                 tools: vec![],
                 downstream_agents: vec![],
                 personality: None,
@@ -141,7 +164,7 @@ mod tests {
 
         // Test mutable access
         let greeter = registry.get_mut("greeter").unwrap();
-        let response = greeter.process_message(Message::new("hi")).await.unwrap();
+        let response = greeter.process_message(Message::new(String::from("hi"))).await.unwrap();
         assert!(response.content.contains("haiku"));
 
         // Test get all agents
@@ -157,43 +180,53 @@ mod tests {
         let mut service = TransferService::new(registry.clone());
 
         // Start with greeter
-        let response = service.process_message(Message::new("hi")).await;
+        let response = service.process_message(Message::new(String::from("hi"))).await;
         assert!(response.is_err()); // No current agent set
 
         // Set current agent to greeter and process message
-        service.transfer("greeter", "haiku").await.unwrap();
-        let response = service.process_message(Message::new("nature")).await.unwrap();
+        service.set_current_agent(String::from("greeter"));
+        let response = service.process_message(Message::new(String::from("nature"))).await.unwrap();
         assert!(response.content.contains("Mocking haiku now"));
     }
+
+    #[tokio::test]
+    async fn test_agent_registration() {
+        let mut registry = AgentRegistry::new();
+        let agent = GreeterAgent::new(AgentConfig {
+            name: "test_greeter".to_string(),
+            public_description: "Test greeter agent".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        });
+
+        registry.register(agent).await.unwrap();
+        let response = registry.get("test_greeter").unwrap()
+            .process_message(Message::new("hi".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"));
+    }
+
+    #[tokio::test]
+    async fn test_agent_transfer() {
+        let mut registry = AgentRegistry::new();
+        let agent = GreeterAgent::new(AgentConfig {
+            name: "test_greeter".to_string(),
+            public_description: "Test greeter agent".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec!["test_target".to_string()],
+            personality: None,
+            state_machine: None,
+        });
+
+        registry.register(agent).await.unwrap();
+        let response = registry.get("test_greeter").unwrap()
+            .process_message(Message::new("nature".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"));
+    }
 }
-
-#[cfg(feature = "git-agent")]
-pub mod git_assistant;
-#[cfg(feature = "git-agent")]
-pub use git_assistant::GitAssistantAgent;
-
-#[cfg(feature = "haiku-agent")]
-pub mod haiku;
-#[cfg(feature = "haiku-agent")]
-pub use haiku::HaikuAgent;
-
-#[cfg(feature = "greeter-agent")]
-pub mod greeter;
-#[cfg(feature = "greeter-agent")]
-pub use greeter::GreeterAgent;
-
-#[cfg(feature = "browser-agent")]
-pub mod browser_agent;
-#[cfg(feature = "browser-agent")]
-pub use browser_agent::BrowserAgentWrapper;
-
-#[cfg(feature = "project-init-agent")]
-pub mod project_init;
-#[cfg(feature = "project-init-agent")]
-pub use project_init::ProjectInitAgent;
-
-pub mod wrapper;
-pub use wrapper::AgentWrapper;
 
 pub fn default_agents() -> Vec<AgentConfig> {
     let mut agents = Vec::new();
