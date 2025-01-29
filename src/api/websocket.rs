@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use crate::{
     api::AppState,
-    agents::{AgentRegistry, TransferService, GreeterAgent, HaikuAgent},
+    agents::{AgentRegistry, TransferService, GreeterAgent},
+    #[cfg(feature = "haiku-agent")]
+    agents::HaikuAgent,
     types::{AgentConfig, Tool, Message},
 };
 use tokio::sync::RwLock;
