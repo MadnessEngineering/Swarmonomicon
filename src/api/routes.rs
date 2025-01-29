@@ -29,50 +29,57 @@ pub struct MessageRequest {
     content: String,
 }
 
-pub async fn list_agents(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn list_agents(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<AgentInfo>>, StatusCode> {
+    let registry = state.agents.read().await;
     let mut agents = Vec::new();
-    for agent in state.agents.values() {
-        if let Ok(config) = agent.get_config().await {
-            agents.push(AgentInfo {
-                name: config.name,
+    
+    for (name, agent) in registry.agents.iter() {
+        match agent.get_config().await {
+            Ok(config) => agents.push(AgentInfo {
+                name: name.clone(),
                 description: config.public_description,
                 tools: config.tools,
                 downstream_agents: config.downstream_agents,
-            });
+            }),
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }
-    Json(agents)
+    
+    Ok(Json(agents))
 }
 
 pub async fn get_agent(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Response {
-    let transfer_service = state.transfer_service.read().await;
-    let registry = transfer_service.get_registry().read().await;
-    match registry.get(&name) {
-        Some(agent) => Json(AgentInfo {
-            name: agent.get_config().await.unwrap().name,
-            description: agent.get_config().await.unwrap().public_description,
-            tools: agent.get_config().await.unwrap().tools,
-            downstream_agents: agent.get_config().await.unwrap().downstream_agents,
-        }).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("Agent '{}' not found", name)
-            }))
-        ).into_response(),
+) -> Result<Json<AgentInfo>, StatusCode> {
+    let registry = state.agents.read().await;
+    
+    if let Some(agent) = registry.get(&name) {
+        match agent.get_config().await {
+            Ok(config) => Ok(Json(AgentInfo {
+                name: config.name,
+                description: config.public_description,
+                tools: config.tools,
+                downstream_agents: config.downstream_agents,
+            })),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    } else {
+        Err(StatusCode::NOT_FOUND)
     }
 }
 
 pub async fn process_message(
     State(state): State<Arc<AppState>>,
     Path(agent_name): Path<String>,
-    Json(message): Json<Message>,
-) -> Result<impl IntoResponse, StatusCode> {
-    if let Some(agent) = state.agents.get(&agent_name) {
-        match agent.process_message(message).await {
+    Json(request): Json<MessageRequest>,
+) -> Result<Json<Message>, StatusCode> {
+    let registry = state.agents.read().await;
+    
+    if let Some(agent) = registry.get(&agent_name) {
+        match agent.process_message(Message::new(request.content)).await {
             Ok(response) => Ok(Json(response)),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
@@ -83,22 +90,18 @@ pub async fn process_message(
 
 pub async fn send_message(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
+    Path(agent_name): Path<String>,
     Json(request): Json<MessageRequest>,
-) -> Response {
-    let transfer_service = state.transfer_service.read().await;
-    let registry = transfer_service.get_registry().read().await;
-    match registry.get(&name) {
-        Some(_) => {
-            let response = Message::new("Connected to agent system".to_string());
-            Json(response).into_response()
+) -> Result<Json<Message>, StatusCode> {
+    let registry = state.agents.read().await;
+    
+    if let Some(agent) = registry.get(&agent_name) {
+        match agent.process_message(Message::new(request.content)).await {
+            Ok(response) => Ok(Json(response)),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("Agent '{}' not found", name)
-            }))
-        ).into_response(),
+    } else {
+        Err(StatusCode::NOT_FOUND)
     }
 }
 
@@ -177,17 +180,32 @@ pub fn default_agents() -> Vec<AgentConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::{AgentRegistry, GreeterAgent, TransferService};
+    use crate::types::AgentConfig;
 
     #[tokio::test]
     async fn test_list_agents() {
-        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
+        let mut registry = AgentRegistry::new();
+        let agent = GreeterAgent::new(AgentConfig {
+            name: "test".to_string(),
+            public_description: "Test agent".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        });
+
+        registry.register(agent).await.unwrap();
+        let registry = Arc::new(RwLock::new(registry));
         let state = Arc::new(AppState {
-            transfer_service,
+            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
             agents: registry,
         });
-        let response = list_agents(State(state)).await;
-        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = list_agents(State(state)).await.unwrap();
+        assert_eq!(response.0.len(), 1);
+        assert_eq!(response.0[0].name, "test");
     }
 
     #[tokio::test]
@@ -199,25 +217,39 @@ mod tests {
             agents: registry,
         });
         let response = get_agent(State(state.clone()), Path("unknown".to_string())).await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn test_send_message() {
-        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
+        let mut registry = AgentRegistry::new();
+        let agent = GreeterAgent::new(AgentConfig {
+            name: "test".to_string(),
+            public_description: "Test agent".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        });
+
+        registry.register(agent).await.unwrap();
+        let registry = Arc::new(RwLock::new(registry));
         let state = Arc::new(AppState {
-            transfer_service,
+            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
             agents: registry,
         });
+
         let request = MessageRequest {
             content: "Hello".to_string(),
         };
+
         let response = send_message(
             State(state),
-            Path("unknown".to_string()),
+            Path("test".to_string()),
             Json(request),
         ).await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(response.is_ok());
     }
 }

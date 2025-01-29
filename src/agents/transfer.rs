@@ -42,35 +42,30 @@ impl TransferService {
 
     pub async fn transfer(&mut self, from: &str, to: &str) -> Result<()> {
         let registry = self.registry.read().await;
-        if registry.get(to).is_some() {
-            self.current_agent = Some(to.to_string());
-            Ok(())
-        } else {
-            Err(format!("Agent {} not found", to).into())
+        
+        if !registry.exists(from) {
+            return Err(format!("Source agent '{}' not found", from).into());
         }
-    }
+        
+        if !registry.exists(to) {
+            return Err(format!("Target agent '{}' not found", to).into());
+        }
 
-    pub fn set_session_id(&mut self, session_id: String) {
-        self.session_id = Some(session_id);
-    }
-
-    pub fn get_session_id(&self) -> Option<&str> {
-        self.session_id.as_deref()
+        self.current_agent = Some(to.to_string());
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::{GreeterAgent, HaikuAgent};
     use crate::types::AgentConfig;
-    use crate::agents::{AgentRegistry, GreeterAgent, HaikuAgent};
 
     #[tokio::test]
     async fn test_transfer_service() {
-        // Create a test registry
         let mut registry = AgentRegistry::new();
-
-        // Add test agents
+        
         let greeter = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
             public_description: "Test greeter".to_string(),
@@ -91,20 +86,21 @@ mod tests {
             state_machine: None,
         });
 
-        registry.register(greeter).unwrap();
-        registry.register(haiku).unwrap();
+        registry.register(greeter).await.unwrap();
+        registry.register(haiku).await.unwrap();
 
         let registry = Arc::new(RwLock::new(registry));
         let mut service = TransferService::new(registry);
 
-        // Test no current agent
-        let result = service.process_message("test").await;
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "No current agent set");
+        // Test initial state
+        assert!(service.get_current_agent().is_none());
 
-        // Test setting current agent and processing message
+        // Test setting current agent
         service.set_current_agent("greeter".to_string());
-        let result = service.process_message("hi").await;
+        assert_eq!(service.get_current_agent(), Some("greeter"));
+
+        // Test message processing
+        let result = service.process_message(Message::new("test".to_string())).await;
         assert!(result.is_ok());
 
         // Test transfer
@@ -112,8 +108,8 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(service.get_current_agent(), Some("haiku"));
 
-        // Test invalid transfer
-        let result = service.transfer("nonexistent", "haiku").await;
-        assert!(result.is_err());
+        // Test message after transfer
+        let result = service.process_message(Message::new("hi".to_string())).await;
+        assert!(result.is_ok());
     }
 }

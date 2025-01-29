@@ -3,17 +3,14 @@ use std::net::SocketAddr;
 use axum::{
     routing::{get, post},
     Router,
+    extract::ws::{WebSocket, Message as WsMessage},
+    extract::{State, WebSocketUpgrade},
 };
 use tower_http::cors::CorsLayer;
 use tokio::sync::RwLock;
-use crate::agents::TransferService;
-use std::collections::HashMap;
-use crate::agents::Agent;
 use crate::{
     agents::{AgentRegistry, TransferService},
-    api::routes::{default_agents, websocket_handler},
     types::Agent,
-    AppState,
 };
 
 pub mod routes;
@@ -26,23 +23,23 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(transfer_service: Arc<RwLock<TransferService>>) -> Self {
-        Self { transfer_service, agents: Arc::new(RwLock::new(AgentRegistry::new())) }
+        Self { 
+            transfer_service,
+            agents: Arc::new(RwLock::new(AgentRegistry::new()))
+        }
     }
 }
 
 pub async fn create_app_state() -> Arc<AppState> {
-    use crate::agents::AgentRegistry;
-    use crate::api::routes::default_agents;
-
-    let registry = AgentRegistry::create_default_agents(default_agents()).await.unwrap();
+    let registry = AgentRegistry::create_default_agents(routes::default_agents()).await.unwrap();
     let registry = Arc::new(RwLock::new(registry));
-    let transfer_service = Arc::new(RwLock::new(TransferService::new(registry)));
+    let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
 
     Arc::new(AppState::new(transfer_service))
 }
 
 pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferService>>) {
-    let registry = AgentRegistry::create_default_agents(default_agents()).await.unwrap();
+    let registry = AgentRegistry::create_default_agents(routes::default_agents()).await.unwrap();
     let app_state = Arc::new(AppState {
         transfer_service,
         agents: Arc::new(RwLock::new(registry)),
@@ -66,16 +63,10 @@ pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferServic
     .unwrap();
 }
 
-pub async fn create_router() -> Router {
-    let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-    let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
-    
-    let app_state = Arc::new(AppState {
-        transfer_service,
-        agents: registry,
-    });
-
+pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/ws", get(websocket_handler))
-        .with_state(app_state)
+        .route("/agents", get(routes::list_agents))
+        .route("/agents/:agent_name/message", post(routes::send_message))
+        .route("/ws", get(websocket::websocket_handler))
+        .with_state(state)
 }

@@ -137,8 +137,14 @@ This is a {project_type} project created with the project initialization tool.
 #[async_trait]
 impl Agent for ProjectInitAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
-        let mut response = Message::new(&format!("Processing project init request: {}", message.content));
-        response.metadata.state = self.current_state.clone();
+        let mut response = Message::new(format!("Processing project init request: {}", message.content));
+        if let Some(metadata) = message.metadata {
+            let state = self.current_state.clone().unwrap_or_else(|| "initial".to_string());
+            let metadata = MessageMetadata::new("project_init".to_string())
+                .with_personality_traits(vec!["helpful".to_string(), "technical".to_string()])
+                .with_state(state);
+            response.metadata = Some(metadata);
+        }
         Ok(response)
     }
 
@@ -147,14 +153,38 @@ impl Agent for ProjectInitAgent {
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok(format!("Tool {} called with params: {:?}", tool.name, params))
-    }
-
-    async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(self.current_state.clone().map(|s| State::from_str(&s)))
+        Ok("Tool called".to_string())
     }
 
     async fn get_config(&self) -> Result<AgentConfig> {
         Ok(self.config.clone())
+    }
+
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        Ok(self.current_state.clone().map(State::from))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_project_init_agent() {
+        let config = AgentConfig {
+            name: "project-init".to_string(),
+            public_description: "Project initialization agent".to_string(),
+            instructions: "Help initialize projects".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        };
+
+        let agent = ProjectInitAgent::new(config);
+
+        let message = Message::new("create new rust project".to_string());
+        let response = agent.process_message(message).await.unwrap();
+        assert!(response.content.contains("Processing project init request"));
     }
 }

@@ -38,7 +38,7 @@ pub use wrapper::AgentWrapper;
 
 #[derive(Default)]
 pub struct AgentRegistry {
-    agents: HashMap<String, AgentWrapper>,
+    pub(crate) agents: HashMap<String, AgentWrapper>,
 }
 
 impl AgentRegistry {
@@ -62,39 +62,35 @@ impl AgentRegistry {
         self.agents.get(name)
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &AgentWrapper> {
-        self.agents.values()
+    pub fn exists(&self, name: &str) -> bool {
+        self.agents.contains_key(name)
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut AgentWrapper> {
-        self.agents.get_mut(name)
-    }
-
-    pub fn get_all_agents(&self) -> Vec<AgentWrapper> {
-        self.agents.values().cloned().collect()
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &AgentWrapper)> {
+        self.agents.iter()
     }
 
     pub async fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
         let mut registry = Self::new();
-
         for config in configs {
-            let name = config.name.clone();
-            let agent = match name.as_str() {
-                git if git == "git" => AgentWrapper::new(Box::new(GitAssistantAgent::new(config))),
-                project if project == "project" => AgentWrapper::new(Box::new(ProjectInitAgent::new(config))),
-                haiku if haiku == "haiku" => AgentWrapper::new(Box::new(HaikuAgent::new(config))),
-                greeter if greeter == "greeter" => AgentWrapper::new(Box::new(GreeterAgent::new(config))),
-                user if user == "user" => AgentWrapper::new(Box::new(UserAgent::new(config))),
-                _ => return Err(format!("Unknown agent type: {}", name).into()),
-            };
-            registry.agents.insert(name, agent);
+            match config.name.as_str() {
+                #[cfg(feature = "greeter-agent")]
+                "greeter" => registry.register(GreeterAgent::new(config)).await?,
+                #[cfg(feature = "haiku-agent")]
+                "haiku" => registry.register(HaikuAgent::new(config)).await?,
+                #[cfg(feature = "git-agent")]
+                "git" => registry.register(GitAssistantAgent::new(config)).await?,
+                #[cfg(feature = "browser-agent")]
+                "browser" => {
+                    let agent = BrowserAgentWrapper::new(config).await?;
+                    registry.register(agent).await?
+                },
+                #[cfg(feature = "project-init-agent")]
+                "project-init" => registry.register(ProjectInitAgent::new(config)).await?,
+                _ => return Err(format!("Unknown agent type: {}", config.name).into()),
+            }
         }
-
         Ok(registry)
-    }
-
-    pub fn list_agents(&self) -> Vec<String> {
-        self.agents.keys().cloned().collect()
     }
 }
 

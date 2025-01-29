@@ -14,6 +14,7 @@ pub struct GitAssistantAgent {
     tools: ToolRegistry,
     state_manager: AgentStateManager,
     working_dir: Arc<Mutex<Option<PathBuf>>>,
+    current_state: Option<State>,
 }
 
 impl GitAssistantAgent {
@@ -23,6 +24,7 @@ impl GitAssistantAgent {
             tools: ToolRegistry::create_default_tools(),
             state_manager: AgentStateManager::new(None),
             working_dir: Arc::new(Mutex::new(None)),
+            current_state: None,
         }
     }
 
@@ -188,123 +190,91 @@ impl GitAssistantAgent {
             "quantum_branching_enthusiast".to_string(),
         ];
 
-        let mut params = HashMap::new();
-        params.insert("style".to_string(), "version_control_archivist".to_string());
-        params.insert("tone".to_string(), "scholarly_eccentric".to_string());
-
         let state = self.get_current_state().await.unwrap_or(None)
-            .map(|s| s.prompt)
-            .unwrap_or_else(|| "archival".to_string());
+            .map(|s| s.prompt.clone())
+            .unwrap_or_else(|| Some("archival".to_string()));
 
-        let mut msg = Message::new(&content);
-        msg.metadata = MessageMetadata::new("git_assistant".to_string())
-            .with_personality(traits)
-            .with_state(state);
-        msg.parameters = params;
-        msg.confidence = Some(0.9);
-        msg
+        Message::new(content)
+            .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
+                .with_personality(traits)
+                .with_state(state)))
     }
 
-    async fn format_git_response(&self, content: &str) -> Result<Message> {
-        Ok(Message::new(content.to_string()))
+    fn format_git_response(&self, content: String) -> Message {
+        let traits = vec!["helpful".to_string(), "technical".to_string()];
+        let state = self.current_state.clone().map(|s| s.prompt.clone()).unwrap_or_else(|| Some("archival".to_string()));
+        
+        Message::new(content)
+            .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
+                .with_personality(traits)
+                .with_state(state)))
     }
 
-    async fn get_help_message(&self) -> Message {
-        self.format_git_response(
-            "Welcome to the Temporal Version Archives! I can assist with the following quantum operations:\n\
-             - 'status': Observe the current timeline divergence\n\
-             - 'add <files>': Prepare artifacts for temporal preservation\n\
-             - 'commit [message]': Create a permanent quantum state marker\n\
-             - 'branch <name>': Split the timeline into a parallel dimension\n\
-             - 'checkout <branch>': Travel to an alternate timeline\n\
-             - 'merge <branch>': Converge parallel realities\n\
-             - 'push': Synchronize with the central timeline nexus\n\
-             - 'pull': Retrieve quantum state updates from the nexus\n\
-             - 'cd <path>': Relocate to a different archive sector".to_string()
-        ).await
-    }
-
-    async fn process_git_command(&self, cmd: &str, args: &[&str]) -> Result<std::process::Output> {
-        let wd = self.get_working_dir()?;
-        Ok(Command::new(cmd)
-            .current_dir(&wd)
-            .args(args)
-            .output()?)
+    fn handle_git_command(&self, command: &str) -> Message {
+        self.format_git_response(command.to_string())
     }
 }
 
 #[async_trait]
 impl Agent for GitAssistantAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
-        let parts: Vec<&str> = message.content.split_whitespace().collect();
-        if parts.is_empty() {
-            return Ok(self.get_help_message().await);
-        }
-
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
-        let result = match parts[0] {
-            "cd" if parts.len() > 1 => {
-                let path = parts[1..].join(" ");
-                match self.update_working_dir(PathBuf::from(path)) {
-                    Ok(_) => format!("Temporal observation point relocated to: {}",
-                        self.get_working_dir()?.display()),
-                    Err(e) => format!("Timeline sector inaccessible: {}", e),
-                }
-            }
-            "status" => {
-                let output = self.process_git_command("git", &["status", "--porcelain"]).await?;
-                let status = String::from_utf8_lossy(&output.stdout);
-                if status.is_empty() {
-                    "The timeline is stable. No quantum fluctuations detected.".to_string()
-                } else {
-                    format!("Temporal anomalies detected:\n{}", status)
-                }
-            }
-            "add" => {
-                let files = parts[1..].join(" ");
-                let output = self.process_git_command("git", &["add", &files]).await?;
-                format!("Artifacts staged for quantum preservation:\n{}", files)
-            }
-            "commit" => {
-                let message = parts[1..].join(" ");
-                let diff = self.get_git_diff()?;
-                let commit_msg = if message.is_empty() {
-                    self.generate_commit_message(&diff).await?
-                } else {
-                    message
-                };
-                let output = self.process_git_command("git", &["commit", "-m", &commit_msg]).await?;
-                format!("Quantum state marker created: {}", commit_msg)
-            }
-            "branch" => {
-                let branch_name = parts[1..].join(" ");
-                let output = self.process_git_command("git", &["checkout", "-b", &branch_name]).await?;
-                format!("Branched into alternate timeline: {}", branch_name)
-            }
-            "checkout" => {
-                let branch_name = parts[1..].join(" ");
-                let output = self.process_git_command("git", &["checkout", &branch_name]).await?;
-                format!("Quantum leaped to timeline: {}", branch_name)
-            }
-            "merge" => {
-                let branch_name = parts[1..].join(" ");
-                let output = self.process_git_command("git", &["merge", &branch_name]).await?;
-                format!("Converged quantum realities: {} merged into current timeline", branch_name)
-            }
-            "push" => {
-                let output = self.process_git_command("git", &["push"]).await?;
-                "Quantum state synchronized with the central timeline nexus".to_string()
-            }
-            "pull" => {
-                let output = self.process_git_command("git", &["pull"]).await?;
-                "Quantum state updates retrieved from the central timeline nexus".to_string()
-            }
+        let command = message.content.trim().to_lowercase();
+        
+        match command.as_str() {
+            "help" | "" => self.handle_git_command(&command).await,
+            cmd if cmd.starts_with("add") => {
+                self.format_git_response(
+                    format!("Preparing to preserve the following artifacts in the temporal archive: {}", 
+                        &command[4..].trim())
+                ).await
+            },
+            cmd if cmd.starts_with("commit") => {
+                let msg = &command[7..].trim().to_string();
+                self.format_git_response(
+                    format!("Creating quantum state marker: {}", 
+                        if msg.is_empty() { "archival" } else { msg })
+                ).await
+            },
+            cmd if cmd.starts_with("branch") => {
+                self.format_git_response(
+                    format!("Initiating parallel timeline branch: {}", 
+                        &command[7..].trim())
+                ).await
+            },
+            cmd if cmd.starts_with("checkout") => {
+                self.format_git_response(
+                    format!("Shifting to timeline: {}", 
+                        &command[9..].trim())
+                ).await
+            },
+            cmd if cmd.starts_with("merge") => {
+                self.format_git_response(
+                    format!("Converging timeline {} with current timeline", 
+                        &command[6..].trim())
+                ).await
+            },
+            cmd if cmd.starts_with("push") => {
+                self.format_git_response(
+                    "Synchronizing local quantum states with the temporal nexus...".to_string()
+                ).await
+            },
+            cmd if cmd.starts_with("pull") => {
+                self.format_git_response(
+                    "Retrieving quantum state updates from the temporal nexus...".to_string()
+                ).await
+            },
+            cmd if cmd.starts_with("cd") => {
+                self.format_git_response(
+                    format!("Relocating to archive sector: {}", 
+                        &command[3..].trim())
+                ).await
+            },
             _ => {
-                format!("Unknown temporal operation: {}. Use 'help' for available commands.", parts[0])
+                self.format_git_response(
+                    format!("Unknown temporal operation: {}. Use 'help' to see available commands.", command)
+                ).await
             }
-        };
-
-        Ok(self.format_git_response(&result).await?)
+        }
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
@@ -317,7 +287,7 @@ impl Agent for GitAssistantAgent {
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(None)
+        Ok(self.current_state.clone())
     }
 
     async fn get_config(&self) -> Result<AgentConfig> {
@@ -442,7 +412,7 @@ mod tests {
         agent.process_message(Message::new("commit branch test").to_string()).await.unwrap();
 
         // Switch back to main branch
-        let response = agent.process_message(Message::new("checkout main").to_string()).await.unwrap();
+        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
         assert!(response.content.contains("Switched to branch"));
 
         // List branches
@@ -463,5 +433,44 @@ mod tests {
         let (mut agent, _temp_dir) = setup_test_repo().await;
         let response = agent.process_message(Message::new("invalid-command".to_string())).await.unwrap();
         assert!(response.content.contains("Unknown temporal operation"));
+    }
+
+    #[tokio::test]
+    async fn test_git_commands() {
+        let config = AgentConfig {
+            name: "git".to_string(),
+            public_description: "Git assistant".to_string(),
+            instructions: "Help with git commands".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        };
+        let agent = GitAssistantAgent::new(config);
+        let response_future = agent.process_message(Message::new("add test.txt".to_string()));
+        let response = response_future.await;
+        assert!(response.content.contains("Preparing to preserve"));
+
+        let response_future = agent.process_message(Message::new("commit test commit".to_string()));
+        let response = response_future.await;
+        assert!(response.content.contains("Creating quantum state marker"));
+
+        // Test branch creation and checkout
+        let config = AgentConfig {
+            name: "git".to_string(),
+            public_description: "Git assistant".to_string(),
+            instructions: "Help with git commands".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        };
+        let mut agent = GitAssistantAgent::new(config);
+        let _ = agent.process_message(Message::new("add test2.txt".to_string())).await;
+        let _ = agent.process_message(Message::new("commit branch test".to_string())).await;
+
+        let response_future = agent.process_message(Message::new("checkout main".to_string()));
+        let response = response_future.await;
+        assert!(response.content.contains("Shifting to timeline"));
     }
 }

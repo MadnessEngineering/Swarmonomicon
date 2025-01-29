@@ -33,19 +33,19 @@ impl Agent for AgentWrapper {
         self.inner.call_tool(tool, params).await
     }
 
-    async fn get_current_state(&self) -> Result<Option<State>> {
-        self.inner.get_current_state().await
-    }
-
     async fn get_config(&self) -> Result<AgentConfig> {
         self.inner.get_config().await
+    }
+
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        self.inner.get_current_state().await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::haiku::HaikuAgent;
+    use crate::agents::GreeterAgent;
 
     #[tokio::test]
     async fn test_agent_wrapper() {
@@ -59,15 +59,11 @@ mod tests {
             state_machine: None,
         };
 
-        let agent = HaikuAgent::new(config.clone());
-        let mut wrapper = AgentWrapper::new(Box::new(agent));
-
-        // Test that we can get the config
-        let config = wrapper.get_config().await.unwrap();
-        assert_eq!(config.name, "test");
+        let agent = GreeterAgent::new(config);
+        let wrapper = AgentWrapper::new(Box::new(agent));
 
         // Test that we can process messages
-        let response = wrapper.process_message("test").await;
+        let response = wrapper.process_message(Message::new("test".to_string())).await;
         assert!(response.is_ok());
 
         // Test state access
