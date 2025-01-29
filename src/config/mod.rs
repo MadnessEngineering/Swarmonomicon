@@ -57,7 +57,7 @@ pub fn get_transfer_tool() -> Tool {
         name: "agent_transfer".to_string(),
         description: "Transfer control to another agent".to_string(),
         parameters: {
-            let mut params = HashMap::new();
+            let mut params: HashMap<String, ToolParameter> = HashMap::new();
             params.insert(
                 "target_agent".to_string(),
                 ToolParameter {
@@ -113,9 +113,9 @@ mod tests {
     fn test_inject_transfer_tools() {
         let mut manager = ConfigManager::new();
         let mut agent_set = create_test_agent_set();
-        
+
         manager.inject_transfer_tools(&mut agent_set).unwrap();
-        
+
         let agent = &agent_set.agents[0];
         assert_eq!(agent.tools.len(), 1);
         assert_eq!(agent.tools[0].name, "agent_transfer");
