@@ -10,10 +10,12 @@ use tokio::sync::broadcast;
 use crate::{
     api::AppState,
     agents::{AgentRegistry, TransferService, GreeterAgent},
-    #[cfg(feature = "haiku-agent")]
-    agents::HaikuAgent,
     types::{AgentConfig, Tool, Message},
 };
+
+#[cfg(feature = "haiku-agent")]
+use crate::agents::HaikuAgent;
+
 use tokio::sync::RwLock;
 
 const CHANNEL_SIZE: usize = 32;
@@ -129,18 +131,21 @@ mod tests {
             state_machine: None,
         };
 
-        let haiku_config = AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Test haiku".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        };
-
         registry.register(GreeterAgent::new(greeter_config)).await.expect("Failed to register greeter agent");
-        registry.register(HaikuAgent::new(haiku_config)).await.expect("Failed to register haiku agent");
+
+        #[cfg(feature = "haiku-agent")]
+        {
+            let haiku_config = AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Test haiku".to_string(),
+                instructions: "Test instructions".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            };
+            registry.register(HaikuAgent::new(haiku_config)).await.expect("Failed to register haiku agent");
+        }
 
         let registry = Arc::new(RwLock::new(registry));
         Arc::new(AppState {
@@ -189,6 +194,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "haiku-agent")]
     #[tokio::test]
     async fn test_handle_transfer() {
         let state = setup_test_state().await;
