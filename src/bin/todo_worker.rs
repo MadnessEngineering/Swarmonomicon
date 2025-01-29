@@ -1,6 +1,7 @@
 use std::time::Duration;
 use swarmonomicon::agents::{self, UserAgent};
-use swarmonomicon::types::AgentConfig;
+use swarmonomicon::types::{AgentConfig, Message};
+use swarmonomicon::Agent;
 
 #[tokio::main]
 async fn main() -> swarmonomicon::Result<()> {
@@ -52,7 +53,7 @@ async fn main() -> swarmonomicon::Result<()> {
                 personality: None,
                 state_machine: None,
             },
-        ])?;
+        ]).await?;
     }
 
     tracing::info!("Todo worker started. Checking for tasks every 2 minutes...");
@@ -77,7 +78,7 @@ async fn main() -> swarmonomicon::Result<()> {
                     let mut registry = registry.write().await;
                     if let Some(agent) = registry.get_mut(&agent_name) {
                         // Try to process the todo with the agent
-                        match agent.process_message(&todo.description).await {
+                        match agent.process_message(Message::new(todo.description.clone())).await {
                             Ok(_) => {
                                 tracing::info!("Task completed successfully");
                                 user_agent.mark_todo_completed(index)?;
@@ -103,4 +104,4 @@ async fn main() -> swarmonomicon::Result<()> {
         // Sleep for a bit to avoid busy waiting
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
-} 
+}

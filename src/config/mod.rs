@@ -57,19 +57,10 @@ pub fn get_transfer_tool() -> Tool {
         name: "agent_transfer".to_string(),
         description: "Transfer control to another agent".to_string(),
         parameters: {
-            let mut params: HashMap<String, ToolParameter> = HashMap::new();
+            let mut params: HashMap<String, String> = HashMap::new();
             params.insert(
                 "target_agent".to_string(),
-                ToolParameter {
-                    type_name: "string".to_string(),
-                    description: Some("Name of the agent to transfer to".to_string()),
-                    enum_values: None,
-                    pattern: None,
-                    properties: None,
-                    required: None,
-                    additional_properties: None,
-                    items: None,
-                }
+                "Name of the agent to transfer to".to_string(),
             );
             params
         },

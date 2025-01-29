@@ -1,13 +1,20 @@
 use clap::{Parser, Subcommand};
 use swarmonomicon::{
-    agents::{self, TransferService, GreeterAgent, ProjectInitAgent},
-    types::{Agent, AgentConfig},
+    agents::{self, TransferService, GreeterAgent},
+    types::{Agent, AgentConfig, Message},
 };
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+#[cfg(feature = "git-agent")]
 use swarmonomicon::agents::git_assistant::GitAssistantAgent;
+
+#[cfg(feature = "haiku-agent")]
 use swarmonomicon::agents::haiku::HaikuAgent;
+
+#[cfg(feature = "project-init-agent")]
+use swarmonomicon::agents::{ProjectInitAgent};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -60,6 +67,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut registry = registry.write().await;
 
         // Create agent instances
+        #[cfg(feature = "git-agent")]
         let mut git_assistant = GitAssistantAgent::new(AgentConfig {
             name: "git".to_string(),
             public_description: "Git operations with intelligent commit messages".to_string(),
@@ -69,8 +77,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             personality: None,
             state_machine: None,
         });
+
+        #[cfg(feature = "git-agent")]
         git_assistant.set_working_dir("./").unwrap_or_else(|e| eprintln!("Warning: Failed to set git working directory: {}", e));
 
+        #[cfg(feature = "haiku-agent")]
         let haiku_agent = HaikuAgent::new(AgentConfig {
             name: "haiku".to_string(),
             public_description: "Creates haikus".to_string(),
@@ -81,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             state_machine: None,
         });
 
+        #[cfg(feature = "project-init-agent")]
         let project_agent = ProjectInitAgent::new(AgentConfig {
             name: "project".to_string(),
             public_description: "Project initialization tool".to_string(),
@@ -102,10 +114,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         });
 
         // Register agents
-        registry.register(git_assistant)?;
-        registry.register(haiku_agent)?;
-        registry.register(project_agent)?;
-        registry.register(greeter_agent)?;
+        #[cfg(feature = "git-agent")]
+        registry.register(git_assistant).await?;
+        #[cfg(feature = "haiku-agent")]
+        registry.register(haiku_agent).await?;
+        #[cfg(feature = "project-init-agent")]
+        registry.register(project_agent).await?;
+        registry.register(greeter_agent).await?;
     }
 
     // Create transfer service starting with greeter
@@ -119,16 +134,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
             // Process command
             let command = if let Some(msg) = message {
-                format!("commit {}", msg)
+                Message::new(format!("commit {}", msg))
             } else if let Some(branch_name) = branch {
-                format!("branch {}", branch_name)
+                Message::new(format!("branch {}", branch_name))
             } else if let Some(target) = merge {
-                format!("merge {}", target)
+                Message::new(format!("merge {}", target))
             } else {
-                "commit".to_string() // Default to auto-commit
+                Message::new("commit".to_string()) // Default to auto-commit
             };
 
-            let response = service.process_message(&command).await?;
+            let response = service.process_message(command).await?;
             println!("{}", response.content);
         }
         Some(Commands::Init { project_type, name, description }) => {
@@ -136,8 +151,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             service.transfer("greeter", "project").await?;
 
             // Process command
-            let command = format!("create {} {} {}", project_type, name, description);
-            let response = service.process_message(&command).await?;
+            let command = Message::new(format!("create {} {} {}", project_type, name, description));
+            let response = service.process_message(command).await?;
             println!("{}", response.content);
         }
         None => {
@@ -160,7 +175,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     break;
                 }
 
-                match service.process_message(message).await {
+                match service.process_message(Message::new(message.to_string())).await {
                     Ok(response) => {
                         println!("{}", response.content);
 
@@ -171,9 +186,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                             let mut registry = registry.write().await;
                             if let Some(mut git_agent) = registry.get_mut("git") {
                                 let haiku = response.content.replace("Generated haiku:\n", "");
-                                if let Err(e) = git_agent.commit_for_agent("haiku", &haiku).await {
-                                    eprintln!("Failed to commit haiku: {}", e);
-                                }
+//                                 if let Err(e) = git_agent.commit_for_agent("haiku", &haiku).await {
+//                                     eprintln!("Failed to commit haiku: {}", e);
+//                                 }
                             }
                         }
                     }
@@ -192,6 +207,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[tokio::test]
+    #[cfg(all(feature = "haiku-agent", feature = "git-agent"))]
     async fn test_haiku_git_integration() -> Result<(), Box<dyn Error + Send + Sync>> {
         // Set up a temporary directory for git
         let temp_dir = tempdir()?;
@@ -223,6 +239,7 @@ mod tests {
                 state_machine: None,
             });
 
+            #[cfg(feature = "project-init-agent")]
             let project_agent = ProjectInitAgent::new(AgentConfig {
                 name: "project".to_string(),
                 public_description: "Test project agent".to_string(),
@@ -233,9 +250,10 @@ mod tests {
                 state_machine: None,
             });
 
-            registry.register(git_assistant)?;
-            registry.register(haiku_agent)?;
-            registry.register(project_agent)?;
+            registry.register(git_assistant).await?;
+            registry.register(haiku_agent).await?;
+            #[cfg(feature = "project-init-agent")]
+            registry.register(project_agent).await?;
         }
 
         // Create transfer service
@@ -243,7 +261,7 @@ mod tests {
 
         // Test haiku generation and git commit
         service.set_current_agent("haiku".to_string());
-        let response = service.process_message("generate haiku about coding").await?;
+        let response = service.process_message(Message::new("generate haiku about coding".to_string())).await?;
 
         assert!(response.content.contains("Generated haiku:"));
 
@@ -258,7 +276,7 @@ mod tests {
 
         // Test project initialization
         service.set_current_agent("project".to_string());
-        let response = service.process_message("create rust test-project 'A test project'").await?;
+        let response = service.process_message(Message::new("create rust test-project 'A test project'".to_string())).await?;
 
         assert!(response.content.contains("Project created"));
 

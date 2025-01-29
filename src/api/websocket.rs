@@ -126,26 +126,12 @@ mod tests {
             public_description: "Test greeter".to_string(),
             instructions: "Test instructions".to_string(),
             tools: vec![],
-            downstream_agents: vec!["haiku".to_string()],
+            downstream_agents: vec![],
             personality: None,
             state_machine: None,
         };
 
         registry.register(GreeterAgent::new(greeter_config)).await.expect("Failed to register greeter agent");
-
-        #[cfg(feature = "haiku-agent")]
-        {
-            let haiku_config = AgentConfig {
-                name: "haiku".to_string(),
-                public_description: "Test haiku".to_string(),
-                instructions: "Test instructions".to_string(),
-                tools: vec![],
-                downstream_agents: vec![],
-                personality: None,
-                state_machine: None,
-            };
-            registry.register(HaikuAgent::new(haiku_config)).await.expect("Failed to register haiku agent");
-        }
 
         let registry = Arc::new(RwLock::new(registry));
         Arc::new(AppState {
