@@ -12,27 +12,33 @@ use crate::types::{TodoProcessor, TodoList, TodoTask};
 #[derive(Clone)]
 pub struct AgentWrapper {
     inner: Arc<Box<dyn Agent + Send + Sync>>,
+    todo_list: TodoList,
 }
 
 impl AgentWrapper {
     /// Create a new AgentWrapper from any type that implements Agent
     pub fn new(agent: Box<dyn Agent + Send + Sync>) -> Self {
-        Self { inner: Arc::new(agent) }
+        Self {
+            inner: Arc::new(agent),
+            todo_list: TodoList::new(),
+        }
     }
 }
 
 #[async_trait]
 impl TodoProcessor for AgentWrapper {
     async fn process_task(&self, task: TodoTask) -> Result<Message> {
-        self.inner.process_task(task).await
+        // Convert the task to a message and process it
+        self.process_message(Message::new(task.description)).await
     }
 
     fn get_check_interval(&self) -> Duration {
-        self.inner.get_check_interval()
+        // Default check interval of 5 seconds
+        Duration::from_secs(5)
     }
 
     fn get_todo_list(&self) -> &TodoList {
-        self.inner.get_todo_list()
+        &self.todo_list
     }
 }
 
@@ -56,6 +62,10 @@ impl Agent for AgentWrapper {
 
     async fn get_current_state(&self) -> Result<Option<State>> {
         self.inner.get_current_state().await
+    }
+
+    fn get_todo_list(&self) -> Option<&TodoList> {
+        Some(&self.todo_list)
     }
 }
 
@@ -87,4 +97,4 @@ mod tests {
         let state = wrapper.get_current_state().await;
         assert!(state.is_ok());
     }
-} 
+}

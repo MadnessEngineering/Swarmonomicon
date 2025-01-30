@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::types::{Agent, AgentConfig, Result};
+use crate::types::{Agent, AgentConfig, Result, TodoProcessor};
 
 #[cfg(feature = "git-agent")]
 pub mod git_assistant;
@@ -54,7 +54,29 @@ impl AgentRegistry {
     {
         let config = agent.get_config().await?;
         let name = config.name.clone();
-        self.agents.insert(name, AgentWrapper::new(Box::new(agent)));
+        let wrapper = AgentWrapper::new(Box::new(agent));
+
+        // Spawn the task processing loop for this agent
+        let wrapper_clone = wrapper.clone();
+        let name_clone = name.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Some(task) = <AgentWrapper as TodoProcessor>::get_todo_list(&wrapper_clone).get_next_task().await {
+                    match wrapper_clone.process_task(task.clone()).await {
+                        Ok(_) => {
+                            <AgentWrapper as TodoProcessor>::get_todo_list(&wrapper_clone).mark_task_completed(&task.id).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Agent {} failed to process task: {}", name_clone, e);
+                            <AgentWrapper as TodoProcessor>::get_todo_list(&wrapper_clone).mark_task_failed(&task.id).await;
+                        }
+                    }
+                }
+                tokio::time::sleep(wrapper_clone.get_check_interval()).await;
+            }
+        });
+
+        self.agents.insert(name, wrapper);
         Ok(())
     }
 

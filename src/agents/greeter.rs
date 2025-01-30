@@ -1,14 +1,18 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::time::Duration;
 use serde_json::Value;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use crate::types::{TodoProcessor, TodoList, TodoTask};
 use crate::ai::AiClient;
+use uuid::Uuid;
 
 pub struct GreeterAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
     ai_client: AiClient,
     conversation_history: Vec<Message>,
+    todo_list: TodoList,
 }
 
 impl GreeterAgent {
@@ -18,6 +22,7 @@ impl GreeterAgent {
             state_manager: AgentStateManager::new(None),
             ai_client: AiClient::new(),
             conversation_history: Vec::new(),
+            todo_list: TodoList::new(),
         }
     }
 
@@ -110,6 +115,23 @@ impl Agent for GreeterAgent {
     }
 }
 
+#[async_trait]
+impl TodoProcessor for GreeterAgent {
+    async fn process_task(&self, task: TodoTask) -> Result<Message> {
+        // For the greeter, we'll treat tasks as messages to process
+        self.process_message(Message::new(task.description)).await
+    }
+
+    fn get_check_interval(&self) -> Duration {
+        // Check for new tasks every 5 seconds
+        Duration::from_secs(5)
+    }
+
+    fn get_todo_list(&self) -> &TodoList {
+        &self.todo_list
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +205,34 @@ mod tests {
         let agent = GreeterAgent::new(create_test_config());
         let result = agent.transfer_to("nonexistent".to_string(), Message::new("test".to_string())).await;
         assert!(result.is_err(), "Transfer to nonexistent agent should fail");
+    }
+
+    #[tokio::test]
+    async fn test_todo_processing() {
+        let agent = GreeterAgent::new(create_test_config());
+        
+        // Create a test task
+        let task = TodoTask {
+            id: Uuid::new_v4().to_string(),
+            description: "Hello, I need help with git".to_string(),
+            priority: crate::types::TaskPriority::Medium,
+            source_agent: None,
+            target_agent: "greeter".to_string(),
+            status: crate::types::TaskStatus::Pending,
+            created_at: chrono::Utc::now().timestamp(),
+            completed_at: None,
+        };
+
+        // Add task to todo list
+        <GreeterAgent as TodoProcessor>::get_todo_list(&agent).add_task(task.clone()).await;
+
+        // Process the task
+        let response = agent.process_task(task).await.unwrap();
+
+        // Since the message mentions git, it should suggest transferring to the git agent
+        assert!(response.metadata.is_some());
+        if let Some(metadata) = response.metadata {
+            assert_eq!(metadata.transfer_target.unwrap(), "git");
+        }
     }
 }
