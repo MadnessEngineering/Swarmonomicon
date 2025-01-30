@@ -132,7 +132,12 @@ impl UserAgent {
             "Based on the following task description and context, which agent should handle it?\n\
             Task: {}\n\
             Context: {}\n\n\
-            Available agents: git (for git operations), project (for project initialization), haiku (for documentation)\n\
+            Available agents:\n\
+            - git (for git operations and repository management)\n\
+            - project-init (for project initialization and setup)\n\
+            - haiku (for documentation and creative writing)\n\
+            - browser (for browser automation tasks)\n\
+            - greeter (for user interaction and routing)\n\
             Respond with just the agent name or 'none' if no agent is suitable.",
             todo.description,
             todo.context.as_deref().unwrap_or("No context provided")
@@ -141,12 +146,16 @@ impl UserAgent {
         // TODO: Call OpenAI API to get response
         // For now, return a simple heuristic-based decision
         let description = todo.description.to_lowercase();
-        let agent = if description.contains("git") || description.contains("commit") || description.contains("branch") {
+        let agent = if description.contains("git") || description.contains("commit") || description.contains("branch") || description.contains("repo") {
             Some("git".to_string())
-        } else if description.contains("project") || description.contains("init") || description.contains("create") {
-            Some("project".to_string())
-        } else if description.contains("doc") || description.contains("haiku") {
+        } else if description.contains("project") || description.contains("init") || description.contains("create") || description.contains("setup") || description.contains("new") {
+            Some("project-init".to_string())
+        } else if description.contains("doc") || description.contains("haiku") || description.contains("poem") || description.contains("write") {
             Some("haiku".to_string())
+        } else if description.contains("browser") || description.contains("web") || description.contains("page") || description.contains("site") {
+            Some("browser".to_string())
+        } else if description.contains("hello") || description.contains("hi") || description.contains("greet") || description.contains("welcome") {
+            Some("greeter".to_string())
         } else {
             None
         };
