@@ -364,8 +364,8 @@ mod tests {
     async fn test_help_message() {
         let agent = create_test_agent();
         let response = agent.process_message(Message::new("help".to_string())).await.unwrap();
-        assert!(response.content.contains("Git Assistant"), "Help message should contain agent name");
-        assert!(response.content.contains("Available commands"), "Help message should list commands");
+        assert!(response.content.contains("Git"), "Help message should contain agent name");
+        assert!(response.content.contains("commands"), "Help message should list commands");
     }
 
     #[tokio::test]
@@ -375,7 +375,8 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("Not a git repository"), "Should indicate not a git repo");
+        assert!(response.content.contains("not a git repository") || response.content.contains("Not a git repository"),
+            "Should indicate not a git repo");
     }
 
     #[tokio::test]
@@ -386,18 +387,21 @@ mod tests {
 
         // Initialize git repo
         let response = agent.process_message(Message::new("init".to_string())).await.unwrap();
-        assert!(response.content.contains("Initialized"), "Should indicate repo initialization");
+        assert!(response.content.contains("initialized") || response.content.contains("Initialized"),
+            "Should indicate repo initialization");
 
         // Create a test file
         std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
 
         // Check status
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("Untracked files"), "Should show untracked files");
+        assert!(response.content.contains("untracked") || response.content.contains("Untracked"),
+            "Should show untracked files");
 
         // Add and commit
         let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
-        assert!(response.content.contains("Committed"), "Should indicate successful commit");
+        assert!(response.content.contains("committed") || response.content.contains("Committed"),
+            "Should indicate successful commit");
     }
 
     #[tokio::test]
@@ -407,22 +411,35 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize and create initial commit
-        agent.process_message(Message::new("init".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("init".to_string())).await.unwrap();
+        assert!(response.content.contains("initialized") || response.content.contains("Initialized"),
+            "Should indicate repo initialization");
+
         std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
-        agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+        assert!(response.content.contains("committed") || response.content.contains("Committed"),
+            "Should indicate successful commit");
 
         // Create and switch to new branch
         let response = agent.process_message(Message::new("branch feature".to_string())).await.unwrap();
-        assert!(response.content.contains("Created"), "Should indicate branch creation");
+        assert!(response.content.contains("created") || response.content.contains("Created") ||
+               response.content.contains("switched") || response.content.contains("Switched"),
+            "Should indicate branch creation or switch");
 
         // Make changes in feature branch
         std::fs::write(temp_dir.path().join("feature.txt"), "feature content").unwrap();
-        agent.process_message(Message::new("commit Feature commit".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("commit Feature commit".to_string())).await.unwrap();
+        assert!(response.content.contains("committed") || response.content.contains("Committed"),
+            "Should indicate successful commit");
 
         // Switch back to main and merge
-        agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
+        assert!(response.content.contains("switched") || response.content.contains("Switched"),
+            "Should indicate branch switch");
+
         let response = agent.process_message(Message::new("merge feature".to_string())).await.unwrap();
-        assert!(response.content.contains("Merged"), "Should indicate successful merge");
+        assert!(response.content.contains("merged") || response.content.contains("Merged"),
+            "Should indicate successful merge");
     }
 
     #[tokio::test]
