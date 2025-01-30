@@ -1,5 +1,7 @@
 # Swarmonomicon: The Mad Tinker's Codex
 
+![Cover Art](docs/assets/Cover-Art.jpeg)
+
 🛠️ Welcome to the Swarmonomicon,\
 A fusion of meticulous craftsmanship and heavily version controlled chaos.\
 Inspired by OpenAI's Realtime Agents Demo, this project doesn't just reimagine agent collaboration—\
