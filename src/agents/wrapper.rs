@@ -2,7 +2,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::time::Duration;
 use crate::types::{Agent, Message, Tool, State, AgentConfig, Result};
+use crate::types::{TodoProcessor, TodoList, TodoTask};
 
 /// A wrapper type that handles the complexity of agent type management.
 /// This provides a consistent interface for working with agents while
@@ -16,6 +18,21 @@ impl AgentWrapper {
     /// Create a new AgentWrapper from any type that implements Agent
     pub fn new(agent: Box<dyn Agent + Send + Sync>) -> Self {
         Self { inner: Arc::new(agent) }
+    }
+}
+
+#[async_trait]
+impl TodoProcessor for AgentWrapper {
+    async fn process_task(&self, task: TodoTask) -> Result<Message> {
+        self.inner.process_task(task).await
+    }
+
+    fn get_check_interval(&self) -> Duration {
+        self.inner.get_check_interval()
+    }
+
+    fn get_todo_list(&self) -> &TodoList {
+        self.inner.get_todo_list()
     }
 }
 

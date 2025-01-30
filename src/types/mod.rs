@@ -5,6 +5,10 @@ use chrono;
 use std::str::FromStr;
 use thiserror::Error;
 use std::fmt;
+use crate::agents::AgentRegistry;
+
+pub mod todo;
+pub use todo::{TodoList, TodoProcessor, TodoTask, TaskPriority, TaskStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameter {
@@ -176,12 +180,22 @@ pub struct ValidationRule {
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[async_trait]
-pub trait Agent: Send + Sync {
+pub trait Agent: TodoProcessor {
     async fn process_message(&self, message: Message) -> Result<Message>;
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message>;
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
     async fn get_current_state(&self) -> Result<Option<State>>;
     async fn get_config(&self) -> Result<AgentConfig>;
+    
+    /// Add a task to another agent's todo list
+    async fn delegate_task(&self, task: TodoTask, registry: &AgentRegistry) -> Result<()> {
+        if let Some(target_agent) = registry.get(&task.target_agent) {
+            target_agent.get_todo_list().add_task(task).await;
+            Ok(())
+        } else {
+            Err(format!("Target agent '{}' not found", task.target_agent).into())
+        }
+    }
 }
 
 // Implement a basic agent state manager
