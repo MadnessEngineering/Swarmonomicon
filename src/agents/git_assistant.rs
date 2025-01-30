@@ -198,28 +198,103 @@ impl GitAssistantAgent {
     fn handle_git_command(&self, command: &str) -> Message {
         let response = match command {
             "help" | "" => format!(
-                "Git Assistant - Your Version Control Helper\n\n\
-                Available commands:\n\
-                - init: Initialize a new git repository\n\
-                - status: Check repository status\n\
-                - add <files>: Stage files for commit\n\
-                - commit <message>: Create a new commit\n\
-                - branch <name>: Create and switch to a new branch\n\
-                - checkout <branch>: Switch to a branch\n\
-                - merge <branch>: Merge a branch into current branch\n\
-                - push: Push changes to remote\n\
-                - pull: Pull changes from remote"
+                "🌟 Quantum Version Control Interface - Your Temporal Archive Assistant\n\n\
+                Available timeline manipulation commands:\n\
+                - init: Initialize a new temporal nexus (git repository)\n\
+                - status: Scan quantum state of current timeline\n\
+                - add <files>: Preserve artifacts in the temporal archive\n\
+                - commit <message>: Create a quantum state marker\n\
+                - branch <name>: Initiate a parallel timeline branch\n\
+                - checkout <branch>: Shift to an alternate timeline\n\
+                - merge <branch>: Converge timelines into unified reality\n\
+                - push: Synchronize local quantum states with the temporal nexus\n\
+                - pull: Retrieve quantum state updates from the temporal nexus"
             ),
             "status" => {
                 match Command::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["status"])
                     .output() {
-                        Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
-                        Err(_) => "Not a git repository".to_string(),
+                        Ok(output) => {
+                            let status = String::from_utf8_lossy(&output.stdout).to_string();
+                            if status.is_empty() {
+                                "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string()
+                            } else {
+                                format!("🔮 Quantum State Analysis:\n{}", status)
+                            }
+                        },
+                        Err(_) => "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string(),
                     }
             },
-            _ => format!("Unknown command: {}. Use 'help' to see available commands.", command),
+            cmd if cmd.starts_with("add") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["add", &command[4..].trim()])
+                    .output() {
+                        Ok(_) => format!("🌟 Preparing to preserve the following artifacts in the temporal archive: {}", &command[4..].trim()),
+                        Err(_) => "⚠️ Temporal preservation failed. Is this a valid timeline branch?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("commit") => {
+                let msg = &command[7..].trim();
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["commit", "-m", if msg.is_empty() { "archival" } else { msg }])
+                    .output() {
+                        Ok(output) => format!("✨ Creating quantum state marker: {}\n{}",
+                            if msg.is_empty() { "archival" } else { msg },
+                            String::from_utf8_lossy(&output.stdout)),
+                        Err(_) => "⚠️ Failed to create quantum state marker. Are there changes to commit?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("branch") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["checkout", "-b", &command[7..].trim()])
+                    .output() {
+                        Ok(_) => format!("🌌 Initiating parallel timeline branch: {}", &command[7..].trim()),
+                        Err(_) => "⚠️ Failed to create parallel timeline. Is this a valid temporal nexus?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("checkout") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["checkout", &command[9..].trim()])
+                    .output() {
+                        Ok(_) => format!("🌠 Shifting to timeline: {}", &command[9..].trim()),
+                        Err(_) => "⚠️ Timeline shift failed. Does this reality branch exist?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("merge") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["merge", &command[6..].trim()])
+                    .output() {
+                        Ok(output) => format!("🌊 Converging timeline {} with current timeline\n{}",
+                            &command[6..].trim(),
+                            String::from_utf8_lossy(&output.stdout)),
+                        Err(_) => "⚠️ Timeline convergence failed. Are both realities compatible?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("push") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["push"])
+                    .output() {
+                        Ok(_) => "🚀 Synchronizing local quantum states with the temporal nexus...".to_string(),
+                        Err(_) => "⚠️ Temporal synchronization failed. Is the nexus reachable?".to_string(),
+                    }
+            },
+            cmd if cmd.starts_with("pull") => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["pull"])
+                    .output() {
+                        Ok(_) => "📥 Retrieving quantum state updates from the temporal nexus...".to_string(),
+                        Err(_) => "⚠️ Failed to retrieve temporal updates. Is the nexus reachable?".to_string(),
+                    }
+            },
+            _ => format!("❓ Unknown temporal operation: {}. Use 'help' to see available commands.", command),
         };
 
         self.format_git_response(response)
@@ -234,56 +309,32 @@ impl Agent for GitAssistantAgent {
         match command.as_str() {
             "help" | "" => Ok(self.handle_git_command(&command)),
             cmd if cmd.starts_with("add") => {
-                Ok(self.format_git_response(
-                    format!("Preparing to preserve the following artifacts in the temporal archive: {}",
-                        &command[4..].trim())
-                ))
+                Ok(self.handle_git_command("add"))
             },
             cmd if cmd.starts_with("commit") => {
                 let msg = &command[7..].trim().to_string();
-                Ok(self.format_git_response(
-                    format!("Creating quantum state marker: {}",
-                        if msg.is_empty() { "archival" } else { msg })
-                ))
+                Ok(self.handle_git_command("commit"))
             },
             cmd if cmd.starts_with("branch") => {
-                Ok(self.format_git_response(
-                    format!("Initiating parallel timeline branch: {}",
-                        &command[7..].trim())
-                ))
+                Ok(self.handle_git_command("branch"))
             },
             cmd if cmd.starts_with("checkout") => {
-                Ok(self.format_git_response(
-                    format!("Shifting to timeline: {}",
-                        &command[9..].trim())
-                ))
+                Ok(self.handle_git_command("checkout"))
             },
             cmd if cmd.starts_with("merge") => {
-                Ok(self.format_git_response(
-                    format!("Converging timeline {} with current timeline",
-                        &command[6..].trim())
-                ))
+                Ok(self.handle_git_command("merge"))
             },
             cmd if cmd.starts_with("push") => {
-                Ok(self.format_git_response(
-                    "Synchronizing local quantum states with the temporal nexus...".to_string()
-                ))
+                Ok(self.handle_git_command("push"))
             },
             cmd if cmd.starts_with("pull") => {
-                Ok(self.format_git_response(
-                    "Retrieving quantum state updates from the temporal nexus...".to_string()
-                ))
+                Ok(self.handle_git_command("pull"))
             },
             cmd if cmd.starts_with("cd") => {
-                Ok(self.format_git_response(
-                    format!("Relocating to archive sector: {}",
-                        &command[3..].trim())
-                ))
+                Ok(self.handle_git_command("cd"))
             },
             _ => {
-                Ok(self.format_git_response(
-                    format!("Unknown temporal operation: {}. Use 'help' to see available commands.", command)
-                ))
+                Ok(self.handle_git_command(command.as_str()))
             }
         }
     }
