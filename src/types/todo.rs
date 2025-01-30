@@ -83,6 +83,16 @@ impl TodoList {
         let tasks = self.tasks.read().await;
         tasks.len()
     }
+
+    pub async fn get_all_tasks(&self) -> Vec<TodoTask> {
+        let tasks = self.tasks.read().await;
+        tasks.iter().cloned().collect()
+    }
+
+    pub async fn get_task(&self, task_id: &str) -> Option<TodoTask> {
+        let tasks = self.tasks.read().await;
+        tasks.iter().find(|t| t.id == task_id).cloned()
+    }
 }
 
 #[async_trait::async_trait]

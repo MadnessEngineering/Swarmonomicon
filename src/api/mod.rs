@@ -23,7 +23,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(transfer_service: Arc<RwLock<TransferService>>) -> Self {
-        Self { 
+        Self {
             transfer_service,
             agents: Arc::new(RwLock::new(AgentRegistry::new()))
         }
@@ -49,12 +49,16 @@ pub async fn serve(addr: SocketAddr, transfer_service: Arc<RwLock<TransferServic
         .route("/", get(routes::index))
         .route("/api/agents", get(routes::list_agents))
         .route("/api/agents/:name", get(routes::get_agent))
-        .route("/api/agents/:name/message", post(routes::send_message))
+        .route("/api/agents/:name/message", post(routes::process_message))
+        .route("/api/agents/:name/send", post(routes::send_message))
+        .route("/api/agents/:name/tasks", get(routes::get_tasks))
+        .route("/api/agents/:name/tasks", post(routes::add_task))
+        .route("/api/agents/:name/tasks/:task_id", get(routes::get_task))
         .route("/ws", get(websocket::websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
-    println!("Server starting on {}", addr);
+    println!("Server running on {}", addr);
     axum::serve(
         tokio::net::TcpListener::bind(addr).await.unwrap(),
         app,
