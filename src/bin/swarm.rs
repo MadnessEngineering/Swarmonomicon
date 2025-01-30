@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         });
 
         #[cfg(feature = "git-agent")]
-        git_assistant.update_working_dir("./".into()).unwrap_or_else(|e| eprintln!("Warning: Failed to set git working directory: {}", e));
+        git_assistant.update_working_dir(std::env::current_dir()?.into())?;
 
         #[cfg(feature = "haiku-agent")]
         let haiku_agent = HaikuAgent::new(AgentConfig {
@@ -227,7 +227,7 @@ mod tests {
                 personality: None,
                 state_machine: None,
             });
-            git_assistant.set_working_dir(temp_dir.path())?;
+            git_assistant.update_working_dir(temp_dir.path().to_path_buf())?;
 
             let haiku_agent = HaikuAgent::new(AgentConfig {
                 name: "haiku".to_string(),

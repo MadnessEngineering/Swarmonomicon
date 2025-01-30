@@ -76,7 +76,7 @@ impl GreeterAgent {
 
         // Get AI response for conversation
         let ai_response = self.get_ai_response(message).await?;
-        
+
         let mut response = Message::new(ai_response);
         response.metadata = Some(MessageMetadata::new("greeter".to_string())
             .with_personality(vec!["friendly".to_string(), "helpful".to_string()]));
@@ -152,9 +152,11 @@ mod tests {
     #[tokio::test]
     async fn test_project_transfer() {
         let agent = GreeterAgent::new(create_test_config());
-        let response = agent.process_message(Message::new("project".to_string())).await.unwrap();
+        let message = Message::new("I want to create a new project".to_string());
+        let response = agent.process_message(message).await.unwrap();
+        assert!(response.content.contains("project"));
         if let Some(metadata) = response.metadata {
-            assert_eq!(metadata.transfer_target, Some("project".to_string()));
+            assert_eq!(metadata.transfer_target, Some("project-init".to_string()));
         }
     }
 
@@ -179,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_transfer() {
         let agent = GreeterAgent::new(create_test_config());
-        let result = agent.transfer_to("invalid".to_string(), Message::new("test".to_string())).await;
-        assert!(result.is_err());
+        let result = agent.transfer_to("nonexistent".to_string(), Message::new("test".to_string())).await;
+        assert!(result.is_err(), "Transfer to nonexistent agent should fail");
     }
 }

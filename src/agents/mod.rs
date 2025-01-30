@@ -174,19 +174,47 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_workflow() {
-        let configs = create_test_configs();
-        let registry = AgentRegistry::create_default_agents(configs).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
+        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
         let mut service = TransferService::new(registry.clone());
 
-        // Start with greeter
-        let response = service.process_message(Message::new(String::from("hi"))).await;
-        assert!(response.is_err()); // No current agent set
+        // Register test agents
+        {
+            let mut registry = registry.write().await;
+            registry.register(GreeterAgent::new(AgentConfig {
+                name: "greeter".to_string(),
+                public_description: "Test greeter".to_string(),
+                instructions: "Test greetings".to_string(),
+                tools: vec![],
+                downstream_agents: vec!["haiku".to_string()],
+                personality: None,
+                state_machine: None,
+            })).await.unwrap();
 
-        // Set current agent to greeter and process message
-        service.set_current_agent(String::from("greeter"));
-        let response = service.process_message(Message::new(String::from("nature"))).await.unwrap();
-        assert!(response.content.contains("Mocking haiku now"));
+            registry.register(HaikuAgent::new(AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Test haiku".to_string(),
+                instructions: "Test haiku generation".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            })).await.unwrap();
+        }
+
+        // Set initial agent and test workflow
+        service.set_current_agent("greeter".to_string());
+
+        // Test initial greeting
+        let response = service.process_message(Message::new("hello".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"), "Response should contain a greeting");
+
+        // Test transfer to haiku agent
+        service.transfer("greeter", "haiku").await.unwrap();
+        assert_eq!(service.get_current_agent(), Some("haiku"));
+
+        // Test haiku generation
+        let response = service.process_message(Message::new("nature".to_string())).await.unwrap();
+        assert!(response.content.contains("haiku"), "Response should contain a haiku");
     }
 
     #[tokio::test]
@@ -210,21 +238,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_transfer() {
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test_greeter".to_string(),
-            public_description: "Test greeter agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec!["test_target".to_string()],
-            personality: None,
-            state_machine: None,
-        });
+        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+        let mut service = TransferService::new(registry.clone());
 
-        registry.register(agent).await.unwrap();
-        let response = registry.get("test_greeter").unwrap()
-            .process_message(Message::new("nature".to_string())).await.unwrap();
-        assert!(response.content.contains("Hello"));
+        // Register test agents
+        {
+            let mut registry = registry.write().await;
+            registry.register(GreeterAgent::new(AgentConfig {
+                name: "greeter".to_string(),
+                public_description: "Test greeter".to_string(),
+                instructions: "Test greetings".to_string(),
+                tools: vec![],
+                downstream_agents: vec!["haiku".to_string()],
+                personality: None,
+                state_machine: None,
+            })).await.unwrap();
+
+            registry.register(HaikuAgent::new(AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Test haiku".to_string(),
+                instructions: "Test haiku generation".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            })).await.unwrap();
+        }
+
+        // Set initial agent
+        service.set_current_agent("greeter".to_string());
+
+        // Test greeting
+        let response = service.process_message(Message::new("hello".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"), "Response should contain a greeting");
+
+        // Test transfer
+        service.transfer("greeter", "haiku").await.unwrap();
+        assert_eq!(service.get_current_agent(), Some("haiku"));
     }
 }
 

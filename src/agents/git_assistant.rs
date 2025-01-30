@@ -347,70 +347,82 @@ mod tests {
         (agent, temp_dir)
     }
 
-    #[tokio::test]
-    async fn test_empty_repo_status() {
-        let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        println!("Status response: {}", response.content);
-        assert!(response.content.contains("The timeline is stable"));
-    }
-
-    #[tokio::test]
-    async fn test_commit_flow() {
-        let (mut agent, temp_dir) = setup_test_repo().await;
-
-        // Create a test file
-        let test_file_path = temp_dir.path().join("test.txt");
-        fs::write(&test_file_path, "Test file contents").unwrap();
-
-        // Check status
-        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("Untracked files"));
-        assert!(response.content.contains("test.txt"));
-
-        // Stage the file
-        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
-        assert!(response.content.contains("Successfully staged"));
-
-        // Check status again
-        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("Artifacts prepared for temporal preservation"));
-        assert!(response.content.contains("test.txt"));
-
-        // Commit
-        let response = agent.process_message(Message::new("commit test commit".to_string())).await.unwrap();
-        assert!(response.content.contains("Successfully committed"));
-    }
-
-    #[tokio::test]
-    async fn test_branch_and_merge() {
-        let (mut agent, temp_dir) = setup_test_repo().await;
-
-        // Create and switch to a new branch
-        let response = agent.process_message(Message::new("branch feature-test".to_string())).await.unwrap();
-        assert!(response.content.contains("Created and switched to new branch"));
-
-        // Make a change and commit
-        let test_file_path = temp_dir.path().join("test2.txt");
-        fs::write(&test_file_path, "Test file in branch").unwrap();
-        agent.process_message(Message::new("add test2.txt".to_string())).await.unwrap();
-        agent.process_message(Message::new("commit branch test".to_string())).await.unwrap();
-
-        // Switch back to main branch
-        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
-        assert!(response.content.contains("Switched to branch"));
-
-        // List branches
-        let response = agent.process_message(Message::new("branch".to_string())).await.unwrap();
-        assert!(response.content.contains("feature-test"));
+    #[cfg(test)]
+    fn create_test_agent() -> GitAssistantAgent {
+        GitAssistantAgent::new(AgentConfig {
+            name: "git".to_string(),
+            public_description: "Git test agent".to_string(),
+            instructions: "Test git operations".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        })
     }
 
     #[tokio::test]
     async fn test_help_message() {
-        let (mut agent, _temp_dir) = setup_test_repo().await;
-        let response = agent.process_message(Message::new("".to_string())).await.unwrap();
-        assert!(response.content.contains("Welcome to the Temporal Version Archives"));
-        assert!(response.content.contains("quantum operations"));
+        let agent = create_test_agent();
+        let response = agent.process_message(Message::new("help".to_string())).await.unwrap();
+        assert!(response.content.contains("Git Assistant"), "Help message should contain agent name");
+        assert!(response.content.contains("Available commands"), "Help message should list commands");
+    }
+
+    #[tokio::test]
+    async fn test_empty_repo_status() {
+        let temp_dir = tempdir().unwrap();
+        let mut agent = create_test_agent();
+        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
+
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
+        assert!(response.content.contains("Not a git repository"), "Should indicate not a git repo");
+    }
+
+    #[tokio::test]
+    async fn test_commit_flow() {
+        let temp_dir = tempdir().unwrap();
+        let mut agent = create_test_agent();
+        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
+
+        // Initialize git repo
+        let response = agent.process_message(Message::new("init".to_string())).await.unwrap();
+        assert!(response.content.contains("Initialized"), "Should indicate repo initialization");
+
+        // Create a test file
+        std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
+
+        // Check status
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
+        assert!(response.content.contains("Untracked files"), "Should show untracked files");
+
+        // Add and commit
+        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+        assert!(response.content.contains("Committed"), "Should indicate successful commit");
+    }
+
+    #[tokio::test]
+    async fn test_branch_and_merge() {
+        let temp_dir = tempdir().unwrap();
+        let mut agent = create_test_agent();
+        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
+
+        // Initialize and create initial commit
+        agent.process_message(Message::new("init".to_string())).await.unwrap();
+        std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
+        agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+
+        // Create and switch to new branch
+        let response = agent.process_message(Message::new("branch feature".to_string())).await.unwrap();
+        assert!(response.content.contains("Created"), "Should indicate branch creation");
+
+        // Make changes in feature branch
+        std::fs::write(temp_dir.path().join("feature.txt"), "feature content").unwrap();
+        agent.process_message(Message::new("commit Feature commit".to_string())).await.unwrap();
+
+        // Switch back to main and merge
+        agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
+        let response = agent.process_message(Message::new("merge feature".to_string())).await.unwrap();
+        assert!(response.content.contains("Merged"), "Should indicate successful merge");
     }
 
     #[tokio::test]

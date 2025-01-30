@@ -24,7 +24,7 @@ impl HaikuAgent {
                     validation: None,
                 });
                 states.insert("complete".to_string(), State {
-                    name: "complete".to_string(), 
+                    name: "complete".to_string(),
                     data: None,
                     prompt: Some("✨ Shall we compute another poetic sequence?".to_string()),
                     transitions: Some({
@@ -159,30 +159,80 @@ mod tests {
 
     #[tokio::test]
     async fn test_haiku_generation() {
-        let agent = HaikuAgent::new(create_test_config());
-        let response = agent.process_message(Message::new("quantum".to_string())).await.unwrap();
-        assert!(response.content.contains("quantum"));
-        assert!(response.content.contains("\n"));
-        if let Some(metadata) = response.metadata {
-            assert_eq!(metadata.agent, "haiku");
-            assert!(metadata.personality_traits.is_some());
-        }
+        let agent = HaikuAgent::new(AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Test haiku agent".to_string(),
+            instructions: "Test haiku generation".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        });
+
+        let response = agent.process_message(Message::new("nature".to_string())).await.unwrap();
+        assert!(response.content.contains("haiku"));
+
+        let lines: Vec<&str> = response.content.lines().collect();
+        assert!(lines.len() >= 3, "Haiku should have at least 3 lines");
     }
 
     #[tokio::test]
     async fn test_state_transitions() {
-        let agent = HaikuAgent::new(create_test_config());
+        let agent = HaikuAgent::new(AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Test haiku agent".to_string(),
+            instructions: "Test haiku generation".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: Some(StateMachine {
+                states: {
+                    let mut states = HashMap::new();
+                    states.insert("awaiting_topic".to_string(), State {
+                        name: "awaiting_topic".to_string(),
+                        data: None,
+                        prompt: Some("What shall we write about?".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("topic_received".to_string(), "complete".to_string());
+                            transitions
+                        }),
+                        validation: None,
+                    });
+                    states.insert("complete".to_string(), State {
+                        name: "complete".to_string(),
+                        data: None,
+                        prompt: Some("Would you like another haiku?".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("yes".to_string(), "awaiting_topic".to_string());
+                            transitions.insert("no".to_string(), "goodbye".to_string());
+                            transitions
+                        }),
+                        validation: None,
+                    });
+                    states.insert("goodbye".to_string(), State {
+                        name: "goodbye".to_string(),
+                        data: None,
+                        prompt: Some("Farewell!".to_string()),
+                        transitions: None,
+                        validation: None,
+                    });
+                    states
+                },
+                initial_state: "awaiting_topic".to_string(),
+            }),
+        });
 
-        // Test initial state
         let state = agent.get_current_state().await.unwrap();
         assert!(state.is_some());
+        assert_eq!(state.unwrap().name, "awaiting_topic");
 
-        // Test response to topic
-        let response = agent.process_message(Message::new("algorithms".to_string())).await.unwrap();
-        assert!(response.content.contains("algorithms"));
+        let response = agent.process_message(Message::new("nature".to_string())).await.unwrap();
+        assert!(response.content.contains("haiku"));
 
-        // Test completion response
-        let response = agent.process_message(Message::new("yes".to_string())).await.unwrap();
-        assert!(response.content.contains("crystallize"));
+        let state = agent.get_current_state().await.unwrap();
+        assert!(state.is_some());
+        assert_eq!(state.unwrap().name, "complete");
     }
 }

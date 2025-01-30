@@ -15,8 +15,8 @@ async fn main() -> swarmonomicon::Result<()> {
         instructions: "Process and coordinate tasks between agents".to_string(),
         tools: vec![],
         downstream_agents: vec![
-            "git".to_string(), 
-            "project-init".to_string(), 
+            "git".to_string(),
+            "project-init".to_string(),
             "haiku".to_string(),
             "browser".to_string(),
             "greeter".to_string()
