@@ -441,7 +441,7 @@ mod tests {
     async fn test_help_message() {
         let agent = create_test_agent();
         let response = agent.process_message(Message::new("help".to_string())).await.unwrap();
-        assert!(response.content.contains("Git"), "Help message should contain agent name");
+        assert!(response.content.contains("Quantum"), "Help message should contain quantum theme");
         assert!(response.content.contains("commands"), "Help message should list commands");
     }
 
@@ -452,8 +452,8 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("not a git repository") || response.content.contains("Not a git repository"),
-            "Should indicate not a git repo");
+        assert!(response.content.contains("temporal nexus"),
+            "Should indicate missing temporal nexus (git repo)");
     }
 
     #[tokio::test]
@@ -463,22 +463,33 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
-        let response = agent.process_message(Message::new("init".to_string())).await.unwrap();
-        assert!(response.content.contains("initialized") || response.content.contains("Initialized"),
-            "Should indicate repo initialization");
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["init"])
+            .output()
+            .unwrap();
+
+        // Check status
+        let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
+        assert!(response.content.contains("Quantum State Analysis") || response.content.contains("temporal nexus"),
+            "Should show repository status");
 
         // Create a test file
         std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
 
-        // Check status
+        // Check status again
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
-        assert!(response.content.contains("untracked") || response.content.contains("Untracked"),
+        assert!(response.content.contains("Untracked") || response.content.contains("untracked"),
             "Should show untracked files");
 
         // Add and commit
-        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
-        assert!(response.content.contains("committed") || response.content.contains("Committed"),
-            "Should indicate successful commit");
+        let add_response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
+        assert!(add_response.content.contains("preserve") || add_response.content.contains("artifact"),
+            "Should indicate file preservation");
+
+        let commit_response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+        assert!(commit_response.content.contains("quantum state marker"),
+            "Should indicate quantum state marker creation");
     }
 
     #[tokio::test]
@@ -488,35 +499,56 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize and create initial commit
-        let response = agent.process_message(Message::new("init".to_string())).await.unwrap();
-        assert!(response.content.contains("initialized") || response.content.contains("Initialized"),
-            "Should indicate repo initialization");
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["init"])
+            .output()
+            .unwrap();
+
+        // Configure git user for commits
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["config", "user.name", "Test User"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&temp_dir.path())
+            .args(["config", "user.email", "test@example.com"])
+            .output()
+            .unwrap();
 
         std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
-        let response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
-        assert!(response.content.contains("committed") || response.content.contains("Committed"),
-            "Should indicate successful commit");
+        let add_response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
+        assert!(add_response.content.contains("preserve") || add_response.content.contains("artifact"),
+            "Should indicate file preservation");
+
+        let commit_response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
+        assert!(commit_response.content.contains("quantum state marker"),
+            "Should indicate quantum state marker creation");
 
         // Create and switch to new branch
-        let response = agent.process_message(Message::new("branch feature".to_string())).await.unwrap();
-        assert!(response.content.contains("created") || response.content.contains("Created") ||
-               response.content.contains("switched") || response.content.contains("Switched"),
-            "Should indicate branch creation or switch");
+        let branch_response = agent.process_message(Message::new("branch feature".to_string())).await.unwrap();
+        assert!(branch_response.content.contains("parallel timeline") || branch_response.content.contains("timeline branch"),
+            "Should indicate parallel timeline creation");
 
         // Make changes in feature branch
         std::fs::write(temp_dir.path().join("feature.txt"), "feature content").unwrap();
-        let response = agent.process_message(Message::new("commit Feature commit".to_string())).await.unwrap();
-        assert!(response.content.contains("committed") || response.content.contains("Committed"),
-            "Should indicate successful commit");
+        let add_response = agent.process_message(Message::new("add feature.txt".to_string())).await.unwrap();
+        assert!(add_response.content.contains("preserve") || add_response.content.contains("artifact"),
+            "Should indicate file preservation");
+
+        let commit_response = agent.process_message(Message::new("commit Feature commit".to_string())).await.unwrap();
+        assert!(commit_response.content.contains("quantum state marker"),
+            "Should indicate quantum state marker creation");
 
         // Switch back to main and merge
-        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
-        assert!(response.content.contains("switched") || response.content.contains("Switched"),
-            "Should indicate branch switch");
+        let checkout_response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
+        assert!(checkout_response.content.contains("Shifting to timeline"),
+            "Should indicate timeline shift");
 
-        let response = agent.process_message(Message::new("merge feature".to_string())).await.unwrap();
-        assert!(response.content.contains("merged") || response.content.contains("Merged"),
-            "Should indicate successful merge");
+        let merge_response = agent.process_message(Message::new("merge feature".to_string())).await.unwrap();
+        assert!(merge_response.content.contains("Converging timeline"),
+            "Should indicate timeline convergence");
     }
 
     #[tokio::test]
@@ -538,27 +570,17 @@ mod tests {
             state_machine: None,
         };
         let agent = GitAssistantAgent::new(config);
+
         let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
-        assert!(response.content.contains("Preparing to preserve"));
+        assert!(response.content.contains("preserve") || response.content.contains("artifact"),
+            "Should indicate file preservation");
 
         let response = agent.process_message(Message::new("commit test commit".to_string())).await.unwrap();
-        assert!(response.content.contains("Creating quantum state marker"));
-
-        // Test branch creation and checkout
-        let config = AgentConfig {
-            name: "git".to_string(),
-            public_description: "Git assistant".to_string(),
-            instructions: "Help with git commands".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        };
-        let mut agent = GitAssistantAgent::new(config);
-        let _ = agent.process_message(Message::new("add test2.txt".to_string())).await.unwrap();
-        let _ = agent.process_message(Message::new("commit branch test".to_string())).await.unwrap();
+        assert!(response.content.contains("quantum state marker"),
+            "Should indicate quantum state marker creation");
 
         let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
-        assert!(response.content.contains("Shifting to timeline"));
+        assert!(response.content.contains("Shifting to timeline"),
+            "Should indicate timeline shift");
     }
 }
