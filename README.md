@@ -1,5 +1,6 @@
 # Swarmonomicon: The Mad Tinker's Codex
 
+
 ![Cover Art](docs/assets/Cover-Art.jpeg)
 
 🛠️ Welcome to the Swarmonomicon,\
@@ -22,10 +23,39 @@ Unintended Hilarity guaranteed[^2].
 
 [^3]: You're welcome, this is a feature not a bug.
 
+## Features current under development
+
+- Multiple specialized agents with different capabilities:
+  - Greeter Agent: Welcomes users and directs them to appropriate agents
+  - Git Assistant: Helps with git operations
+  - Haiku Agent: Creates haikus based on user input
+  - Project Init Agent: Helps initialize new projects
+  - Browser Agent: Handles browser automation tasks
+
+- Independent Task Processing:
+  - Each agent has its own todo list
+  - Tasks are processed asynchronously in the background
+  - Agents can delegate tasks to other agents
+  - Priority-based task scheduling
+  - Task status tracking (Pending, InProgress, Completed, Failed)
+
+- Real-time Communication:
+  - WebSocket support for live updates
+  - Agent-to-agent communication
+  - Task delegation between agents
+
+- Extensible Architecture:
+  - Easy to add new agents (This is a huge exaggeration lol. Agents NEVER get carried away.. xD)
+  - Configurable task processing intervals (WIP)
+  - Support for agent-specific state machines (experimental)
+  - Flexible message routing
+
+
 ## Inspiration and Credits
 
 This project is a Rust reimplementation inspired by the [OpenAI Realtime Agents Demo](https://github.com/openai/openai-realtime-agents). The original project, created by [Noah MacCallum](https://x.com/noahmacca)] and [Ilan Bigio](https://github.com/ibigio), demonstrates advanced agentic patterns built on top of a Realtime API.
 My version is designed with plans to later become a [Tinker](https://github.com/DanEdens/Tinker) module.
+Much of the theming ideas stem from [J.S. Morin's Twinborn and Black Ocean universes](https://www.jsmorin.com/)
 
 ### Original Project Highlights
 The original OpenAI Realtime Agents project showcases:
@@ -156,3 +186,116 @@ swarm git -t main
 ```
 
 The Git assistant uses AI to generate meaningful commit messages based on the changes in your working directory.
+
+## API Endpoints
+
+### Agent Management
+- `GET /api/agents` - List all available agents
+- `GET /api/agents/:name` - Get details about a specific agent
+- `POST /api/agents/:name/message` - Send a message to an agent
+- `POST /api/agents/:name/send` - Send a command to an agent
+
+### Task Management
+- `GET /api/agents/:name/tasks` - Get all tasks for an agent
+- `POST /api/agents/:name/tasks` - Add a task to an agent's todo list
+- `GET /api/agents/:name/tasks/:task_id` - Get details about a specific task
+
+### WebSocket
+- `GET /ws` - WebSocket endpoint for real-time communication
+
+## Task System
+
+### Task Priority Levels
+- Critical: Highest priority tasks that need immediate attention
+- High: Important tasks that should be processed soon
+- Medium: Regular priority tasks
+- Low: Background tasks that can wait
+
+### Task Status Flow
+1. Pending: Task has been added to the todo list
+2. InProgress: Task is currently being processed
+3. Completed: Task has been successfully completed
+4. Failed: Task processing failed
+
+### Task Structure
+```rust
+pub struct TodoTask {
+    pub id: String,
+    pub description: String,
+    pub priority: TaskPriority,
+    pub source_agent: Option<String>,
+    pub target_agent: String,
+    pub status: TaskStatus,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+```
+
+## Usage
+
+### Starting the Server
+```bash
+cargo run --bin swarm
+```
+
+### Adding a Task via API
+```bash
+curl -X POST http://localhost:3000/api/agents/greeter/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Welcome new user John",
+    "priority": "High",
+    "source_agent": null
+  }'
+```
+
+### Getting Tasks for an Agent
+```bash
+curl http://localhost:3000/api/agents/greeter/tasks
+```
+
+## Development
+
+### Prerequisites
+- Rust 1.70 or higher
+- Cargo
+- Optional: Chrome/Chromium (for browser automation features)
+
+### Building
+```bash
+cargo build
+```
+
+### Running Tests
+```bash
+cargo test
+```
+
+### Feature Flags
+- `git-agent`: Enable Git assistant functionality
+- `haiku-agent`: Enable Haiku generation
+- `greeter-agent`: Enable Greeter agent
+- `browser-agent`: Enable browser automation
+- `project-init-agent`: Enable project initialization
+
+## Architecture
+
+The system uses a modular architecture where each agent is an independent entity that can:
+1. Process messages directly
+2. Handle tasks asynchronously
+3. Delegate work to other agents
+4. Maintain its own state and todo list
+
+Each agent runs in its own async task, processing its todo list at configurable intervals. This allows for true parallel processing and independent operation.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
