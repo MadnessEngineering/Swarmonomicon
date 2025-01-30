@@ -196,7 +196,33 @@ impl GitAssistantAgent {
     }
 
     fn handle_git_command(&self, command: &str) -> Message {
-        self.format_git_response(command.to_string())
+        let response = match command {
+            "help" | "" => format!(
+                "Git Assistant - Your Version Control Helper\n\n\
+                Available commands:\n\
+                - init: Initialize a new git repository\n\
+                - status: Check repository status\n\
+                - add <files>: Stage files for commit\n\
+                - commit <message>: Create a new commit\n\
+                - branch <name>: Create and switch to a new branch\n\
+                - checkout <branch>: Switch to a branch\n\
+                - merge <branch>: Merge a branch into current branch\n\
+                - push: Push changes to remote\n\
+                - pull: Pull changes from remote"
+            ),
+            "status" => {
+                match Command::new("git")
+                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                    .args(["status"])
+                    .output() {
+                        Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
+                        Err(_) => "Not a git repository".to_string(),
+                    }
+            },
+            _ => format!("Unknown command: {}. Use 'help' to see available commands.", command),
+        };
+
+        self.format_git_response(response)
     }
 }
 
