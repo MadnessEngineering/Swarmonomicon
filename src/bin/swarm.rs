@@ -14,7 +14,7 @@ use swarmonomicon::agents::git_assistant::GitAssistantAgent;
 use swarmonomicon::agents::haiku::HaikuAgent;
 
 #[cfg(feature = "project-init-agent")]
-use swarmonomicon::agents::{ProjectInitAgent};
+use swarmonomicon::agents::ProjectInitAgent;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -68,59 +68,61 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
         // Create agent instances
         #[cfg(feature = "git-agent")]
-        let mut git_assistant = GitAssistantAgent::new(AgentConfig {
-            name: "git".to_string(),
-            public_description: "Git operations with intelligent commit messages".to_string(),
-            instructions: "Handles Git operations including commits, branches, and merges".to_string(),
+        {
+            let git_assistant = GitAssistantAgent::new(AgentConfig {
+                name: "git".to_string(),
+                public_description: "Git operations with intelligent commit messages".to_string(),
+                instructions: "Manages git operations with quantum-themed messages".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            }).await?;
+
+            let mut git = git_assistant;
+            git.update_working_dir(std::env::current_dir()?.into())?;
+            registry.register("git".to_string(), Box::new(git)).await?;
+        }
+
+        #[cfg(feature = "haiku-agent")]
+        let haiku_agent = HaikuAgent::new(AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Creates haikus from user input".to_string(),
+            instructions: "Creates haikus based on user input and context".to_string(),
             tools: vec![],
             downstream_agents: vec![],
             personality: None,
             state_machine: None,
         });
 
-        #[cfg(feature = "git-agent")]
-        git_assistant.update_working_dir(std::env::current_dir()?.into())?;
-
         #[cfg(feature = "haiku-agent")]
-        let haiku_agent = HaikuAgent::new(AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Creates haikus".to_string(),
-            instructions: "Create haikus".to_string(),
-            tools: vec![],
-            downstream_agents: vec!["git".to_string()],
-            personality: None,
-            state_machine: None,
-        });
+        registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
 
         #[cfg(feature = "project-init-agent")]
         let project_agent = ProjectInitAgent::new(AgentConfig {
-            name: "project".to_string(),
+            name: "project-init".to_string(),
             public_description: "Project initialization tool".to_string(),
             instructions: "Creates new projects with proper structure and configuration".to_string(),
             tools: vec![],
-            downstream_agents: vec!["git".to_string()],
+            downstream_agents: vec![],
             personality: None,
             state_machine: None,
-        });
+        }).await?;
+
+        #[cfg(feature = "project-init-agent")]
+        registry.register("project-init".to_string(), Box::new(project_agent)).await?;
 
         let greeter_agent = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
-            public_description: "Swarmonomicon's Guide to Unhinged Front Desk Wizardry".to_string(),
+            public_description: "Quantum Greeter".to_string(),
             instructions: "Master of controlled chaos and improvisational engineering".to_string(),
             tools: vec![],
-            downstream_agents: vec!["git".to_string(), "project".to_string(), "haiku".to_string()],
+            downstream_agents: vec!["git".to_string(), "project-init".to_string(), "haiku".to_string()],
             personality: None,
             state_machine: None,
         });
 
-        // Register agents
-        #[cfg(feature = "git-agent")]
-        registry.register(git_assistant).await?;
-        #[cfg(feature = "haiku-agent")]
-        registry.register(haiku_agent).await?;
-        #[cfg(feature = "project-init-agent")]
-        registry.register(project_agent).await?;
-        registry.register(greeter_agent).await?;
+        registry.register("greeter".to_string(), Box::new(greeter_agent)).await?;
     }
 
     // Create transfer service starting with greeter
@@ -148,7 +150,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         Some(Commands::Init { project_type, name, description }) => {
             // Transfer to project agent
-            service.transfer("greeter", "project").await?;
+            service.transfer("greeter", "project-init").await?;
 
             // Process command
             let command = Message::new(format!("create {} {} {}", project_type, name, description));
@@ -218,7 +220,8 @@ mod tests {
             let mut registry = registry.write().await;
 
             // Create git agent with temp directory
-            let mut git_assistant = GitAssistantAgent::new(AgentConfig {
+            #[cfg(feature = "git-agent")]
+            let git_assistant = GitAssistantAgent::new(AgentConfig {
                 name: "git".to_string(),
                 public_description: "Git test agent".to_string(),
                 instructions: "Test git operations".to_string(),
@@ -226,8 +229,14 @@ mod tests {
                 downstream_agents: vec![],
                 personality: None,
                 state_machine: None,
-            });
-            git_assistant.update_working_dir(temp_dir.path().to_path_buf())?;
+            }).await?;
+
+            #[cfg(feature = "git-agent")]
+            {
+                let mut git = git_assistant;
+                git.update_working_dir(temp_dir.path().to_path_buf())?;
+                registry.register("git".to_string(), Box::new(git)).await?;
+            }
 
             let haiku_agent = HaikuAgent::new(AgentConfig {
                 name: "haiku".to_string(),
@@ -248,12 +257,11 @@ mod tests {
                 downstream_agents: vec!["git".to_string()],
                 personality: None,
                 state_machine: None,
-            });
+            }).await?;
 
-            registry.register(git_assistant).await?;
-            registry.register(haiku_agent).await?;
+            registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
             #[cfg(feature = "project-init-agent")]
-            registry.register(project_agent).await?;
+            registry.register("project".to_string(), Box::new(project_agent)).await?;
         }
 
         // Create transfer service
