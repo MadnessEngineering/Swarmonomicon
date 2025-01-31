@@ -70,6 +70,32 @@
    - [ ] Test state transitions
    - [x] Test AI client functionality
 
+### Fix Failing Tests
+1. [ ] Fix `test_invalid_transfer` in `agents::greeter`
+   - [ ] Review the expected behavior for invalid transfers
+   - [ ] Update the test to match the current implementation
+   - [ ] Consider if the failure is due to a bug or outdated test
+
+2. [ ] Fix `test_haiku_generation` in `agents::haiku`
+   - [ ] Investigate the overflow error
+   - [ ] Review the haiku generation logic for potential bugs
+   - [ ] Update the test to handle edge cases
+
+3. [ ] Fix `test_state_transitions` in `agents::haiku`
+   - [ ] Review the assertion failure
+   - [ ] Ensure the state is properly initialized
+   - [ ] Update the test to match the expected state transitions
+
+4. [ ] Fix `test_agent_workflow` in `agents`
+   - [ ] Investigate the overflow error
+   - [ ] Review the agent workflow logic for potential bugs
+   - [ ] Update the test to handle edge cases
+
+5. [ ] Fix `test_agent_transfer` in `agents::transfer`
+   - [ ] Review the assertion failure
+   - [ ] Ensure the transfer logic is properly implemented
+   - [ ] Update the test to match the expected behavior
+
 ## Medium Priority
 
 ### Documentation
@@ -84,6 +110,17 @@
 3. [ ] Implement agent state persistence
 4. [ ] Add configuration file support
 
+### Implement Missing Features
+1. [ ] Identify any unimplemented features
+   - [ ] Review the project requirements
+   - [ ] Create a list of missing features
+   - [ ] Prioritize the implementation based on dependencies
+
+2. [ ] Implement the missing features
+   - [ ] Follow the existing code patterns
+   - [ ] Write unit tests for the new features
+   - [ ] Ensure proper error handling and edge case coverage
+
 ## Low Priority
 
 ### Improvements
@@ -97,6 +134,28 @@
 2. [ ] Optimize lock patterns
 3. [ ] Implement proper shutdown sequence
 4. [ ] Add proper error types instead of using Box<dyn Error>
+
+### Refactor and Optimize
+1. [ ] Review the codebase for potential refactoring
+   - [ ] Identify any code duplication
+   - [ ] Look for opportunities to improve performance
+   - [ ] Consider improving the code organization and modularity
+
+2. [ ] Perform the identified refactorings
+   - [ ] Create separate branches for each refactoring
+   - [ ] Ensure the tests pass after each refactoring
+   - [ ] Update the documentation if necessary
+
+### Enhance Test Coverage
+1. [ ] Review the existing test coverage
+   - [ ] Identify any missing test cases
+   - [ ] Consider adding more edge case scenarios
+   - [ ] Look for opportunities to improve test organization
+
+2. [ ] Implement the identified test enhancements
+   - [ ] Write new test cases
+   - [ ] Refactor existing tests if necessary
+   - [ ] Ensure all tests pass consistently
 
 ## Completed
 - [x] Create initial agent system
@@ -113,45 +172,8 @@
 - [x] Fix concurrent access patterns
 
 ## Next Steps
-1. Create a wrapper type for agents to handle the type complexity:
-   ```rust
-   pub struct AgentWrapper {
-       inner: Arc<Box<dyn Agent + Send + Sync>>,
-   }
-   
-   impl AgentWrapper {
-       pub fn new<A>(agent: A) -> Self 
-       where 
-           A: Agent + Send + Sync + 'static 
-       {
-           Self {
-               inner: Arc::new(Box::new(agent))
-           }
-       }
-   }
-   ```
-
-2. Update the `AgentRegistry` to use this wrapper:
-   ```rust
-   pub struct AgentRegistry {
-       agents: HashMap<String, AgentWrapper>,
-   }
-   ```
-
-3. Update the `TransferService` to handle the wrapper:
-   ```rust
-   impl TransferService {
-       pub async fn process_message(&mut self, content: &str) -> Result<Message> {
-           let registry = self.registry.read().await;
-           if let Some(current_agent) = &self.current_agent {
-               if let Some(agent) = registry.get(current_agent) {
-                   agent.process_message(content).await
-               } else {
-                   Err(format!("Current agent '{}' not found", current_agent).into())
-               }
-           } else {
-               Err("No current agent set".into())
-           }
-       }
-   }
-   ```
+1. Prioritize fixing the failing tests to ensure the existing functionality is working as expected.
+2. Review the partially implemented features and complete their implementation.
+3. Identify and implement any missing features based on the project requirements.
+4. Refactor and optimize the codebase for better maintainability and performance.
+5. Enhance the test coverage to ensure robustness and catch potential bugs.

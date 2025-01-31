@@ -7,11 +7,13 @@ mod git;
 mod project;
 mod object_detection;
 mod screenshot_detection;
+mod todo;
 
 pub use git::GitTool;
 pub use project::ProjectTool;
 pub use object_detection::ObjectDetectionTool;
 pub use screenshot_detection::ScreenshotDetectionTool;
+pub use todo::TodoTool;
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -84,6 +86,9 @@ impl ToolRegistry {
         
         // Register Project tool
         registry.register("project".to_string(), ProjectTool::new());
+        
+        // Register Todo tool
+        registry.register("todo".to_string(), TodoTool::new());
         
         registry
     }
