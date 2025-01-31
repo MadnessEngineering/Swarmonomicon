@@ -52,6 +52,8 @@ mongodb = { version = "2.0", features = ["bson-chrono-0_4"] }
 async-std = "1.10"
 futures-util = "0.3"
 
+anyhow = "1.0"
+
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"
