@@ -2,7 +2,7 @@ use std::time::Duration;
 use swarmonomicon::agents::{self, UserAgent};
 use swarmonomicon::types::{AgentConfig, Message};
 use swarmonomicon::Agent;
-use rumqttc::{MqttOptions, Client, QoS, Event, Packet, EventLoop};
+use rumqttc::{MqttOptions, AsyncClient, QoS, Event, Packet};
 use tokio::task;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,10 +29,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start the MQTT listener in a separate task
     let mut mqtt_options = MqttOptions::new("todo_worker", "broker.hivemq.com", 1883);
-    mqtt_options.set_keep_alive(5); // 5 seconds as u16
-    let (mut client, mut event_loop) = Client::new(mqtt_options, 10);
-    
-    client.subscribe("todos/#", QoS::AtMostOnce)?;
+    mqtt_options.set_keep_alive(Duration::from_secs(5));
+    let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
+
+    client.subscribe("todos/#", QoS::AtMostOnce).await?;
 
     let user_agent = Arc::new(user_agent);
     let user_agent_clone = user_agent.clone();
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Event::Incoming(Packet::Publish(publish)) = notification {
                         let description = String::from_utf8_lossy(&publish.payload).to_string();
                         let todo_name = publish.topic.clone();
-                        
+
                         // Create a message for the user agent
                         let message = Message::new(format!("add todo: {} - {}", todo_name, description));
                         if let Err(e) = user_agent_clone.process_message(message).await {
