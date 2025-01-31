@@ -90,7 +90,7 @@ mod tests {
             state_machine: None,
         });
 
-        registry.register(agent).await.unwrap();
+        registry.register("test_greeter".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
         let mut service = TransferService::new(registry);
 

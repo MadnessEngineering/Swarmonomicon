@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use anyhow::anyhow;
 
 pub struct HaikuAgent {
     config: AgentConfig,
@@ -117,7 +118,11 @@ impl Agent for HaikuAgent {
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        Ok(message)
+        if !self.config.downstream_agents.contains(&target_agent) {
+            Err(anyhow!("Invalid transfer target: {}", target_agent).into())
+        } else {
+            Ok(message)
+        }
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
