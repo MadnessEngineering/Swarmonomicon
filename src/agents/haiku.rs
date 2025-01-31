@@ -125,7 +125,7 @@ impl Agent for HaikuAgent {
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(None)
+        Ok(self.state_manager.get_current_state().cloned())
     }
 
     async fn get_config(&self) -> Result<AgentConfig> {
