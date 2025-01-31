@@ -113,7 +113,7 @@ impl Agent for HaikuAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
         // Generate a haiku response
         let haiku = self.generate_haiku(message.content);
-        Ok(Message::new(haiku))
+        Ok(self.create_response(haiku))
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
