@@ -300,7 +300,7 @@ mod tests {
             state_machine: None,
         });
 
-        registry.register(agent).await.unwrap();
+        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
         let state = Arc::new(AppState {
             transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
@@ -338,7 +338,7 @@ mod tests {
             state_machine: None,
         });
 
-        registry.register(agent).await.unwrap();
+        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
         let state = Arc::new(AppState {
             transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
@@ -371,7 +371,7 @@ mod tests {
             state_machine: None,
         });
 
-        registry.register(agent).await.unwrap();
+        registry.register("test_agent".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
         let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
         let state = Arc::new(AppState {

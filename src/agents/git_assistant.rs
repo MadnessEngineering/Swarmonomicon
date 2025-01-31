@@ -20,15 +20,15 @@ pub struct GitAssistantAgent {
 }
 
 impl GitAssistantAgent {
-    pub fn new(config: AgentConfig) -> Self {
-        Self {
+    pub async fn new(config: AgentConfig) -> Result<Self> {
+        Ok(Self {
             config,
-            tools: ToolRegistry::create_default_tools(),
+            tools: ToolRegistry::create_default_tools().await?,
             state_manager: AgentStateManager::new(None),
             working_dir: Arc::new(Mutex::new(None)),
             current_state: None,
             ai_client: AiClient::new(),
-        }
+        })
     }
 
     // Helper to get working directory or return error
@@ -359,7 +359,7 @@ mod tests {
 
     async fn setup_test_repo() -> (GitAssistantAgent, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
-        let mut agent = GitAssistantAgent::new(create_test_config());
+        let mut agent = GitAssistantAgent::new(create_test_config()).await.unwrap();
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[cfg(test)]
-    fn create_test_agent() -> GitAssistantAgent {
+    async fn create_test_agent() -> Result<GitAssistantAgent> {
         GitAssistantAgent::new(AgentConfig {
             name: "git".to_string(),
             public_description: "Git test agent".to_string(),
@@ -412,12 +412,12 @@ mod tests {
             downstream_agents: vec![],
             personality: None,
             state_machine: None,
-        })
+        }).await
     }
 
     #[tokio::test]
     async fn test_help_message() {
-        let agent = create_test_agent();
+        let agent = create_test_agent().await.unwrap();
         let response = agent.process_message(Message::new("help".to_string())).await.unwrap();
         assert!(response.content.contains("Quantum"), "Help message should contain quantum theme");
         assert!(response.content.contains("commands"), "Help message should list commands");
@@ -426,7 +426,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_repo_status() {
         let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent();
+        let mut agent = create_test_agent().await.unwrap();
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
@@ -437,7 +437,7 @@ mod tests {
     #[tokio::test]
     async fn test_commit_flow() {
         let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent();
+        let mut agent = create_test_agent().await.unwrap();
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
@@ -473,7 +473,7 @@ mod tests {
     #[tokio::test]
     async fn test_branch_and_merge() {
         let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent();
+        let mut agent = create_test_agent().await.unwrap();
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize and create initial commit
@@ -547,7 +547,7 @@ mod tests {
             personality: None,
             state_machine: None,
         };
-        let agent = GitAssistantAgent::new(config);
+        let agent = GitAssistantAgent::new(config).await.unwrap();
 
         let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("preserve") || response.content.contains("artifact"),

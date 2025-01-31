@@ -3,7 +3,7 @@ name = "swarmonomicon"
 version = "0.1.1"
 edition = "2021"
 authors = ["Danedens31@gmail.com"]
-description = "A Rust implementation of an agent-based workflow system"
+description = "Madness Interactive - Agent Swarm and Eventbase"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -31,6 +31,7 @@ tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }
 tower = "0.4"
 hyper = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
+rumqttc = "0.24.0"
 futures = "0.3"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
@@ -46,6 +47,12 @@ chromiumoxide_cdp = { version = "0.5", optional = true }
 tokio-tungstenite = { version = "0.24", optional = true }
 
 uuid = { version = "1.7.0", features = ["v4", "serde"] }
+
+mongodb = { version = "2.0", features = ["bson-chrono-0_4"] }
+async-std = "1.10"
+futures-util = "0.3"
+
+anyhow = "1.0"
 
 [dev-dependencies]
 tokio-test = "0.4"

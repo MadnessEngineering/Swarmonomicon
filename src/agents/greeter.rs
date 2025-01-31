@@ -96,6 +96,11 @@ impl Agent for GreeterAgent {
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+        // Check if the target agent is in our downstream agents list
+        if !self.config.downstream_agents.contains(&target_agent) {
+            return Err(format!("Cannot transfer to unknown agent: {}", target_agent).into());
+        }
+
         let mut response = message;
         response.metadata = Some(MessageMetadata::new("greeter".to_string())
             .with_transfer(target_agent));

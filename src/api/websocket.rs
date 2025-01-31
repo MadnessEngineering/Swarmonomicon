@@ -131,7 +131,8 @@ mod tests {
             state_machine: None,
         };
 
-        registry.register(GreeterAgent::new(greeter_config)).await.expect("Failed to register greeter agent");
+        let greeter_agent = GreeterAgent::new(greeter_config);
+        registry.register("greeter".to_string(), Box::new(greeter_agent)).await.expect("Failed to register greeter agent");
 
         let registry = Arc::new(RwLock::new(registry));
         Arc::new(AppState {

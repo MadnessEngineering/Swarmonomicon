@@ -78,19 +78,20 @@ impl ToolRegistry {
         }
     }
 
-    pub fn create_default_tools() -> Self {
+    pub async fn create_default_tools() -> Result<Self> {
         let mut registry = Self::new();
-        
+
         // Register Git tool
         registry.register("git".to_string(), GitTool::new());
-        
+
         // Register Project tool
         registry.register("project".to_string(), ProjectTool::new());
-        
+
         // Register Todo tool
-        registry.register("todo".to_string(), TodoTool::new());
-        
-        registry
+        let todo_tool = TodoTool::new().await?;
+        registry.register("todo".to_string(), todo_tool);
+
+        Ok(registry)
     }
 }
 

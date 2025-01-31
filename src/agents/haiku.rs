@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use anyhow::anyhow;
 
 pub struct HaikuAgent {
     config: AgentConfig,
@@ -102,8 +103,8 @@ impl HaikuAgent {
             ),
         ];
 
-        // Select a haiku based on a hash of the topic
-        let index = topic.bytes().sum::<u8>() as usize % haikus.len();
+        // Select a haiku based on a simple hash of the topic
+        let index = topic.bytes().fold(0usize, |acc, b| (acc + b as usize) % haikus.len());
         haikus[index].clone()
     }
 }
@@ -113,11 +114,15 @@ impl Agent for HaikuAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
         // Generate a haiku response
         let haiku = self.generate_haiku(message.content);
-        Ok(Message::new(haiku))
+        Ok(self.create_response(haiku))
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        Ok(message)
+        if !self.config.downstream_agents.contains(&target_agent) {
+            Err(anyhow!("Invalid transfer target: {}", target_agent).into())
+        } else {
+            Ok(message)
+        }
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
@@ -125,7 +130,7 @@ impl Agent for HaikuAgent {
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(None)
+        Ok(self.state_manager.get_current_state().cloned())
     }
 
     async fn get_config(&self) -> Result<AgentConfig> {
