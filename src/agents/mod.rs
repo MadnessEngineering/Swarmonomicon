@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::types::{Agent, AgentConfig, Result, TodoProcessor};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool, TodoProcessor};
 use lazy_static::lazy_static;
 
 #[cfg(feature = "git-agent")]
@@ -131,7 +131,7 @@ pub async fn get_agent(name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Message;
+    use crate::types::{Message, State, StateMachine, AgentStateManager};
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![
