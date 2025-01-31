@@ -2,7 +2,7 @@ use std::time::Duration;
 use swarmonomicon::agents::{self, UserAgent};
 use swarmonomicon::types::{AgentConfig, Message};
 use swarmonomicon::Agent;
-use rumqttc::{MqttOptions, Client, QoS, Event, Packet};
+use rumqttc::{MqttOptions, Client, QoS, Event, Packet, EventLoop};
 use tokio::task;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,8 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start the MQTT listener in a separate task
     let mut mqtt_options = MqttOptions::new("todo_worker", "broker.hivemq.com", 1883);
-    mqtt_options.set_keep_alive(Duration::from_secs(5));
-    let (mut client, mut eventloop) = Client::new(mqtt_options, 10);
+    mqtt_options.set_keep_alive(5); // 5 seconds as u16
+    let (mut client, mut event_loop) = Client::new(mqtt_options, 10);
     
     client.subscribe("todos/#", QoS::AtMostOnce)?;
 
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     task::spawn(async move {
         loop {
-            match eventloop.poll().await {
+            match event_loop.poll().await {
                 Ok(notification) => {
                     if let Event::Incoming(Packet::Publish(publish)) = notification {
                         let description = String::from_utf8_lossy(&publish.payload).to_string();
