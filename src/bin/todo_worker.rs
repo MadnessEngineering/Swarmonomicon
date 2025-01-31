@@ -2,6 +2,9 @@ use std::time::Duration;
 use swarmonomicon::agents::{self, UserAgent};
 use swarmonomicon::types::{AgentConfig, Message};
 use swarmonomicon::Agent;
+use rumqttc::{MqttOptions, Client, Event, QoS};
+use tokio::task;
+use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> swarmonomicon::Result<()> {
@@ -79,6 +82,30 @@ async fn main() -> swarmonomicon::Result<()> {
             },
         ]).await?;
     }
+
+    // Start the MQTT listener in a separate task
+    let mqtt_options = MqttOptions::new("todo_worker", "broker.hivemq.com", 1883);
+    let (mqtt_client, mut event_loop) = Client::new(mqtt_options, 10);
+    let topic = "todos";
+
+    task::spawn(async move {
+        mqtt_client.subscribe(topic, QoS::AtMostOnce).await.unwrap();
+        while let Ok(event) = event_loop.poll().await {
+            match event {
+                Event::Incoming(rumqttc::Packet::Publish(publish)) => {
+                    let description = String::from_utf8_lossy(&publish.payload).to_string();
+                    let todo_name = publish.topic.clone();
+                    // Create a new todo based on the MQTT message
+                    let params = HashMap::new();
+                    params.insert("command".to_string(), "add".to_string());
+                    params.insert("description".to_string(), description);
+                    // Execute the command to add the todo
+                    let _ = user_agent.execute(params).await;
+                }
+                _ => {}
+            }
+        }
+    });
 
     tracing::info!("Todo worker started. Checking for tasks every 2 minutes...");
 

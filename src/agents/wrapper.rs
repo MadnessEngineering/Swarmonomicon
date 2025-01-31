@@ -34,7 +34,7 @@ impl TodoProcessor for AgentWrapper {
 
     fn get_check_interval(&self) -> Duration {
         // Default check interval of 5 seconds
-        Duration::from_secs(5)
+        Duration::from_secs(60)
     }
 
     fn get_todo_list(&self) -> &TodoList {

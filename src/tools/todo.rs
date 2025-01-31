@@ -59,7 +59,7 @@ impl TodoTool {
 
         let mut output = String::from("Current todos:\n");
         for (i, todo) in todos.iter().enumerate() {
-            output.push_str(&format!("{}. {} ({})\n", 
+            output.push_str(&format!("{}. {} ({})\n",
                 i + 1,
                 todo["description"].as_str().unwrap_or("Invalid description"),
                 todo["status"].as_str().unwrap_or("Unknown status")
@@ -137,22 +137,25 @@ mod tests {
         fs::write(temp_file.path(), serde_json::to_string_pretty(&initial_state)?)?;
 
         let tool = TodoTool::new();
-        
+
         // Test adding a todo
         let mut params = HashMap::new();
         params.insert("command".to_string(), "add".to_string());
         params.insert("description".to_string(), "Test todo".to_string());
-        
+
         let result = tool.execute(params).await?;
         assert!(result.contains("Added new todo"));
 
         // Test listing todos
         let mut params = HashMap::new();
         params.insert("command".to_string(), "list".to_string());
-        
+
         let result = tool.execute(params).await?;
         assert!(result.contains("Test todo"));
 
+        // Cleanup: Explicitly drop the temp_file to ensure it's deleted
+        drop(temp_file);
+
         Ok(())
     }
-} 
+}
