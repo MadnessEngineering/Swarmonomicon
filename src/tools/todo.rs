@@ -1,89 +1,95 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::Utc;
+use futures_util::StreamExt;
+use mongodb::{
+    bson::{doc, to_bson},
+    Client, Collection,
+    options::IndexOptions,
+    IndexModel,
+};
 use crate::tools::ToolExecutor;
 use crate::agents::user_agent::{TodoItem, TodoStatus};
 use crate::Result;
-use std::fs;
-use serde_json::{json, Value};
 
-pub struct TodoTool;
+pub struct TodoTool {
+    collection: Collection<TodoItem>,
+}
 
 impl TodoTool {
-    pub fn new() -> Self {
-        Self
+    pub async fn new() -> Result<Self> {
+        let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+        let db = client.database("swarmonomicon");
+        let collection = db.collection::<TodoItem>("todos");
+
+        // Create a unique index on the description field
+        let index = IndexModel::builder()
+            .keys(doc! { "description": 1 })
+            .options(Some(IndexOptions::builder().unique(true).build()))
+            .build();
+        collection.create_index(index, None).await?;
+
+        Ok(Self { collection })
     }
 
-    fn read_todo_state(&self) -> Result<Value> {
-        let contents = fs::read_to_string("todo_state.json")?;
-        let state: Value = serde_json::from_str(&contents)?;
-        Ok(state)
-    }
+    async fn add_todo(&self, description: &str, context: Option<&str>) -> Result<String> {
+        let now = Utc::now();
+        let new_todo = TodoItem {
+            description: description.to_string(),
+            status: TodoStatus::Pending,
+            assigned_agent: None,
+            context: context.map(|s| s.to_string()),
+            error: None,
+            created_at: now,
+            updated_at: now,
+        };
 
-    fn write_todo_state(&self, state: &Value) -> Result<()> {
-        let contents = serde_json::to_string_pretty(state)?;
-        fs::write("todo_state.json", contents)?;
-        Ok(())
-    }
-
-    fn add_todo(&self, description: &str, context: Option<&str>) -> Result<String> {
-        let mut state = self.read_todo_state()?;
-        let now = Utc::now().to_rfc3339();
-
-        let new_todo = json!({
-            "description": description,
-            "status": "Pending",
-            "assigned_agent": null,
-            "context": context,
-            "error": null,
-            "created_at": now,
-            "updated_at": now
-        });
-
-        state["todos"].as_array_mut()
-            .ok_or("Invalid todo state format")?
-            .push(new_todo);
-
-        self.write_todo_state(&state)?;
+        self.collection.insert_one(new_todo, None).await?;
         Ok(format!("Added new todo: {}", description))
     }
 
-    fn list_todos(&self) -> Result<String> {
-        let state = self.read_todo_state()?;
-        let todos = state["todos"].as_array()
-            .ok_or("Invalid todo state format")?;
+    async fn list_todos(&self) -> Result<String> {
+        let mut cursor = self.collection.find(None, None).await?;
+        let mut todos = Vec::new();
+
+        while let Some(todo_result) = cursor.next().await {
+            if let Ok(todo) = todo_result {
+                todos.push(todo);
+            }
+        }
 
         if todos.is_empty() {
             return Ok("No todos found.".to_string());
         }
 
         let mut output = String::from("Current todos:\n");
-        for (i, todo) in todos.iter().enumerate() {
-            output.push_str(&format!("{}. {} ({})\n",
-                i + 1,
-                todo["description"].as_str().unwrap_or("Invalid description"),
-                todo["status"].as_str().unwrap_or("Unknown status")
-            ));
+        for todo in todos {
+            output.push_str(&format!("- {} ({:?})\n", todo.description, todo.status));
         }
 
         Ok(output)
     }
 
-    fn update_todo_status(&self, index: usize, status: TodoStatus) -> Result<String> {
-        let mut state = self.read_todo_state()?;
-        let todos = state["todos"].as_array_mut()
-            .ok_or("Invalid todo state format")?;
+    async fn update_todo_status(&self, description: &str, status: TodoStatus) -> Result<String> {
+        let now = Utc::now();
+        let status_bson = to_bson(&status).unwrap_or_else(|_| to_bson(&format!("{:?}", status)).unwrap());
+        
+        let update_result = self.collection.update_one(
+            doc! { "description": description },
+            doc! { 
+                "$set": { 
+                    "status": status_bson,
+                    "updated_at": now 
+                } 
+            },
+            None,
+        ).await?;
 
-        if index >= todos.len() {
-            return Err("Todo index out of range".into());
+        if update_result.modified_count == 1 {
+            Ok(format!("Updated todo status to {:?}", status))
+        } else {
+            Err(format!("Todo with description '{}' not found", description).into())
         }
-
-        let now = Utc::now().to_rfc3339();
-        todos[index]["status"] = json!(format!("{:?}", status));
-        todos[index]["updated_at"] = json!(now);
-
-        self.write_todo_state(&state)?;
-        Ok(format!("Updated todo status to {:?}", status))
     }
 }
 
@@ -96,24 +102,18 @@ impl ToolExecutor for TodoTool {
             "add" => {
                 let description = params.get("description").ok_or("Missing todo description")?;
                 let context = params.get("context").map(|s| s.as_str());
-                self.add_todo(description, context)
+                self.add_todo(description, context).await
             }
             "list" => {
-                self.list_todos()
+                self.list_todos().await
             }
             "complete" => {
-                let index = params.get("index")
-                    .ok_or("Missing todo index")?
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid todo index")?;
-                self.update_todo_status(index, TodoStatus::Completed)
+                let description = params.get("description").ok_or("Missing todo description")?;
+                self.update_todo_status(description, TodoStatus::Completed).await
             }
             "fail" => {
-                let index = params.get("index")
-                    .ok_or("Missing todo index")?
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid todo index")?;
-                self.update_todo_status(index, TodoStatus::Failed)
+                let description = params.get("description").ok_or("Missing todo description")?;
+                self.update_todo_status(description, TodoStatus::Failed).await
             }
             _ => Err("Unknown todo command".into()),
         }
@@ -123,20 +123,15 @@ impl ToolExecutor for TodoTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
-    use std::fs;
 
     #[tokio::test]
     async fn test_todo_operations() -> Result<()> {
-        // Create a temporary todo state file
-        let temp_file = NamedTempFile::new()?;
-        let initial_state = json!({
-            "todos": [],
-            "last_processed": null
-        });
-        fs::write(temp_file.path(), serde_json::to_string_pretty(&initial_state)?)?;
+        // Set up a temporary collection
+        let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+        let db = client.database("swarmonomicon_test");
+        let collection = db.collection::<TodoItem>("todos");
 
-        let tool = TodoTool::new();
+        let tool = TodoTool { collection };
 
         // Test adding a todo
         let mut params = HashMap::new();
@@ -153,8 +148,8 @@ mod tests {
         let result = tool.execute(params).await?;
         assert!(result.contains("Test todo"));
 
-        // Cleanup: Explicitly drop the temp_file to ensure it's deleted
-        drop(temp_file);
+        // Cleanup: Drop the test collection
+        db.collection::<TodoItem>("todos").drop(None).await?;
 
         Ok(())
     }
