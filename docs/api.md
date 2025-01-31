@@ -15,7 +15,7 @@ Agents are autonomous entities that can process messages, manage state, and inte
 
 ### Todo Tasks
 Tasks that can be delegated between agents with the following properties:
-- `description`: Task description
+- `description`: Task description (unique)
 - `status`: TodoStatus (Pending, InProgress, Completed, Failed)
 - `assigned_agent`: Optional agent assigned to the task
 - `context`: Optional context information
@@ -26,7 +26,7 @@ Tasks that can be delegated between agents with the following properties:
 ## Tools
 
 ### Todo Tool
-The todo tool provides functionality for managing todo tasks.
+The todo tool provides functionality for managing todo tasks stored in a MongoDB database.
 
 #### Commands:
 
@@ -50,15 +50,15 @@ The todo tool provides functionality for managing todo tasks.
 ```json
 {
   "command": "complete",
-  "index": "0"  // Zero-based index of the todo to complete
+  "description": "Task description"
 }
 ```
 
 4. **Fail Todo**
 ```json
 {
-  "command": "fail",
-  "index": "0"  // Zero-based index of the todo to mark as failed
+  "command": "fail", 
+  "description": "Task description"
 }
 ```
 
