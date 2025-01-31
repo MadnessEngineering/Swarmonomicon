@@ -102,8 +102,8 @@ impl HaikuAgent {
             ),
         ];
 
-        // Select a haiku based on a hash of the topic
-        let index = topic.bytes().sum::<u8>() as usize % haikus.len();
+        // Select a haiku based on a simple hash of the topic
+        let index = topic.bytes().fold(0usize, |acc, b| (acc + b as usize) % haikus.len());
         haikus[index].clone()
     }
 }
