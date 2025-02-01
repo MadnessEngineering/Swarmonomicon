@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
             let mut git = git_assistant;
             git.update_working_dir(std::env::current_dir()?.into())?;
-            registry.register("git".to_string(), Box::new(git)).await?;
+            registry.register("git".to_string(), Box::new(git));
         }
 
         #[cfg(feature = "haiku-agent")]
@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         });
 
         #[cfg(feature = "haiku-agent")]
-        registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
+        registry.register("haiku".to_string(), Box::new(haiku_agent));
 
         #[cfg(feature = "project-init-agent")]
         let project_agent = ProjectInitAgent::new(AgentConfig {
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }).await?;
 
         #[cfg(feature = "project-init-agent")]
-        registry.register("project-init".to_string(), Box::new(project_agent)).await?;
+        registry.register("project-init".to_string(), Box::new(project_agent));
 
         let greeter_agent = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             state_machine: None,
         });
 
-        registry.register("greeter".to_string(), Box::new(greeter_agent)).await?;
+        registry.register("greeter".to_string(), Box::new(greeter_agent));
     }
 
     // Create transfer service starting with greeter
@@ -235,7 +235,7 @@ mod tests {
             {
                 let mut git = git_assistant;
                 git.update_working_dir(temp_dir.path().to_path_buf())?;
-                registry.register("git".to_string(), Box::new(git)).await?;
+                registry.register("git".to_string(), Box::new(git));
             }
 
             let haiku_agent = HaikuAgent::new(AgentConfig {
@@ -259,9 +259,9 @@ mod tests {
                 state_machine: None,
             }).await?;
 
-            registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
+            registry.register("haiku".to_string(), Box::new(haiku_agent));
             #[cfg(feature = "project-init-agent")]
-            registry.register("project".to_string(), Box::new(project_agent)).await?;
+            registry.register("project".to_string(), Box::new(project_agent));
         }
 
         // Create transfer service

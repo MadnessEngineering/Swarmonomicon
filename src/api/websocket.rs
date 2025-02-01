@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 use crate::{
     api::AppState,
     agents::{AgentRegistry, TransferService, GreeterAgent},
-    types::{AgentConfig, Tool, Message},
+    types::{AgentConfig, Tool, Message as AppMessage, Agent},
 };
 
 #[cfg(feature = "haiku-agent")]
@@ -19,6 +19,7 @@ use crate::agents::HaikuAgent;
 use tokio::sync::RwLock;
 use crate::api::routes::AppError;
 use axum::http::StatusCode;
+use std::default::Default;
 
 const CHANNEL_SIZE: usize = 32;
 
@@ -69,6 +70,20 @@ impl From<WebSocketError> for StatusCode {
     }
 }
 
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            name: "greeter".to_string(),
+            public_description: "A friendly greeter agent".to_string(),
+            instructions: "Greet users in a friendly manner".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: Some("Friendly and helpful".to_string()),
+            state_machine: None,
+        }
+    }
+}
+
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
@@ -76,64 +91,68 @@ pub async fn websocket_handler(
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
+pub async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
     let mut registry = state.agents.write().await;
-    let greeter_agent = GreeterAgent::new();
+    let config = AgentConfig {
+        name: "greeter".to_string(),
+        public_description: "A friendly greeter agent".to_string(),
+        instructions: "Greet users in a friendly manner".to_string(),
+        tools: vec![],
+        downstream_agents: vec![],
+        personality: Some("Friendly and helpful".to_string()),
+        state_machine: None,
+    };
+    let greeter_agent = GreeterAgent::new(config);
     registry.register("greeter".to_string(), Box::new(greeter_agent));
     drop(registry);
 
     while let Some(msg) = receiver.next().await {
-        let msg = msg.map_err(|_| AppError::Status(StatusCode::BAD_REQUEST))?;
-
-        match msg {
-            Message::Text(text) => {
-                let registry = state.agents.read().await;
-                if let Some(agent) = registry.get("greeter") {
-                    let response = agent.process_message(Message::new(text)).await
-                        .map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
-
-                    sender.send(Message::Text(response.content))
-                        .await
-                        .map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
+        if let Ok(msg) = msg {
+            match msg {
+                WsMessage::Text(text) => {
+                    let registry = state.agents.read().await;
+                    if let Some(agent) = registry.get_agent("greeter") {
+                        let mut agent = agent.write().await;
+                        if let Ok(response) = agent.process_message(AppMessage::text(text)).await {
+                            let _ = sender.send(WsMessage::Text(response.content)).await;
+                        }
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
-
-    Ok(())
 }
 
 async fn handle_client_message(msg: ClientMessage, state: Arc<AppState>) -> Result<ServerMessage, String> {
     match msg {
         ClientMessage::Connect { agent } => {
             let mut registry = state.agents.write().await;
-            let greeter_agent = GreeterAgent::new();
+            let config = AgentConfig::default();
+            let mut greeter_agent = GreeterAgent::new(config);
+            let response = greeter_agent.process_message(AppMessage::text("Hello!".to_string())).await
+                .map_err(|e| e.to_string())?;
             registry.register("greeter".to_string(), Box::new(greeter_agent));
             drop(registry);
             Ok(ServerMessage::Connected { agent })
         },
         ClientMessage::Message { content } => {
-            let mut registry = state.agents.write().await;
-            let greeter_agent = GreeterAgent::new();
-            registry.register("greeter".to_string(), Box::new(greeter_agent));
-            drop(registry);
-            match greeter_agent.process_message(Message::new(content)).await {
-                Ok(response) => Ok(ServerMessage::Message { content: response.content }),
-                Err(e) => Err(e.to_string()),
+            let registry = state.agents.read().await;
+            if let Some(agent) = registry.get_agent("greeter") {
+                let mut agent = agent.write().await;
+                let response = agent.process_message(AppMessage::new(content)).await
+                    .map_err(|e| e.to_string())?;
+                Ok(ServerMessage::Message { content: response.content })
+            } else {
+                Err("Agent not found".to_string())
             }
         },
         ClientMessage::Transfer { from, to } => {
-            let mut registry = state.agents.write().await;
-            let greeter_agent = GreeterAgent::new();
-            registry.register("greeter".to_string(), Box::new(greeter_agent));
-            drop(registry);
             Ok(ServerMessage::Transferred { from, to })
         },
         ClientMessage::UpdateSession { instructions, tools, turn_detection } => {
-            // Handle session update
             Ok(ServerMessage::SessionUpdated)
         },
     }
@@ -164,7 +183,7 @@ pub async fn handle_websocket(
             let registry = state.agents.read().await;
             if let Some(agent) = registry.get_agent("greeter") {
                 let mut agent = agent.write().await;
-                let response = agent.process_message(Message::new(text)).await
+                let response = agent.process_message(AppMessage::new(text)).await
                     .map_err(|e| WebSocketError::AgentError(e.to_string()))?;
 
                 ws.send(WsMessage::from(response))

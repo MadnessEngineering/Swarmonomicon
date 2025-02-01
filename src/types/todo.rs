@@ -153,6 +153,7 @@ impl TodoListExt for Arc<RwLock<TodoList>> {
     }
 }
 
+#[async_trait]
 impl TodoProcessor for AgentWrapper {
     async fn process_task(&mut self, task: TodoTask) -> Result<Message> {
         let task_desc = task.description.clone();
@@ -173,12 +174,19 @@ impl TodoProcessor for AgentWrapper {
 
     async fn start_processing(&mut self) {
         loop {
-            let todo_list = self.get_todo_list().await;
+            let todo_list = TodoProcessor::get_todo_list(self).await;
             let mut list = todo_list.write().await;
             
             if let Some(task) = list.get_next_task() {
+                let task_id = task.id.clone();
                 drop(list); // Release the lock before processing
-                let _ = self.process_task(task).await;
+                let result = self.process_task(task).await;
+                let mut list = todo_list.write().await;
+                if result.is_ok() {
+                    list.mark_task_completed(&task_id);
+                } else {
+                    list.mark_task_failed(&task_id);
+                }
             } else {
                 drop(list);
                 tokio::time::sleep(Duration::from_secs(1)).await;

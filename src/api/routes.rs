@@ -11,6 +11,8 @@ use thiserror::Error;
 use std::error::Error as StdError;
 use crate::types::todo::TodoListExt;
 use chrono::{DateTime, Utc};
+use axum::handler::Handler;
+use axum::debug_handler;
 
 use crate::{
     api::AppState,
@@ -99,15 +101,18 @@ pub async fn get_agent(
     }))
 }
 
+#[debug_handler]
 pub async fn process_message(
     State(state): State<Arc<AppState>>,
-    Path(agent_name): Path<String>,
-    Json(request): Json<MessageRequest>,
+    Path(name): Path<String>,
+    Json(message): Json<MessageRequest>,
 ) -> Result<Json<Message>, AppError> {
     let registry = state.agents.read().await;
-    let agent = registry.get_agent(&agent_name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
-    let mut agent_lock = agent.write().await;
-    let response = agent_lock.process_message(Message::new(request.content)).await?;
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let mut agent = agent.write().await;
+    let response = agent.process_message(Message::text(message.content))
+        .await
+        .map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
     Ok(Json(response))
 }
 
@@ -148,9 +153,12 @@ pub async fn handle_todo_list(
 ) -> Result<Json<MessageResponse>, AppError> {
     let registry = registry.read().await;
     let agent = registry.get_agent(&agent_name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
-    let agent_lock = agent.read().await;
-    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
-    todo_list.add_task(task).await?;
+    let agent = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent).await;
+    {
+        let mut list = todo_list.write().await;
+        list.add_task(task);
+    }
     Ok(Json(MessageResponse {
         content: "Task added successfully".to_string(),
         metadata: None,
@@ -193,44 +201,49 @@ impl From<AddTaskRequest> for TodoTask {
     }
 }
 
+#[debug_handler]
 pub async fn add_task(
-    Path(name): Path<String>,
     State(state): State<Arc<AppState>>,
-    Json(request): Json<AddTaskRequest>,
+    Path(name): Path<String>,
+    Json(task): Json<TodoTask>,
 ) -> Result<Json<TodoTask>, AppError> {
     let registry = state.agents.read().await;
     let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
-    let agent_lock = agent.read().await;
-    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
-    
-    let mut task: TodoTask = request.into();
-    task.target_agent = name;
-    
-    todo_list.add_task(task.clone()).await?;
+    let agent = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent).await;
+    todo_list.add_task(task.clone()).await.map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
     Ok(Json(task))
 }
 
+#[debug_handler]
 pub async fn get_tasks(
-    Path(name): Path<String>,
     State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
 ) -> Result<Json<Vec<TodoTask>>, AppError> {
     let registry = state.agents.read().await;
     let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
-    let agent_lock = agent.read().await;
-    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
-    let tasks = todo_list.get_tasks().await;
+    let agent = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent).await;
+    let tasks = {
+        let list = todo_list.read().await;
+        list.get_tasks()
+    };
     Ok(Json(tasks))
 }
 
+#[debug_handler]
 pub async fn get_task(
-    Path((name, task_id)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
+    Path((name, task_id)): Path<(String, String)>,
 ) -> Result<Json<TodoTask>, AppError> {
     let registry = state.agents.read().await;
     let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
-    let agent_lock = agent.read().await;
-    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
-    let task = todo_list.get_task(&task_id).await.ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let agent = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent).await;
+    let task = {
+        let list = todo_list.read().await;
+        list.get_task(&task_id).cloned().ok_or(AppError::Status(StatusCode::NOT_FOUND))?
+    };
     Ok(Json(task))
 }
 
@@ -293,16 +306,21 @@ mod tests {
         let state = setup_test_state().await;
         
         // Test add task
-        let request = AddTaskRequest {
+        let task = TodoTask {
+            id: uuid::Uuid::new_v4().to_string(),
             description: "Test task".to_string(),
             priority: TaskPriority::Medium,
             source_agent: None,
+            target_agent: "test_agent".to_string(),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            completed_at: None,
         };
         
         let response = add_task(
-            Path("test_agent".to_string()),
             State(state.clone()),
-            Json(request),
+            Path("test_agent".to_string()),
+            Json(task.clone()),
         )
         .await
         .unwrap();
@@ -310,8 +328,8 @@ mod tests {
 
         // Test get tasks
         let response = get_tasks(
-            Path("test_agent".to_string()),
             State(state.clone()),
+            Path("test_agent".to_string()),
         )
         .await
         .unwrap();
@@ -320,8 +338,8 @@ mod tests {
         // Test get task
         let task_id = response.0[0].id.clone();
         let response = get_task(
-            Path(("test_agent".to_string(), task_id)),
             State(state),
+            Path(("test_agent".to_string(), task_id)),
         )
         .await
         .unwrap();

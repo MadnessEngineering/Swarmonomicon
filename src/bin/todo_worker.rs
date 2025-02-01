@@ -47,7 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // Create a message for the user agent
                         let message = Message::new(format!("add todo: {} - {}", todo_name, description));
-                        if let Err(e) = user_agent_clone.process_message(message).await {
+                        let mut user_agent = Arc::make_mut(&mut user_agent_clone);
+                        if let Err(e) = user_agent.process_message(message).await {
                             tracing::error!("Failed to process todo: {}", e);
                         }
                     }

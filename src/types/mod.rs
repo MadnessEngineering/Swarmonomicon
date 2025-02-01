@@ -58,13 +58,13 @@ pub struct TranscriptItem {
     pub is_hidden: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MessageType {
     Text,
     Command,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub content: String,
     pub metadata: Option<MessageMetadata>,
@@ -212,8 +212,12 @@ pub trait Agent: Send + Sync {
     /// Add a task to another agent's todo list if it supports task processing
     async fn delegate_task(&self, task: TodoTask, registry: &AgentRegistry) -> Result<()> {
         if let Some(target_agent) = registry.get_agent(&task.target_agent) {
-            let todo_list = TodoProcessor::get_todo_list(&*target_agent.read().await);
-            todo_list.add_task(task).await?;
+            let agent = target_agent.read().await;
+            let todo_list = TodoProcessor::get_todo_list(&*agent).await;
+            {
+                let mut list = todo_list.write().await;
+                list.add_task(task);
+            }
             Ok(())
         } else {
             Err(format!("Target agent '{}' not found", task.target_agent).into())

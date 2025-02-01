@@ -19,8 +19,19 @@ pub fn add(left: usize, right: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn it_works() {
-        assert!(true);
+    use super::*;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn test_agent_registration() {
+        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+        
+        // Test git agent registration
+        registry.write().await.register("git".to_string(), Box::new(GitAgent::new()));
+        assert!(registry.read().await.get("git").is_some());
+
+        // Test haiku agent registration
+        registry.write().await.register("haiku".to_string(), Box::new(HaikuAgent::new()));
+        assert!(registry.read().await.get("haiku").is_some());
     }
 }
