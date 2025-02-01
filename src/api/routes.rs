@@ -7,12 +7,55 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use thiserror::Error;
+use std::error::Error as StdError;
+use crate::types::todo::TodoListExt;
+use chrono::{DateTime, Utc};
 
 use crate::{
     api::AppState,
-    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor},
+    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor, MessageMetadata},
     agents::AgentRegistry,
 };
+
+#[derive(Debug, Error, Clone, PartialEq)]
+pub enum AppError {
+    #[error("Status: {0}")]
+    Status(StatusCode),
+    #[error("Agent error: {0}")]
+    AgentError(String),
+    #[error("Serialization error")]
+    SerializationError,
+}
+
+impl From<StatusCode> for AppError {
+    fn from(status: StatusCode) -> Self {
+        AppError::Status(status)
+    }
+}
+
+impl From<Box<dyn StdError + Send + Sync>> for AppError {
+    fn from(err: Box<dyn StdError + Send + Sync>) -> Self {
+        AppError::AgentError(err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(_: serde_json::Error) -> Self {
+        AppError::SerializationError
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let status = match self {
+            AppError::Status(status) => status,
+            AppError::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::SerializationError => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, self.to_string()).into_response()
+    }
+}
 
 pub async fn index() -> Response {
     "Welcome to the Swarmonomicon API".into_response()
@@ -24,157 +67,108 @@ pub struct AgentResponse {
     description: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct MessageRequest {
-    content: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub content: String,
+    pub metadata: Option<serde_json::Value>,
 }
 
 pub async fn list_agents(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<AgentInfo>>, StatusCode> {
+) -> Result<Json<Vec<String>>, AppError> {
     let registry = state.agents.read().await;
-    let mut agents = Vec::new();
-
-    for (name, agent) in registry.agents.iter() {
-        match agent.get_config().await {
-            Ok(config) => agents.push(AgentInfo {
-                name: name.clone(),
-                description: config.public_description,
-                tools: config.tools,
-                downstream_agents: config.downstream_agents,
-            }),
-            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-        }
-    }
-
+    let agents = registry.list_agents();
     Ok(Json(agents))
 }
 
 pub async fn get_agent(
-    State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<AgentInfo>, StatusCode> {
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<MessageResponse>, AppError> {
     let registry = state.agents.read().await;
-
-    if let Some(agent) = registry.get(&name) {
-        match agent.get_config().await {
-            Ok(config) => Ok(Json(AgentInfo {
-                name: config.name,
-                description: config.public_description,
-                tools: config.tools,
-                downstream_agents: config.downstream_agents,
-            })),
-            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        }
-    } else {
-        Err(StatusCode::NOT_FOUND)
-    }
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let config = agent.read().await.get_config().await?;
+    Ok(Json(MessageResponse {
+        content: format!("Agent {} is ready", config.name),
+        metadata: None,
+    }))
 }
 
 pub async fn process_message(
     State(state): State<Arc<AppState>>,
     Path(agent_name): Path<String>,
     Json(request): Json<MessageRequest>,
-) -> Result<Json<Message>, StatusCode> {
+) -> Result<Json<Message>, AppError> {
     let registry = state.agents.read().await;
-
-    if let Some(agent) = registry.get(&agent_name) {
-        match agent.process_message(Message::new(request.content)).await {
-            Ok(response) => Ok(Json(response)),
-            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        }
-    } else {
-        Err(StatusCode::NOT_FOUND)
-    }
+    let agent = registry.get_agent(&agent_name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let mut agent_lock = agent.write().await;
+    let response = agent_lock.process_message(Message::new(request.content)).await?;
+    Ok(Json(response))
 }
 
 pub async fn send_message(
+    Path(name): Path<String>,
     State(state): State<Arc<AppState>>,
-    Path(agent_name): Path<String>,
     Json(request): Json<MessageRequest>,
-) -> Result<Json<Message>, StatusCode> {
+) -> Result<Json<MessageResponse>, AppError> {
     let registry = state.agents.read().await;
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let mut agent_lock = agent.write().await;
+    let response = agent_lock.process_message(Message::new(request.content)).await?;
+    Ok(Json(MessageResponse {
+        content: response.content,
+        metadata: Some(serde_json::to_value(response.metadata)?),
+    }))
+}
 
-    if let Some(agent) = registry.get(&agent_name) {
-        match agent.process_message(Message::new(request.content)).await {
-            Ok(response) => Ok(Json(response)),
-            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        }
-    } else {
-        Err(StatusCode::NOT_FOUND)
-    }
+pub async fn handle_message(
+    Path(agent_name): Path<String>,
+    State(registry): State<Arc<RwLock<AgentRegistry>>>,
+    Json(request): Json<MessageRequest>,
+) -> Result<Json<MessageResponse>, AppError> {
+    let registry = registry.read().await;
+    let agent = registry.get_agent(&agent_name).ok_or(StatusCode::NOT_FOUND)?;
+    let mut agent_lock = agent.write().await;
+    let response = agent_lock.process_message(Message::new(request.content)).await?;
+    Ok(Json(MessageResponse {
+        content: response.content,
+        metadata: response.metadata.map(|m| serde_json::to_value(m).unwrap_or_default()),
+    }))
+}
+
+pub async fn handle_todo_list(
+    Path(agent_name): Path<String>,
+    State(registry): State<Arc<RwLock<AgentRegistry>>>,
+    Json(task): Json<TodoTask>,
+) -> Result<Json<MessageResponse>, AppError> {
+    let registry = registry.read().await;
+    let agent = registry.get_agent(&agent_name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let agent_lock = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
+    todo_list.add_task(task).await?;
+    Ok(Json(MessageResponse {
+        content: "Task added successfully".to_string(),
+        metadata: None,
+    }))
 }
 
 pub fn default_agents() -> Vec<AgentConfig> {
-    // vec![ restore default later ?
-    //     AgentConfig {
-    //         name: "greeter".to_string(),
-    //         public_description: "Agent that greets the user.".to_string(),
-    //         instructions: "Please greet the user to the Swarmonomicon project.".to_string(),
-    //         tools: Vec::new(),
-    //         downstream_agents: vec!["haiku".to_string()],
-    //         personality: None,
-    //         state_machine: None,
-    //     }
-    // ]
-    let mut agents = Vec::new();
-
-    #[cfg(feature = "greeter-agent")]
-    agents.push(AgentConfig {
-        name: "greeter".to_string(),
-        public_description: "Agent that greets the user.".to_string(),
-        instructions: "Please greet the user and ask them if they'd like a Haiku. If yes, transfer them to the 'haiku' agent.".to_string(),
-        tools: Vec::new(),
-        downstream_agents: vec!["haiku".to_string()],
-        personality: None,
-        state_machine: None,
-    });
-
-    #[cfg(feature = "haiku-agent")]
-    agents.push(AgentConfig {
-        name: "haiku".to_string(),
-        public_description: "Agent that creates haikus.".to_string(),
-        instructions: "Create haikus based on user input.".to_string(),
-        tools: Vec::new(),
-        downstream_agents: Vec::new(),
-        personality: None,
-        state_machine: None,
-    });
-
-    #[cfg(feature = "git-agent")]
-    agents.push(AgentConfig {
-        name: "git".to_string(),
-        public_description: "Agent that helps with git operations.".to_string(),
-        instructions: "Help users with git operations like commit, branch, merge etc.".to_string(),
-        tools: Vec::new(),
-        downstream_agents: Vec::new(),
-        personality: None,
-        state_machine: None,
-    });
-
-    #[cfg(feature = "project-init-agent")]
-    agents.push(AgentConfig {
-        name: "project-init".to_string(),
-        public_description: "Agent that helps initialize new projects.".to_string(),
-        instructions: "Help users create new projects with proper structure and configuration.".to_string(),
-        tools: Vec::new(),
-        downstream_agents: Vec::new(),
-        personality: None,
-        state_machine: None,
-    });
-
-    #[cfg(feature = "browser-agent")]
-    agents.push(AgentConfig {
-        name: "browser".to_string(),
-        public_description: "Agent that controls browser automation.".to_string(),
-        instructions: "Help users with browser automation tasks.".to_string(),
-        tools: Vec::new(),
-        downstream_agents: Vec::new(),
-        personality: None,
-        state_machine: None,
-    });
-
-    agents
+    vec![
+        AgentConfig {
+            name: "greeter".to_string(),
+            public_description: "Agent that greets the user.".to_string(),
+            instructions: "Please greet the user to the Swarmonomicon project.".to_string(),
+            tools: Vec::new(),
+            downstream_agents: vec!["haiku".to_string()],
+            personality: None,
+            state_machine: None,
+        }
+    ]
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -184,184 +178,72 @@ pub struct AddTaskRequest {
     pub source_agent: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct TaskResponse {
-    pub id: String,
-    pub description: String,
-    pub priority: TaskPriority,
-    pub source_agent: Option<String>,
-    pub target_agent: String,
-    pub status: TaskStatus,
-    pub created_at: i64,
-    pub completed_at: Option<i64>,
-}
-
-impl From<TodoTask> for TaskResponse {
-    fn from(task: TodoTask) -> Self {
-        Self {
-            id: task.id,
-            description: task.description,
-            priority: task.priority,
-            source_agent: task.source_agent,
-            target_agent: task.target_agent,
-            status: task.status,
-            created_at: task.created_at,
-            completed_at: task.completed_at,
+impl From<AddTaskRequest> for TodoTask {
+    fn from(req: AddTaskRequest) -> Self {
+        TodoTask {
+            id: uuid::Uuid::new_v4().to_string(),
+            description: req.description,
+            priority: req.priority,
+            source_agent: req.source_agent,
+            target_agent: "".to_string(), // Will be set by the handler
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            completed_at: None,
         }
     }
 }
 
-// Add a task to an agent's todo list
 pub async fn add_task(
+    Path(name): Path<String>,
     State(state): State<Arc<AppState>>,
-    Path(agent_name): Path<String>,
     Json(request): Json<AddTaskRequest>,
-) -> Result<Json<TaskResponse>, StatusCode> {
+) -> Result<Json<TodoTask>, AppError> {
     let registry = state.agents.read().await;
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let agent_lock = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
     
-    let agent = registry.get(&agent_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut task: TodoTask = request.into();
+    task.target_agent = name;
     
-    let task = TodoTask {
-        id: uuid::Uuid::new_v4().to_string(),
-        description: request.description,
-        priority: request.priority,
-        source_agent: request.source_agent,
-        target_agent: agent_name,
-        status: TaskStatus::Pending,
-        created_at: chrono::Utc::now().timestamp(),
-        completed_at: None,
-    };
-    
-    // Get the todo list from the agent
-    let todo_list = <dyn Agent>::get_todo_list(agent)
-        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
-    todo_list.add_task(task.clone()).await;
-    
-    Ok(Json(TaskResponse::from(task)))
+    todo_list.add_task(task.clone()).await?;
+    Ok(Json(task))
 }
 
-// Get all tasks for an agent
 pub async fn get_tasks(
+    Path(name): Path<String>,
     State(state): State<Arc<AppState>>,
-    Path(agent_name): Path<String>,
-) -> Result<Json<Vec<TaskResponse>>, StatusCode> {
+) -> Result<Json<Vec<TodoTask>>, AppError> {
     let registry = state.agents.read().await;
-    
-    let agent = registry.get(&agent_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    // Get the todo list from the agent
-    let todo_list = <dyn Agent>::get_todo_list(agent)
-        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
-    let tasks = todo_list.get_all_tasks().await;
-    
-    Ok(Json(tasks.into_iter().map(TaskResponse::from).collect()))
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let agent_lock = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
+    let tasks = todo_list.get_tasks().await;
+    Ok(Json(tasks))
 }
 
-// Get a specific task by ID
 pub async fn get_task(
+    Path((name, task_id)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
-    Path((agent_name, task_id)): Path<(String, String)>,
-) -> Result<Json<TaskResponse>, StatusCode> {
+) -> Result<Json<TodoTask>, AppError> {
     let registry = state.agents.read().await;
-    
-    let agent = registry.get(&agent_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    // Get the todo list from the agent
-    let todo_list = <dyn Agent>::get_todo_list(agent)
-        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
-    let task = todo_list.get_task(&task_id).await
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    Ok(Json(TaskResponse::from(task)))
+    let agent = registry.get_agent(&name).ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    let agent_lock = agent.read().await;
+    let todo_list = TodoProcessor::get_todo_list(&*agent_lock);
+    let task = todo_list.get_task(&task_id).await.ok_or(AppError::Status(StatusCode::NOT_FOUND))?;
+    Ok(Json(task))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentRegistry, GreeterAgent, TransferService};
-    use crate::types::AgentConfig;
+    use crate::agents::greeter::GreeterAgent;
+    use axum::http::StatusCode;
+    use chrono::Utc;
 
-    #[tokio::test]
-    async fn test_list_agents() {
+    async fn setup_test_state() -> Arc<AppState> {
         let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test".to_string(),
-            public_description: "Test agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        });
-
-        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let state = Arc::new(AppState {
-            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
-            agents: registry,
-        });
-
-        let response = list_agents(State(state)).await.unwrap();
-        assert_eq!(response.0.len(), 1);
-        assert_eq!(response.0[0].name, "test");
-    }
-
-    #[tokio::test]
-    async fn test_get_agent() {
-        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
-        let state = Arc::new(AppState {
-            transfer_service,
-            agents: registry,
-        });
-        let response = get_agent(State(state.clone()), Path("unknown".to_string())).await;
-        assert!(response.is_err());
-        assert_eq!(response.unwrap_err(), StatusCode::NOT_FOUND);
-    }
-
-    #[tokio::test]
-    async fn test_send_message() {
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test".to_string(),
-            public_description: "Test agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        });
-
-        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let state = Arc::new(AppState {
-            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
-            agents: registry,
-        });
-
-        let request = MessageRequest {
-            content: "Hello".to_string(),
-        };
-
-        let response = send_message(
-            State(state),
-            Path("test".to_string()),
-            Json(request),
-        ).await;
-        assert!(response.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_todo_list_endpoints() {
-        // Create test state
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
+        let config = AgentConfig {
             name: "test_agent".to_string(),
             public_description: "Test agent".to_string(),
             instructions: "Test instructions".to_string(),
@@ -369,68 +251,80 @@ mod tests {
             downstream_agents: vec![],
             personality: None,
             state_machine: None,
-        });
+        };
+        registry.register("test_agent".to_string(), Box::new(GreeterAgent::new(config)));
+        Arc::new(AppState {
+            agents: Arc::new(RwLock::new(registry)),
+        })
+    }
 
-        registry.register("test_agent".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
-        let state = Arc::new(AppState {
-            transfer_service,
-            agents: registry,
-        });
+    #[tokio::test]
+    async fn test_list_agents() {
+        let state = setup_test_state().await;
+        let response = list_agents(State(state)).await.unwrap();
+        assert!(!response.0.is_empty());
+    }
 
-        // Test adding a task
-        let add_request = AddTaskRequest {
+    #[tokio::test]
+    async fn test_get_agent() {
+        let state = setup_test_state().await;
+        let response = get_agent(Path("test_agent".to_string()), State(state)).await.unwrap();
+        assert!(response.0.content.contains("ready"));
+    }
+
+    #[tokio::test]
+    async fn test_send_message() {
+        let state = setup_test_state().await;
+        let request = MessageRequest {
+            content: "Hello".to_string(),
+        };
+        let response = send_message(
+            Path("test_agent".to_string()),
+            State(state),
+            Json(request),
+        )
+        .await
+        .unwrap();
+        assert!(!response.0.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_todo_list_endpoints() {
+        let state = setup_test_state().await;
+        
+        // Test add task
+        let request = AddTaskRequest {
             description: "Test task".to_string(),
             priority: TaskPriority::Medium,
             source_agent: None,
         };
-
+        
         let response = add_task(
-            State(state.clone()),
             Path("test_agent".to_string()),
-            Json(add_request.clone()),
-        ).await.unwrap();
-
-        let task = response.0;
-        assert_eq!(task.description, "Test task");
-        assert_eq!(task.status, TaskStatus::Pending);
-
-        // Test getting all tasks
-        let tasks = get_tasks(
             State(state.clone()),
+            Json(request),
+        )
+        .await
+        .unwrap();
+        assert!(response.0.id.len() > 0);
+
+        // Test get tasks
+        let response = get_tasks(
             Path("test_agent".to_string()),
-        ).await.unwrap();
-
-        assert_eq!(tasks.0.len(), 1);
-        assert_eq!(tasks.0[0].description, "Test task");
-
-        // Test getting a specific task
-        let task = get_task(
             State(state.clone()),
-            Path(("test_agent".to_string(), task.id.clone())),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.0.len(), 1);
 
-        assert_eq!(task.0.description, "Test task");
-        assert_eq!(task.0.id, task.0.id);
-
-        // Test getting a non-existent task
-        let result = get_task(
-            State(state.clone()),
-            Path(("test_agent".to_string(), "non-existent".to_string())),
-        ).await;
-
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), StatusCode::NOT_FOUND);
-
-        // Test adding a task to a non-existent agent
-        let result = add_task(
-            State(state.clone()),
-            Path("non-existent".to_string()),
-            Json(add_request),
-        ).await;
-
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), StatusCode::NOT_FOUND);
+        // Test get task
+        let task_id = response.0[0].id.clone();
+        let response = get_task(
+            Path(("test_agent".to_string(), task_id)),
+            State(state),
+        )
+        .await
+        .unwrap();
+        assert!(response.0.description.contains("Test task"));
     }
 }

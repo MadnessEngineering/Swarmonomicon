@@ -1,8 +1,14 @@
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use super::Message;
+use std::time::Duration;
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use super::Result;
+use crate::agents::wrapper::AgentWrapper;
+use crate::types::Agent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoTask {
@@ -12,8 +18,8 @@ pub struct TodoTask {
     pub source_agent: Option<String>,
     pub target_agent: String,
     pub status: TaskStatus,
-    pub created_at: i64,
-    pub completed_at: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,94 +38,151 @@ pub enum TaskStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TodoList {
-    tasks: Arc<RwLock<VecDeque<TodoTask>>>,
+    tasks: HashMap<String, TodoTask>,
 }
 
 impl TodoList {
     pub fn new() -> Self {
         Self {
-            tasks: Arc::new(RwLock::new(VecDeque::new())),
+            tasks: HashMap::new(),
         }
     }
 
-    pub async fn add_task(&self, task: TodoTask) {
-        let mut tasks = self.tasks.write().await;
-        tasks.push_back(task);
+    pub fn add_task(&mut self, task: TodoTask) {
+        self.tasks.insert(task.id.clone(), task);
     }
 
-    pub async fn get_next_task(&self) -> Option<TodoTask> {
-        let mut tasks = self.tasks.write().await;
-        tasks.pop_front()
+    pub fn get_tasks(&self) -> Vec<TodoTask> {
+        self.tasks.values().cloned().collect()
     }
 
-    pub async fn peek_next_task(&self) -> Option<TodoTask> {
-        let tasks = self.tasks.read().await;
-        tasks.front().cloned()
+    pub fn get_task(&self, id: &str) -> Option<&TodoTask> {
+        self.tasks.get(id)
     }
 
-    pub async fn mark_task_completed(&self, task_id: &str) {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+    pub fn get_task_mut(&mut self, id: &str) -> Option<&mut TodoTask> {
+        self.tasks.get_mut(id)
+    }
+
+    pub fn get_next_task(&self) -> Option<TodoTask> {
+        self.tasks.values()
+            .find(|t| t.status == TaskStatus::Pending)
+            .cloned()
+    }
+
+    pub fn mark_task_completed(&mut self, id: &str) {
+        if let Some(task) = self.get_task_mut(id) {
             task.status = TaskStatus::Completed;
-            task.completed_at = Some(chrono::Utc::now().timestamp());
+            task.completed_at = Some(Utc::now());
         }
     }
 
-    pub async fn mark_task_failed(&self, task_id: &str) {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+    pub fn mark_task_failed(&mut self, id: &str) {
+        if let Some(task) = self.get_task_mut(id) {
             task.status = TaskStatus::Failed;
         }
     }
 
-    pub async fn is_empty(&self) -> bool {
-        let tasks = self.tasks.read().await;
-        tasks.is_empty()
+    pub fn update_task(&mut self, id: &str, task: TodoTask) -> Result<()> {
+        if self.tasks.contains_key(id) {
+            self.tasks.insert(id.to_string(), task);
+            Ok(())
+        } else {
+            Err("Task not found".into())
+        }
     }
 
-    pub async fn len(&self) -> usize {
-        let tasks = self.tasks.read().await;
-        tasks.len()
-    }
-
-    pub async fn get_all_tasks(&self) -> Vec<TodoTask> {
-        let tasks = self.tasks.read().await;
-        tasks.iter().cloned().collect()
-    }
-
-    pub async fn get_task(&self, task_id: &str) -> Option<TodoTask> {
-        let tasks = self.tasks.read().await;
-        tasks.iter().find(|t| t.id == task_id).cloned()
+    pub fn delete_task(&mut self, id: &str) -> Result<()> {
+        if self.tasks.remove(id).is_some() {
+            Ok(())
+        } else {
+            Err("Task not found".into())
+        }
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait TodoProcessor: Send + Sync {
-    /// Process a single task from the todo list
-    async fn process_task(&self, task: TodoTask) -> super::Result<Message>;
-    
-    /// Get the interval at which this processor should check for new tasks
-    fn get_check_interval(&self) -> std::time::Duration;
-    
-    /// Get the todo list for this processor
-    fn get_todo_list(&self) -> &TodoList;
-    
-    /// Start the task processing loop
-    async fn start_processing(&self) -> super::Result<()> {
+    async fn process_task(&mut self, task: TodoTask) -> Result<Message>;
+    async fn get_todo_list(&self) -> Arc<RwLock<TodoList>>;
+    async fn start_processing(&mut self);
+    fn get_check_interval(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+}
+
+#[async_trait]
+pub trait TodoListExt {
+    async fn add_task(&self, task: TodoTask) -> Result<()>;
+    async fn get_task(&self, id: &str) -> Option<TodoTask>;
+    async fn get_tasks(&self) -> Vec<TodoTask>;
+    async fn update_task(&self, id: &str, task: TodoTask) -> Result<()>;
+    async fn delete_task(&self, id: &str) -> Result<()>;
+}
+
+#[async_trait]
+impl TodoListExt for Arc<RwLock<TodoList>> {
+    async fn add_task(&self, task: TodoTask) -> Result<()> {
+        let mut list = self.write().await;
+        list.add_task(task);
+        Ok(())
+    }
+
+    async fn get_task(&self, id: &str) -> Option<TodoTask> {
+        let list = self.read().await;
+        list.get_task(id).cloned()
+    }
+
+    async fn get_tasks(&self) -> Vec<TodoTask> {
+        let list = self.read().await;
+        list.get_tasks()
+    }
+
+    async fn update_task(&self, id: &str, task: TodoTask) -> Result<()> {
+        let mut list = self.write().await;
+        list.update_task(id, task)?;
+        Ok(())
+    }
+
+    async fn delete_task(&self, id: &str) -> Result<()> {
+        let mut list = self.write().await;
+        list.delete_task(id)?;
+        Ok(())
+    }
+}
+
+impl TodoProcessor for AgentWrapper {
+    async fn process_task(&mut self, task: TodoTask) -> Result<Message> {
+        let task_desc = task.description.clone();
+        let result = self.process_message(Message::new(task_desc)).await;
+        if result.is_ok() {
+            let mut list = self.todo_list.write().await;
+            list.mark_task_completed(&task.id);
+        } else {
+            let mut list = self.todo_list.write().await;
+            list.mark_task_failed(&task.id);
+        }
+        result
+    }
+
+    async fn get_todo_list(&self) -> Arc<RwLock<TodoList>> {
+        self.todo_list.clone()
+    }
+
+    async fn start_processing(&mut self) {
         loop {
-            if let Some(task) = self.get_todo_list().get_next_task().await {
-                match self.process_task(task.clone()).await {
-                    Ok(_) => {
-                        self.get_todo_list().mark_task_completed(&task.id).await;
-                    }
-                    Err(_) => {
-                        self.get_todo_list().mark_task_failed(&task.id).await;
-                    }
-                }
+            let todo_list = self.get_todo_list().await;
+            let mut list = todo_list.write().await;
+            
+            if let Some(task) = list.get_next_task() {
+                drop(list); // Release the lock before processing
+                let _ = self.process_task(task).await;
+            } else {
+                drop(list);
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
-            tokio::time::sleep(self.get_check_interval()).await;
         }
     }
 } 

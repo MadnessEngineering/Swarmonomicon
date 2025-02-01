@@ -4,17 +4,19 @@ use crate::{
     types::{Message, Result, Agent},
     agents::AgentRegistry,
 };
+use anyhow::anyhow;
+use std::collections::HashMap;
 
 pub struct TransferService {
-    current_agent: Option<String>,
     registry: Arc<RwLock<AgentRegistry>>,
+    current_agent: Option<String>,
 }
 
 impl TransferService {
     pub fn new(registry: Arc<RwLock<AgentRegistry>>) -> Self {
         Self {
-            current_agent: None,
             registry,
+            current_agent: None,
         }
     }
 
@@ -26,48 +28,39 @@ impl TransferService {
         self.current_agent.as_deref()
     }
 
-    pub fn set_current_agent(&mut self, agent: String) {
-        self.current_agent = Some(agent);
+    pub fn set_current_agent(&mut self, agent_name: String) {
+        self.current_agent = Some(agent_name);
     }
 
     pub async fn process_message(&mut self, message: Message) -> Result<Message> {
         if let Some(agent_name) = &self.current_agent {
             let registry = self.registry.read().await;
-            if let Some(agent) = registry.get(agent_name) {
-                let response = agent.process_message(message).await?;
-                
-                // Check if we need to transfer to another agent
-                if let Some(metadata) = &response.metadata {
-                    if let Some(target) = &metadata.transfer_target {
-                        // Verify target agent exists before transferring
-                        if registry.exists(target) {
-                            self.current_agent = Some(target.clone());
-                            return Ok(Message::new(format!("Transferring to {} agent...", target)));
-                        } else {
-                            return Err(format!("Target agent '{}' not found", target).into());
-                        }
-                    }
-                }
-                
-                return Ok(response);
+            if let Some(agent) = registry.get_agent(agent_name) {
+                let mut agent_lock = agent.write().await;
+                agent_lock.process_message(message).await
+            } else {
+                Err(format!("Agent {} not found", agent_name).into())
             }
+        } else {
+            Err("No current agent set".into())
         }
-        Err("No current agent set".into())
     }
 
-    pub async fn transfer(&mut self, from: &str, to: &str) -> Result<()> {
+    pub async fn transfer(&mut self, source_agent: &str, target_agent: &str) -> Result<()> {
         let registry = self.registry.read().await;
-
-        if !registry.exists(from) {
-            return Err(format!("Source agent '{}' not found", from).into());
+        if let Some(source) = registry.get_agent(source_agent) {
+            if let Some(target) = registry.get_agent(target_agent) {
+                let source_lock = source.read().await;
+                let message = Message::new(format!("Transferring from {} to {}", source_agent, target_agent));
+                source_lock.transfer_to(target_agent.to_string(), message).await?;
+                self.current_agent = Some(target_agent.to_string());
+                Ok(())
+            } else {
+                Err(format!("Target agent {} not found", target_agent).into())
+            }
+        } else {
+            Err(format!("Source agent {} not found", source_agent).into())
         }
-
-        if !registry.exists(to) {
-            return Err(format!("Target agent '{}' not found", to).into());
-        }
-
-        self.current_agent = Some(to.to_string());
-        Ok(())
     }
 }
 
@@ -78,31 +71,50 @@ mod tests {
     use crate::agents::greeter::GreeterAgent;
 
     #[tokio::test]
-    async fn test_agent_transfer() {
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test_greeter".to_string(),
-            public_description: "Test greeter agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec!["test_target".to_string()],
-            personality: None,
-            state_machine: None,
-        });
+    async fn test_transfer_service() {
+        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+        let mut service = TransferService::new(registry.clone());
 
-        registry.register("test_greeter".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let mut service = TransferService::new(registry);
+        // Register test agents
+        {
+            let mut registry = registry.write().await;
+            let greeter = GreeterAgent::new(AgentConfig {
+                name: "test_greeter".to_string(),
+                public_description: "Test greeter".to_string(),
+                instructions: "Test greetings".to_string(),
+                tools: vec![],
+                downstream_agents: vec!["test_haiku".to_string()],
+                personality: None,
+                state_machine: None,
+            });
+            registry.register("test_greeter".to_string(), Box::new(greeter));
 
-        // Set current agent
+            let haiku = GreeterAgent::new(AgentConfig {
+                name: "test_haiku".to_string(),
+                public_description: "Test haiku".to_string(),
+                instructions: "Test haiku generation".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            });
+            registry.register("test_haiku".to_string(), Box::new(haiku));
+        }
+
+        // Set initial agent
         service.set_current_agent("test_greeter".to_string());
+        assert_eq!(service.get_current_agent(), Some("test_greeter"));
 
-        // Process message that should trigger transfer
-        let response = service.process_message(Message::new("transfer to test_target".to_string())).await;
-        assert!(response.is_err()); // Should fail because test_target doesn't exist
+        // Test message processing
+        let response = service.process_message(Message::new("hello".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"));
 
-        // Test manual transfer
-        let result = service.transfer("test_greeter", "nonexistent").await;
-        assert!(result.is_err());
+        // Test transfer
+        service.transfer("test_greeter", "test_haiku").await.unwrap();
+        assert_eq!(service.get_current_agent(), Some("test_haiku"));
+
+        // Test processing after transfer
+        let response = service.process_message(Message::new("generate haiku".to_string())).await.unwrap();
+        assert!(response.content.contains("Hello"));
     }
 }

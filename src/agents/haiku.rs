@@ -1,140 +1,146 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::time::Duration;
+use std::sync::Arc;
+use serde_json::Value;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
-use anyhow::anyhow;
+use crate::types::{TodoProcessor, TodoList, TodoTask};
+use crate::ai::AiClient;
+use uuid::Uuid;
+use tokio::sync::RwLock;
+use crate::types::todo::TodoListExt;
+use chrono::{Utc, DateTime};
 
 pub struct HaikuAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
+    ai_client: AiClient,
+    conversation_history: Vec<Message>,
+    todo_list: Arc<RwLock<TodoList>>,
+    state: Option<State>,
 }
 
 impl HaikuAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let state_machine = Some(StateMachine {
-            states: {
-                let mut states = HashMap::new();
-                states.insert("awaiting_topic".to_string(), State {
-                    name: "awaiting_topic".to_string(),
-                    data: None,
-                    prompt: Some("🌸 What shall we crystallize into algorithmic verse today?".to_string()),
-                    transitions: Some({
-                        let mut transitions = HashMap::new();
-                        transitions.insert("topic_received".to_string(), "complete".to_string());
-                        transitions
-                    }),
-                    validation: None,
-                });
-                states.insert("complete".to_string(), State {
-                    name: "complete".to_string(),
-                    data: None,
-                    prompt: Some("✨ Shall we compute another poetic sequence?".to_string()),
-                    transitions: Some({
-                        let mut transitions = HashMap::new();
-                        transitions.insert("yes".to_string(), "awaiting_topic".to_string());
-                        transitions.insert("no".to_string(), "goodbye".to_string());
-                        transitions
-                    }),
-                    validation: Some(vec![
-                        "^(yes|no)$".to_string(),
-                        "Please respond with 'yes' to continue our poetic computations, or 'no' to conclude.".to_string(),
-                    ]),
-                });
-                states.insert("goodbye".to_string(), State {
-                    name: "goodbye".to_string(),
-                    data: None,
-                    prompt: Some("🌟 May your algorithms flow like cherry blossoms in the digital wind...".to_string()),
-                    transitions: None,
-                    validation: None,
-                });
-                states
-            },
-            initial_state: "awaiting_topic".to_string(),
-        });
-
         Self {
             config,
-            state_manager: AgentStateManager::new(state_machine),
+            state_manager: AgentStateManager::new(None),
+            ai_client: AiClient::new(),
+            conversation_history: Vec::new(),
+            todo_list: Arc::new(RwLock::new(TodoList::new())),
+            state: None,
         }
     }
 
-    fn create_response(&self, content: String) -> Message {
-        let current_state = self.state_manager.get_current_state_name();
-        let metadata = MessageMetadata::new(self.config.name.clone())
-            .with_state(current_state.unwrap_or("awaiting_topic").to_string())
-            .with_personality(vec![
-                "poetic".to_string(),
-                "algorithmic".to_string(),
-                "zen_like".to_string(),
-                "pattern_seeking".to_string(),
-                "mad_tinker_inspired".to_string(),
-            ])
-            .with_context(HashMap::new());
+    async fn get_ai_response(&self, prompt: &str) -> Result<String> {
+        let messages = self.build_conversation_messages(prompt);
+        let system_prompt = format!(
+            "You are a haiku poet named {}. Your role is to: \
+            1. Engage in conversation about nature and poetry \
+            2. Write haikus based on topics provided by the user \
+            3. Provide feedback and suggestions on haikus written by the user \
+            4. Maintain a friendly and creative persona \
+            Your haikus should follow the traditional 5-7-5 syllable structure. \
+            Focus on themes of nature, seasons, emotions, and beauty.",
+            self.config.name
+        );
 
-        Message {
-            content,
-            role: Some("assistant".to_string()),
-            timestamp: Some(std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64),
-            metadata: Some(metadata),
+        self.ai_client.chat(&system_prompt, messages).await
+    }
+
+    fn build_conversation_messages(&self, current_prompt: &str) -> Vec<HashMap<String, String>> {
+        let mut messages = Vec::new();
+        for message in &self.conversation_history {
+            messages.push(HashMap::from([
+                ("role".to_string(), "user".to_string()),
+                ("content".to_string(), message.content.clone()),
+            ]));
+        }
+        messages.push(HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), current_prompt.to_string()),
+        ]));
+        messages
+    }
+
+    async fn handle_haiku_request(&self, message: &str) -> Result<Message> {
+        let ai_response = self.get_ai_response(message).await?;
+        let mut response = Message::new(ai_response);
+        response.metadata = Some(MessageMetadata::new("haiku".to_string())
+            .with_personality(vec!["creative".to_string(), "nature-loving".to_string()]));
+        Ok(response)
+    }
+
+    pub fn get_todo_list(&self) -> &Arc<RwLock<TodoList>> {
+        &self.todo_list
+    }
+}
+
+#[async_trait]
+impl TodoProcessor for HaikuAgent {
+    async fn process_task(&mut self, task: TodoTask) -> Result<Message> {
+        self.process_message(Message::new(task.description)).await
+    }
+
+    async fn get_todo_list(&self) -> Arc<RwLock<TodoList>> {
+        self.todo_list.clone()
+    }
+
+    async fn start_processing(&mut self) {
+        loop {
+            let todo_list = self.get_todo_list();
+            let mut list = todo_list.write().await;
+            
+            if let Some(task) = list.get_next_task() {
+                drop(list);
+                let result = self.process_task(task).await;
+                match result {
+                    Ok(_) => {
+                        let mut list = todo_list.write().await;
+                        list.mark_task_completed(&task.id);
+                    }
+                    Err(_) => {
+                        let mut list = todo_list.write().await;
+                        list.mark_task_failed(&task.id);
+                    }
+                }
+            } else {
+                drop(list);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
         }
     }
 
-    fn generate_haiku(&self, topic: String) -> String {
-        // In a real implementation, this would use more sophisticated haiku generation
-        // For now, we'll return themed mock haikus based on the topic
-        let haikus = vec![
-            format!(
-                "🌸 {} flows soft\nThrough quantum gates of spring code\nPatterns emerge now",
-                topic
-            ),
-            format!(
-                "🍁 Digital leaves\nFloat through {} streams of thought\nAlgorithms bloom",
-                topic
-            ),
-            format!(
-                "⚡ {} sparks bright\nIn binary gardens grow\nPoetic functions",
-                topic
-            ),
-            format!(
-                "🌿 Nature's patterns\nMeet {} in code space\nHarmony achieved",
-                topic
-            ),
-        ];
-
-        // Select a haiku based on a simple hash of the topic
-        let index = topic.bytes().fold(0usize, |acc, b| (acc + b as usize) % haikus.len());
-        haikus[index].clone()
+    fn get_check_interval(&self) -> Duration {
+        Duration::from_secs(1)
     }
 }
 
 #[async_trait]
 impl Agent for HaikuAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         // Generate a haiku response
-        let haiku = self.generate_haiku(message.content);
-        Ok(self.create_response(haiku))
+        self.handle_haiku_request(&message.content).await
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        if !self.config.downstream_agents.contains(&target_agent) {
-            Err(anyhow!("Invalid transfer target: {}", target_agent).into())
-        } else {
-            Ok(message)
-        }
+        Err("Transfer not supported by HaikuAgent".into())
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok(format!("Called tool {} with params {:?}", tool.name, params))
+        Err("Tool calls not supported by HaikuAgent".into())
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(self.state_manager.get_current_state().cloned())
+        Ok(None)
     }
 
     async fn get_config(&self) -> Result<AgentConfig> {
         Ok(self.config.clone())
+    }
+
+    fn get_todo_list(&self) -> Option<&TodoList> {
+        None // Since we implement TodoProcessor separately
     }
 }
 
@@ -145,17 +151,17 @@ mod tests {
     fn create_test_config() -> AgentConfig {
         AgentConfig {
             name: "haiku".to_string(),
-            public_description: "Poetic Algorithm Engineering Department".to_string(),
-            instructions: "Transform concepts into algorithmic haiku verses".to_string(),
+            public_description: "Haiku poet agent".to_string(),
+            instructions: "Write haikus and discuss poetry".to_string(),
             tools: vec![],
             downstream_agents: vec![],
             personality: Some(serde_json::json!({
-                "style": "poetic_algorithm_engineer",
-                "traits": ["poetic", "algorithmic", "zen_like", "pattern_seeking", "nature_inspired"],
+                "style": "creative_poet",
+                "traits": ["creative", "nature-loving", "thoughtful"],
                 "voice": {
-                    "tone": "contemplative_technical",
-                    "pacing": "measured_and_flowing",
-                    "quirks": ["uses_nature_metaphors", "blends_tech_and_poetry", "speaks_in_patterns"]
+                    "tone": "warm_and_whimsical",
+                    "pacing": "relaxed",
+                    "quirks": ["uses_metaphors", "references_seasons"]
                 }
             }).to_string()),
             state_machine: None,
@@ -164,94 +170,55 @@ mod tests {
 
     #[tokio::test]
     async fn test_haiku_generation() {
-        let agent = HaikuAgent::new(AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Test haiku agent".to_string(),
-            instructions: "Test haiku generation".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: Some(StateMachine {
-                states: {
-                    let mut states = HashMap::new();
-                    states.insert("awaiting_topic".to_string(), State {
-                        name: "awaiting_topic".to_string(),
-                        data: None,
-                        prompt: Some("What shall we write about?".to_string()),
-                        transitions: Some({
-                            let mut transitions = HashMap::new();
-                            transitions.insert("topic_received".to_string(), "complete".to_string());
-                            transitions
-                        }),
-                        validation: None,
-                    });
-                    states
-                },
-                initial_state: "awaiting_topic".to_string(),
-            }),
-        });
-
-        let response = agent.process_message(Message::new("nature".to_string())).await.unwrap();
-        assert!(response.content.contains("haiku"), "Response should contain a haiku");
+        let mut agent = HaikuAgent::new(create_test_config());
+        let response = agent.process_message(Message::new("Write a haiku about spring".to_string())).await.unwrap();
+        assert!(response.content.contains("spring"));
+        assert!(response.content.lines().count() == 3);
+        if let Some(metadata) = response.metadata {
+            assert_eq!(metadata.agent, "haiku");
+            assert!(metadata.personality_traits.is_some());
+        }
     }
 
     #[tokio::test]
-    async fn test_state_transitions() {
-        let agent = HaikuAgent::new(AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Test haiku agent".to_string(),
-            instructions: "Test haiku generation".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: Some(StateMachine {
-                states: {
-                    let mut states = HashMap::new();
-                    states.insert("awaiting_topic".to_string(), State {
-                        name: "awaiting_topic".to_string(),
-                        data: None,
-                        prompt: Some("What shall we write about?".to_string()),
-                        transitions: Some({
-                            let mut transitions = HashMap::new();
-                            transitions.insert("topic_received".to_string(), "complete".to_string());
-                            transitions
-                        }),
-                        validation: None,
-                    });
-                    states.insert("complete".to_string(), State {
-                        name: "complete".to_string(),
-                        data: None,
-                        prompt: Some("Would you like another haiku?".to_string()),
-                        transitions: Some({
-                            let mut transitions = HashMap::new();
-                            transitions.insert("yes".to_string(), "awaiting_topic".to_string());
-                            transitions.insert("no".to_string(), "goodbye".to_string());
-                            transitions
-                        }),
-                        validation: None,
-                    });
-                    states.insert("goodbye".to_string(), State {
-                        name: "goodbye".to_string(),
-                        data: None,
-                        prompt: Some("Farewell!".to_string()),
-                        transitions: None,
-                        validation: None,
-                    });
-                    states
-                },
-                initial_state: "awaiting_topic".to_string(),
-            }),
-        });
+    async fn test_haiku_feedback() {
+        let mut agent = HaikuAgent::new(create_test_config());
+        let haiku = "A branch bends gently\nBearing the weight of fresh snow\nSilence all around";
+        let response = agent.process_message(Message::new(format!("Provide feedback on this haiku:\n{}", haiku))).await.unwrap();
+        assert!(response.content.contains("feedback"));
+    }
 
-        let state = agent.get_current_state().await.unwrap();
-        assert!(state.is_some());
-        assert_eq!(state.unwrap().name, "awaiting_topic");
+    #[tokio::test]
+    async fn test_invalid_transfer() {
+        let agent = HaikuAgent::new(create_test_config());
+        let result = agent.transfer_to("nonexistent".to_string(), Message::new("test".to_string())).await;
+        assert!(result.is_ok(), "Transfer to nonexistent agent should return original message");
+    }
 
-        let response = agent.process_message(Message::new("nature".to_string())).await.unwrap();
-        assert!(response.content.contains("haiku"));
+    #[tokio::test]
+    async fn test_todo_processing() {
+        let agent = HaikuAgent::new(create_test_config());
 
-        let state = agent.get_current_state().await.unwrap();
-        assert!(state.is_some());
-        assert_eq!(state.unwrap().name, "complete");
+        // Create a test task
+        let task = TodoTask {
+            id: Uuid::new_v4().to_string(),
+            description: "Write a haiku about the moon".to_string(),
+            priority: crate::types::TaskPriority::Medium,
+            source_agent: None,
+            target_agent: "haiku".to_string(),
+            status: crate::types::TaskStatus::Pending,
+            created_at: Utc::now(),
+            completed_at: None,
+        };
+
+        // Add task to todo list
+        <HaikuAgent as TodoProcessor>::get_todo_list(&agent).add_task(task.clone()).await;
+
+        // Process the task
+        let response = agent.process_task(task).await.unwrap();
+
+        // Check that the response contains a haiku about the moon
+        assert!(response.content.contains("moon"));
+        assert!(response.content.lines().count() == 3);
     }
 }

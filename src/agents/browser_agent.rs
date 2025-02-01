@@ -33,11 +33,17 @@ impl BrowserAgentWrapper {
 }
 
 // Temporary dummy agent implementation
-struct DummyAgent {}
+pub struct DummyAgent {}
+
+impl DummyAgent {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 #[async_trait]
 impl Agent for DummyAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         Ok(Message::new(format!("Browser received: {}", message.content)))
     }
 
@@ -68,7 +74,7 @@ impl Agent for DummyAgent {
 
 #[async_trait]
 impl Agent for BrowserAgentWrapper {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         self.inner.process_message(message).await
     }
 

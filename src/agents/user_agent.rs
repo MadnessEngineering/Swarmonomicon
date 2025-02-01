@@ -166,7 +166,7 @@ impl UserAgent {
 
 #[async_trait]
 impl Agent for UserAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         Ok(Message::new(format!("User received: {}", message.content)))
     }
 

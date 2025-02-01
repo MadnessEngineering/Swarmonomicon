@@ -5,7 +5,11 @@ use chrono;
 use std::str::FromStr;
 use thiserror::Error;
 use std::fmt;
-use crate::agents::{AgentRegistry, AgentWrapper};
+use crate::agents::AgentRegistry;
+pub use crate::agents::wrapper::AgentWrapper;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use axum::extract::ws::Message as WsMessage;
 
 pub mod todo;
 pub use todo::{TodoList, TodoProcessor, TodoTask, TaskPriority, TaskStatus};
@@ -54,12 +58,17 @@ pub struct TranscriptItem {
     pub is_hidden: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+pub enum MessageType {
+    Text,
+    Command,
+}
+
+#[derive(Debug, Clone)]
 pub struct Message {
     pub content: String,
     pub metadata: Option<MessageMetadata>,
-    pub role: Option<String>,
-    pub timestamp: Option<i64>,
+    pub message_type: MessageType,
 }
 
 impl Message {
@@ -67,8 +76,7 @@ impl Message {
         Self {
             content,
             metadata: None,
-            role: Some("assistant".to_string()),
-            timestamp: Some(chrono::Utc::now().timestamp()),
+            message_type: MessageType::Text,
         }
     }
 
@@ -77,14 +85,23 @@ impl Message {
         self
     }
 
-    pub fn with_role(mut self, role: Option<String>) -> Self {
-        self.role = role;
-        self
+    pub fn text(content: String) -> Self {
+        Self::new(content)
     }
+}
 
-    pub fn with_timestamp(mut self, timestamp: Option<i64>) -> Self {
-        self.timestamp = timestamp;
-        self
+impl From<Message> for WsMessage {
+    fn from(msg: Message) -> Self {
+        WsMessage::Text(msg.content)
+    }
+}
+
+impl From<WsMessage> for Message {
+    fn from(msg: WsMessage) -> Self {
+        match msg {
+            WsMessage::Text(content) => Message::new(content),
+            _ => Message::new("Unsupported message type".to_string()),
+        }
     }
 }
 
@@ -179,9 +196,9 @@ pub struct ValidationRule {
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait Agent: Send + Sync {
-    async fn process_message(&self, message: Message) -> Result<Message>;
+    async fn process_message(&mut self, message: Message) -> Result<Message>;
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message>;
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
     async fn get_current_state(&self) -> Result<Option<State>>;
@@ -194,9 +211,9 @@ pub trait Agent: Send + Sync {
     
     /// Add a task to another agent's todo list if it supports task processing
     async fn delegate_task(&self, task: TodoTask, registry: &AgentRegistry) -> Result<()> {
-        if let Some(target_agent) = registry.get(&task.target_agent) {
-            let todo_list = <AgentWrapper as TodoProcessor>::get_todo_list(target_agent);
-            todo_list.add_task(task).await;
+        if let Some(target_agent) = registry.get_agent(&task.target_agent) {
+            let todo_list = TodoProcessor::get_todo_list(&*target_agent.read().await);
+            todo_list.add_task(task).await?;
             Ok(())
         } else {
             Err(format!("Target agent '{}' not found", task.target_agent).into())

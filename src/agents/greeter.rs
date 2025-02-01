@@ -1,18 +1,23 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::sync::Arc;
 use serde_json::Value;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
 use crate::types::{TodoProcessor, TodoList, TodoTask};
 use crate::ai::AiClient;
 use uuid::Uuid;
+use tokio::sync::RwLock;
+use crate::types::todo::TodoListExt;
+use chrono::{Utc, DateTime};
 
 pub struct GreeterAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
     ai_client: AiClient,
     conversation_history: Vec<Message>,
-    todo_list: TodoList,
+    todo_list: Arc<RwLock<TodoList>>,
+    state: Option<State>,
 }
 
 impl GreeterAgent {
@@ -22,7 +27,8 @@ impl GreeterAgent {
             state_manager: AgentStateManager::new(None),
             ai_client: AiClient::new(),
             conversation_history: Vec::new(),
-            todo_list: TodoList::new(),
+            todo_list: Arc::new(RwLock::new(TodoList::new())),
+            state: None,
         }
     }
 
@@ -45,26 +51,20 @@ impl GreeterAgent {
 
     fn build_conversation_messages(&self, current_prompt: &str) -> Vec<HashMap<String, String>> {
         let mut messages = Vec::new();
-
-        // Add conversation history
         for message in &self.conversation_history {
             messages.push(HashMap::from([
                 ("role".to_string(), "user".to_string()),
                 ("content".to_string(), message.content.clone()),
             ]));
         }
-
-        // Add current prompt
         messages.push(HashMap::from([
             ("role".to_string(), "user".to_string()),
             ("content".to_string(), current_prompt.to_string()),
         ]));
-
         messages
     }
 
     async fn handle_greeting(&self, message: &str) -> Result<Message> {
-        // Check for direct transfer requests first
         let transfer_agent = match message.to_lowercase().as_str() {
             msg if msg.contains("haiku") || msg.contains("poetry") || msg.contains("nature") => Some("haiku"),
             msg if msg.contains("git") || msg.contains("version") || msg.contains("repository") => Some("git"),
@@ -79,61 +79,82 @@ impl GreeterAgent {
             return Ok(response);
         }
 
-        // Get AI response for conversation
         let ai_response = self.get_ai_response(message).await?;
-
         let mut response = Message::new(ai_response);
         response.metadata = Some(MessageMetadata::new("greeter".to_string())
             .with_personality(vec!["friendly".to_string(), "helpful".to_string()]));
         Ok(response)
     }
-}
 
-#[async_trait]
-impl Agent for GreeterAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
-        self.handle_greeting(&message.content).await
-    }
-
-    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        // Check if the target agent is in our downstream agents list
-        if !self.config.downstream_agents.contains(&target_agent) {
-            return Err(format!("Cannot transfer to unknown agent: {}", target_agent).into());
-        }
-
-        let mut response = message;
-        response.metadata = Some(MessageMetadata::new("greeter".to_string())
-            .with_transfer(target_agent));
-        Ok(response)
-    }
-
-    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok(format!("Called tool {} with params {:?}", tool.name, params))
-    }
-
-    async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(self.state_manager.get_current_state().cloned())
-    }
-
-    async fn get_config(&self) -> Result<AgentConfig> {
-        Ok(self.config.clone())
+    pub fn get_todo_list(&self) -> &Arc<RwLock<TodoList>> {
+        &self.todo_list
     }
 }
 
 #[async_trait]
 impl TodoProcessor for GreeterAgent {
-    async fn process_task(&self, task: TodoTask) -> Result<Message> {
-        // For the greeter, we'll treat tasks as messages to process
+    async fn process_task(&mut self, task: TodoTask) -> Result<Message> {
         self.process_message(Message::new(task.description)).await
     }
 
-    fn get_check_interval(&self) -> Duration {
-        // Check for new tasks every 5 seconds
-        Duration::from_secs(5)
+    async fn get_todo_list(&self) -> Arc<RwLock<TodoList>> {
+        self.todo_list.clone()
     }
 
-    fn get_todo_list(&self) -> &TodoList {
-        &self.todo_list
+    async fn start_processing(&mut self) {
+        loop {
+            let todo_list = self.get_todo_list();
+            let mut list = todo_list.write().await;
+
+            if let Some(task) = list.get_next_task() {
+                drop(list);
+                let result = self.process_task(task).await;
+                match result {
+                    Ok(_) => {
+                        let mut list = todo_list.write().await;
+                        list.mark_task_completed(&task.id);
+                    }
+                    Err(_) => {
+                        let mut list = todo_list.write().await;
+                        list.mark_task_failed(&task.id);
+                    }
+                }
+            } else {
+                drop(list);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    fn get_check_interval(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+}
+
+#[async_trait]
+impl Agent for GreeterAgent {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
+        self.handle_greeting(&message.content).await
+    }
+
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+        Err("Transfer not supported by GreeterAgent".into())
+    }
+
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        Err("Tool calls not supported by GreeterAgent".into())
+    }
+
+    async fn get_current_state(&self) -> Result<Option<State>> {
+        Ok(None)
+    }
+
+    async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
+    }
+
+    fn get_todo_list(&self) -> Option<&TodoList> {
+        None // Since we implement TodoProcessor separately
     }
 }
 
@@ -167,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_greeting() {
-        let agent = GreeterAgent::new(create_test_config());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message(Message::new("hi".to_string())).await.unwrap();
         assert!(response.content.contains("Hello"));
         if let Some(metadata) = response.metadata {
@@ -178,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_project_transfer() {
-        let agent = GreeterAgent::new(create_test_config());
+        let mut agent = GreeterAgent::new(create_test_config());
         let message = Message::new("I want to create a new project".to_string());
         let response = agent.process_message(message).await.unwrap();
         assert!(response.content.contains("project"));
@@ -189,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_git_transfer() {
-        let agent = GreeterAgent::new(create_test_config());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message(Message::new("git".to_string())).await.unwrap();
         if let Some(metadata) = response.metadata {
             assert_eq!(metadata.transfer_target, Some("git".to_string()));
@@ -198,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_haiku_transfer() {
-        let agent = GreeterAgent::new(create_test_config());
+        let mut agent = GreeterAgent::new(create_test_config());
         let response = agent.process_message(Message::new("haiku".to_string())).await.unwrap();
         if let Some(metadata) = response.metadata {
             assert_eq!(metadata.transfer_target, Some("haiku".to_string()));
@@ -215,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn test_todo_processing() {
         let agent = GreeterAgent::new(create_test_config());
-        
+
         // Create a test task
         let task = TodoTask {
             id: Uuid::new_v4().to_string(),
@@ -224,7 +245,7 @@ mod tests {
             source_agent: None,
             target_agent: "greeter".to_string(),
             status: crate::types::TaskStatus::Pending,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: Utc::now(),
             completed_at: None,
         };
 

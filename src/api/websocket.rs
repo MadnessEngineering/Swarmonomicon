@@ -17,6 +17,8 @@ use crate::{
 use crate::agents::HaikuAgent;
 
 use tokio::sync::RwLock;
+use crate::api::routes::AppError;
+use axum::http::StatusCode;
 
 const CHANNEL_SIZE: usize = 32;
 
@@ -52,6 +54,21 @@ pub enum ServerMessage {
     SessionUpdated,
 }
 
+#[derive(Debug)]
+pub enum WebSocketError {
+    ConnectionError(String),
+    AgentError(String),
+}
+
+impl From<WebSocketError> for StatusCode {
+    fn from(error: WebSocketError) -> Self {
+        match error {
+            WebSocketError::ConnectionError(_) => StatusCode::BAD_REQUEST,
+            WebSocketError::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
@@ -62,47 +79,57 @@ pub async fn websocket_handler(
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
-    while let Some(Ok(msg)) = receiver.next().await {
-        if let WsMessage::Text(content) = msg {
-            let response = match serde_json::from_str::<ClientMessage>(&content) {
-                Ok(client_msg) => {
-                    match handle_client_message(client_msg, state.clone()).await {
-                        Ok(server_msg) => {
-                            match serde_json::to_string(&server_msg) {
-                                Ok(json) => WsMessage::Text(json),
-                                Err(_) => WsMessage::Text("Error serializing response".to_string()),
-                            }
-                        },
-                        Err(e) => WsMessage::Text(format!("Error: {}", e)),
-                    }
-                },
-                Err(_) => WsMessage::Text("Invalid message format".to_string()),
-            };
+    let mut registry = state.agents.write().await;
+    let greeter_agent = GreeterAgent::new();
+    registry.register("greeter".to_string(), Box::new(greeter_agent));
+    drop(registry);
 
-            if sender.send(response).await.is_err() {
-                break;
+    while let Some(msg) = receiver.next().await {
+        let msg = msg.map_err(|_| AppError::Status(StatusCode::BAD_REQUEST))?;
+
+        match msg {
+            Message::Text(text) => {
+                let registry = state.agents.read().await;
+                if let Some(agent) = registry.get("greeter") {
+                    let response = agent.process_message(Message::new(text)).await
+                        .map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+                    sender.send(Message::Text(response.content))
+                        .await
+                        .map_err(|_| AppError::Status(StatusCode::INTERNAL_SERVER_ERROR))?;
+                }
             }
+            _ => {}
         }
     }
+
+    Ok(())
 }
 
 async fn handle_client_message(msg: ClientMessage, state: Arc<AppState>) -> Result<ServerMessage, String> {
     match msg {
         ClientMessage::Connect { agent } => {
-            let mut transfer_service = state.transfer_service.write().await;
-            transfer_service.set_current_agent(agent.clone());
+            let mut registry = state.agents.write().await;
+            let greeter_agent = GreeterAgent::new();
+            registry.register("greeter".to_string(), Box::new(greeter_agent));
+            drop(registry);
             Ok(ServerMessage::Connected { agent })
         },
         ClientMessage::Message { content } => {
-            let mut transfer_service = state.transfer_service.write().await;
-            match transfer_service.process_message(Message::new(content)).await {
+            let mut registry = state.agents.write().await;
+            let greeter_agent = GreeterAgent::new();
+            registry.register("greeter".to_string(), Box::new(greeter_agent));
+            drop(registry);
+            match greeter_agent.process_message(Message::new(content)).await {
                 Ok(response) => Ok(ServerMessage::Message { content: response.content }),
                 Err(e) => Err(e.to_string()),
             }
         },
         ClientMessage::Transfer { from, to } => {
-            let mut transfer_service = state.transfer_service.write().await;
-            transfer_service.set_current_agent(to.clone());
+            let mut registry = state.agents.write().await;
+            let greeter_agent = GreeterAgent::new();
+            registry.register("greeter".to_string(), Box::new(greeter_agent));
+            drop(registry);
             Ok(ServerMessage::Transferred { from, to })
         },
         ClientMessage::UpdateSession { instructions, tools, turn_detection } => {
@@ -110,6 +137,44 @@ async fn handle_client_message(msg: ClientMessage, state: Arc<AppState>) -> Resu
             Ok(ServerMessage::SessionUpdated)
         },
     }
+}
+
+pub async fn handle_websocket(
+    mut ws: WebSocket,
+    State(state): State<Arc<AppState>>,
+) -> Result<(), WebSocketError> {
+    let mut registry = state.agents.write().await;
+    let config = AgentConfig {
+        name: "greeter".to_string(),
+        public_description: "Greeter agent".to_string(),
+        instructions: "Greets users".to_string(),
+        tools: vec![],
+        downstream_agents: vec![],
+        personality: None,
+        state_machine: None,
+    };
+    let greeter_agent = GreeterAgent::new(config);
+    registry.register("greeter".to_string(), Box::new(greeter_agent));
+    drop(registry);
+
+    while let Some(msg) = ws.recv().await {
+        let msg = msg.map_err(|e| WebSocketError::ConnectionError(e.to_string()))?;
+
+        if let WsMessage::Text(text) = msg {
+            let registry = state.agents.read().await;
+            if let Some(agent) = registry.get_agent("greeter") {
+                let mut agent = agent.write().await;
+                let response = agent.process_message(Message::new(text)).await
+                    .map_err(|e| WebSocketError::AgentError(e.to_string()))?;
+
+                ws.send(WsMessage::from(response))
+                    .await
+                    .map_err(|e| WebSocketError::ConnectionError(e.to_string()))?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -132,11 +197,10 @@ mod tests {
         };
 
         let greeter_agent = GreeterAgent::new(greeter_config);
-        registry.register("greeter".to_string(), Box::new(greeter_agent)).await.expect("Failed to register greeter agent");
+        registry.register("greeter".to_string(), Box::new(greeter_agent));
 
         let registry = Arc::new(RwLock::new(registry));
         Arc::new(AppState {
-            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
             agents: registry,
         })
     }

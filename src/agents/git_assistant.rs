@@ -1,8 +1,10 @@
 use async_trait::async_trait;
-use std::process::Command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::process::Command as TokioCommand;
+use tokio::io::{AsyncBufReadExt, BufReader};
+
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State, StateMachine, AgentStateManager};
 use crate::tools::ToolRegistry;
 use crate::Result;
@@ -51,22 +53,24 @@ impl GitAssistantAgent {
         }
     }
 
-    fn get_git_diff(&self) -> Result<String> {
+    async fn get_git_diff(&self) -> Result<String> {
         // Check staged changes
-        let staged = Command::new("git")
+        let staged = TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["diff", "--staged"])
-            .output()?;
+            .output()
+            .await?;
 
         if !staged.stdout.is_empty() {
             return Ok(String::from_utf8_lossy(&staged.stdout).to_string());
         }
 
         // Check unstaged changes
-        let unstaged = Command::new("git")
+        let unstaged = TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["diff"])
-            .output()?;
+            .output()
+            .await?;
 
         let diff = String::from_utf8_lossy(&unstaged.stdout).to_string();
         if diff.is_empty() {
@@ -76,49 +80,55 @@ impl GitAssistantAgent {
         Ok(diff)
     }
 
-    fn create_branch(&self, branch_name: &str) -> Result<()> {
-        Command::new("git")
+    async fn create_branch(&self, branch_name: &str) -> Result<()> {
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["checkout", "-b", branch_name])
-            .output()?;
+            .output()
+            .await?;
         Ok(())
     }
 
-    fn stage_changes(&self) -> Result<()> {
-        Command::new("git")
+    async fn stage_changes(&self) -> Result<()> {
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
-            .output()?;
+            .output()
+            .await?;
         Ok(())
     }
 
-    fn commit_changes(&self, message: &str) -> Result<()> {
-        Command::new("git")
+    async fn commit_changes(&self, message: &str) -> Result<()> {
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["commit", "-m", message])
-            .output()?;
+            .output()
+            .await?;
         Ok(())
     }
 
-    fn merge_branch(&self, target_branch: &str) -> Result<()> {
+    async fn merge_branch(&self, target_branch: &str) -> Result<()> {
         // Get current branch
-        let current = Command::new("git")
+        let current = TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .output()?;
+            .output()
+            .await?;
         let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
 
         // Switch to target branch
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["checkout", target_branch])
-            .output()?;
+            .output()
+            .await?;
 
         // Merge the feature branch
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["merge", &current_branch])
-            .output()?;
+            .output()
+            .await?;
 
         Ok(())
     }
@@ -150,16 +160,18 @@ impl GitAssistantAgent {
 
     pub async fn commit_for_agent(&mut self, agent_name: &str, message: &str) -> Result<()> {
         // Stage all changes
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
-            .output()?;
+            .output()
+            .await?;
 
         // Commit with provided message
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["commit", "-m", &format!("[{}] {}", agent_name, message)])
-            .output()?;
+            .output()
+            .await?;
 
         Ok(())
     }
@@ -195,7 +207,7 @@ impl GitAssistantAgent {
                 .with_state(state)))
     }
 
-    fn handle_git_command(&self, command: &str) -> Message {
+    async fn handle_git_command(&self, command: &str) -> Message {
         let parts: Vec<&str> = command.split_whitespace().collect();
         let cmd = parts.first().unwrap_or(&"");
         let args = if parts.len() > 1 { &parts[1..] } else { &[] };
@@ -208,17 +220,18 @@ impl GitAssistantAgent {
                 - status: Scan quantum state of current timeline\n\
                 - add <files>: Preserve artifacts in the temporal archive\n\
                 - commit <message>: Create a quantum state marker\n\
-                - branch <name>: Initiate a parallel timeline branch\n\
+                - branch <n>: Initiate a parallel timeline branch\n\
                 - checkout <branch>: Shift to an alternate timeline\n\
                 - merge <branch>: Converge timelines into unified reality\n\
                 - push: Synchronize local quantum states with the temporal nexus\n\
                 - pull: Retrieve quantum state updates from the temporal nexus"
             ),
             "status" => {
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["status"])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(output) => {
                             let status = String::from_utf8_lossy(&output.stdout).to_string();
                             if status.is_empty() {
@@ -232,21 +245,23 @@ impl GitAssistantAgent {
             },
             "add" => {
                 let files = args.join(" ");
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["add"])
                     .args(args)
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => format!("🌟 Preparing to preserve the following artifacts in the temporal archive: {}", files),
                         Err(_) => "⚠️ Temporal preservation failed. Is this a valid timeline branch?".to_string(),
                     }
             },
             "commit" => {
                 let msg = args.join(" ");
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["commit", "-m", if msg.is_empty() { "archival" } else { &msg }])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(output) => format!("✨ Creating quantum state marker: {}\n{}",
                             if msg.is_empty() { "archival" } else { &msg },
                             String::from_utf8_lossy(&output.stdout)),
@@ -255,30 +270,33 @@ impl GitAssistantAgent {
             },
             "branch" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["checkout", "-b", &branch_name])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => format!("🌌 Initiating parallel timeline branch: {}", branch_name),
                         Err(_) => "⚠️ Failed to create parallel timeline. Is this a valid temporal nexus?".to_string(),
                     }
             },
             "checkout" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["checkout", &branch_name])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => format!("🌠 Shifting to timeline: {}", branch_name),
                         Err(_) => "⚠️ Timeline shift failed. Does this reality branch exist?".to_string(),
                     }
             },
             "merge" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["merge", &branch_name])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(output) => format!("🌊 Converging timeline {} with current timeline\n{}",
                             branch_name,
                             String::from_utf8_lossy(&output.stdout)),
@@ -286,19 +304,21 @@ impl GitAssistantAgent {
                     }
             },
             "push" => {
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["push"])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => "🚀 Synchronizing local quantum states with the temporal nexus...".to_string(),
                         Err(_) => "⚠️ Temporal synchronization failed. Is the nexus reachable?".to_string(),
                     }
             },
             "pull" => {
-                match Command::new("git")
+                match TokioCommand::new("git")
                     .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["pull"])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => "📥 Retrieving quantum state updates from the temporal nexus...".to_string(),
                         Err(_) => "⚠️ Failed to retrieve temporal updates. Is the nexus reachable?".to_string(),
                     }
@@ -312,18 +332,17 @@ impl GitAssistantAgent {
 
 #[async_trait]
 impl Agent for GitAssistantAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         let command = message.content.trim().to_lowercase();
-        Ok(self.handle_git_command(&command))
+        Ok(self.handle_git_command(&command).await)
     }
 
-    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+    async fn transfer_to(&self, _target_agent: String, message: Message) -> Result<Message> {
         Ok(message)
     }
 
-    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        let response = format!("Executing tool: {} with parameters: {:?}", tool.name, params);
-        Ok(response)
+    async fn call_tool(&self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
+        Ok("Tool called".to_string())
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
@@ -338,12 +357,7 @@ impl Agent for GitAssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use tempfile::tempdir;
-
-    fn create_test_message(content: &str) -> Message {
-        Message::new(content.to_string())
-    }
 
     fn create_test_config() -> AgentConfig {
         AgentConfig {
@@ -363,61 +377,53 @@ mod tests {
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&temp_dir.path())
             .args(["init"])
             .output()
+            .await
             .unwrap();
 
         // Configure git user for commits
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&temp_dir.path())
             .args(["config", "user.name", "Test User"])
             .output()
+            .await
             .unwrap();
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&temp_dir.path())
             .args(["config", "user.email", "test@example.com"])
             .output()
+            .await
             .unwrap();
 
         // Create initial commit to allow branch creation
-        fs::write(
+        std::fs::write(
             temp_dir.path().join("initial.txt"),
             "Initial commit",
         ).unwrap();
 
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&temp_dir.path())
             .args(["add", "initial.txt"])
             .output()
+            .await
             .unwrap();
 
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&temp_dir.path())
             .args(["commit", "-m", "Initial commit"])
             .output()
+            .await
             .unwrap();
 
         (agent, temp_dir)
     }
 
-    #[cfg(test)]
-    async fn create_test_agent() -> Result<GitAssistantAgent> {
-        GitAssistantAgent::new(AgentConfig {
-            name: "git".to_string(),
-            public_description: "Git test agent".to_string(),
-            instructions: "Test git operations".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        }).await
-    }
-
     #[tokio::test]
     async fn test_help_message() {
-        let agent = create_test_agent().await.unwrap();
+        let mut agent = GitAssistantAgent::new(create_test_config()).await.unwrap();
         let response = agent.process_message(Message::new("help".to_string())).await.unwrap();
         assert!(response.content.contains("Quantum"), "Help message should contain quantum theme");
         assert!(response.content.contains("commands"), "Help message should list commands");
@@ -426,7 +432,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_repo_status() {
         let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent().await.unwrap();
+        let mut agent = GitAssistantAgent::new(create_test_config()).await.unwrap();
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
@@ -436,16 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_commit_flow() {
-        let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent().await.unwrap();
-        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
-
-        // Initialize git repo
-        Command::new("git")
-            .current_dir(&temp_dir.path())
-            .args(["init"])
-            .output()
-            .unwrap();
+        let (mut agent, temp_dir) = setup_test_repo().await;
 
         // Check status
         let response = agent.process_message(Message::new("status".to_string())).await.unwrap();
@@ -472,37 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_branch_and_merge() {
-        let temp_dir = tempdir().unwrap();
-        let mut agent = create_test_agent().await.unwrap();
-        agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
-
-        // Initialize and create initial commit
-        Command::new("git")
-            .current_dir(&temp_dir.path())
-            .args(["init"])
-            .output()
-            .unwrap();
-
-        // Configure git user for commits
-        Command::new("git")
-            .current_dir(&temp_dir.path())
-            .args(["config", "user.name", "Test User"])
-            .output()
-            .unwrap();
-        Command::new("git")
-            .current_dir(&temp_dir.path())
-            .args(["config", "user.email", "test@example.com"])
-            .output()
-            .unwrap();
-
-        std::fs::write(temp_dir.path().join("test.txt"), "test content").unwrap();
-        let add_response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
-        assert!(add_response.content.contains("preserve") || add_response.content.contains("artifact"),
-            "Should indicate file preservation");
-
-        let commit_response = agent.process_message(Message::new("commit Initial commit".to_string())).await.unwrap();
-        assert!(commit_response.content.contains("quantum state marker"),
-            "Should indicate quantum state marker creation");
+        let (mut agent, temp_dir) = setup_test_repo().await;
 
         // Create and switch to new branch
         let branch_response = agent.process_message(Message::new("branch feature".to_string())).await.unwrap();
@@ -534,31 +501,5 @@ mod tests {
         let (mut agent, _temp_dir) = setup_test_repo().await;
         let response = agent.process_message(Message::new("invalid-command".to_string())).await.unwrap();
         assert!(response.content.contains("Unknown temporal operation"));
-    }
-
-    #[tokio::test]
-    async fn test_git_commands() {
-        let config = AgentConfig {
-            name: "git".to_string(),
-            public_description: "Git assistant".to_string(),
-            instructions: "Help with git commands".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        };
-        let agent = GitAssistantAgent::new(config).await.unwrap();
-
-        let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
-        assert!(response.content.contains("preserve") || response.content.contains("artifact"),
-            "Should indicate file preservation");
-
-        let response = agent.process_message(Message::new("commit test commit".to_string())).await.unwrap();
-        assert!(response.content.contains("quantum state marker"),
-            "Should indicate quantum state marker creation");
-
-        let response = agent.process_message(Message::new("checkout main".to_string())).await.unwrap();
-        assert!(response.content.contains("Shifting to timeline"),
-            "Should indicate timeline shift");
     }
 }

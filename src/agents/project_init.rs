@@ -136,7 +136,7 @@ This is a {project_type} project created with the project initialization tool.
 
 #[async_trait]
 impl Agent for ProjectInitAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
+    async fn process_message(&mut self, message: Message) -> Result<Message> {
         let mut response = Message::new(format!("Project init received: {}", message.content));
         if let Some(metadata) = message.metadata {
             let state = self.current_state.clone().unwrap_or_else(|| "initial".to_string());
@@ -187,7 +187,7 @@ mod tests {
             state_machine: None,
         };
 
-        let agent = ProjectInitAgent::new(config).await?;
+        let mut agent = ProjectInitAgent::new(config).await?;
         let response = agent.process_message(Message::new("test".to_string())).await?;
         assert!(response.content.contains("Project init received"));
         Ok(())
