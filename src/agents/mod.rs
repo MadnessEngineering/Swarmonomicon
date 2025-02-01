@@ -8,7 +8,7 @@ use crate::agents::wrapper::AgentWrapper;
 #[cfg(feature = "git-agent")]
 pub mod git_assistant;
 #[cfg(feature = "git-agent")]
-pub use git_assistant::GitAssistantAgent;
+pub use git_assistant::GitAssistantAgent as GitAgent;
 
 #[cfg(feature = "haiku-agent")]
 pub mod haiku;
@@ -57,6 +57,10 @@ impl AgentRegistry {
         self.agents.get(name).cloned()
     }
 
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Arc<RwLock<AgentWrapper>>> {
+        self.agents.get_mut(name)
+    }
+
     pub fn list_agents(&self) -> Vec<String> {
         self.agents.keys().cloned().collect()
     }
@@ -70,7 +74,7 @@ impl AgentRegistry {
         for config in configs {
             let name = config.name.clone();
             let agent = match name.as_str() {
-                "git" => Box::new(GitAssistantAgent::new(config).await?) as Box<dyn Agent + Send + Sync>,
+                "git" => Box::new(GitAgent::new(config).await?) as Box<dyn Agent + Send + Sync>,
                 "haiku" => Box::new(HaikuAgent::new(config)) as Box<dyn Agent + Send + Sync>,
                 "greeter" => Box::new(GreeterAgent::new(config)) as Box<dyn Agent + Send + Sync>,
                 "project-init" => Box::new(ProjectInitAgent::new(config).await?) as Box<dyn Agent + Send + Sync>,
@@ -92,7 +96,7 @@ pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + 
         }
         #[cfg(feature = "git-agent")]
         "git" => {
-            let agent = GitAssistantAgent::new(config).await?;
+            let agent = GitAgent::new(config).await?;
             Ok(Box::new(agent))
         }
         #[cfg(feature = "greeter-agent")]

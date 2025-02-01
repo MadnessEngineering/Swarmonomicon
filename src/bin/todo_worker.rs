@@ -34,8 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     client.subscribe("todos/#", QoS::AtMostOnce).await?;
 
-    let user_agent = Arc::new(user_agent);
-    let user_agent_clone = user_agent.clone();
+    let mut user_agent = Arc::new(user_agent);
+    let mut user_agent_clone = user_agent.clone();
 
     task::spawn(async move {
         loop {

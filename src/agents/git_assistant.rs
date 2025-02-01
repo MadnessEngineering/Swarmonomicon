@@ -337,12 +337,12 @@ impl Agent for GitAssistantAgent {
         Ok(self.handle_git_command(&command).await)
     }
 
-    async fn transfer_to(&self, _target_agent: String, message: Message) -> Result<Message> {
+    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
         Ok(message)
     }
 
-    async fn call_tool(&self, _tool: &Tool, _params: HashMap<String, String>) -> Result<String> {
-        Ok("Tool called".to_string())
+    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+        Ok(format!("Called tool {} with params {:?}", tool.name, params))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
@@ -353,6 +353,10 @@ impl Agent for GitAssistantAgent {
         Ok(self.config.clone())
     }
 }
+
+// Implement Send + Sync
+unsafe impl Send for GitAssistantAgent {}
+unsafe impl Sync for GitAssistantAgent {}
 
 #[cfg(test)]
 mod tests {
