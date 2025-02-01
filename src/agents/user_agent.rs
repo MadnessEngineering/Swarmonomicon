@@ -27,7 +27,7 @@ pub enum TodoStatus {
     Failed,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserAgentState {
     todos: Vec<TodoItem>,
     last_processed: Option<DateTime<Utc>>,

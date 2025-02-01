@@ -21,6 +21,8 @@ pub fn add(left: usize, right: usize) -> usize {
 mod tests {
     use super::*;
     use tokio::sync::RwLock;
+    use std::sync::Arc;
+    use crate::agents::{AgentRegistry, GitAgent, HaikuAgent};
 
     #[tokio::test]
     async fn test_agent_registration() {

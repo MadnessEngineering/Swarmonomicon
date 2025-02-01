@@ -40,6 +40,9 @@
   - [x] Fix Arc mutability issues
   - [x] Correct RwLockWriteGuard usage
   - [x] Add registration tests
+  - [x] Remove duplicate struct definitions
+  - [x] Add missing imports
+  - [x] Implement Clone for all necessary types
 
 ## Completed
 - Initial agent system implementation

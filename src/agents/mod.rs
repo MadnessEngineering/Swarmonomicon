@@ -300,8 +300,3 @@ pub fn default_agents() -> Vec<AgentConfig> {
 
     agents
 }
-
-#[derive(Clone)]
-pub struct UserAgent {
-    // ... existing fields ...
-}
