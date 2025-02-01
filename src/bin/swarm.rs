@@ -147,6 +147,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
             let response = service.process_message(command).await?;
             println!("{}", response.content);
+
+            // Fix get_mut usage by using the registry guard correctly
+            let mut registry_guard = registry.write().await;
+            if let Some(git_agent) = registry_guard.get_agent("git") {
+                let mut git_agent = git_agent.write().await;
+                let haiku = response.content.replace("Generated haiku:\n", "");
+                // if let Err(e) = git_agent.commit_for_agent("haiku", &haiku).await {
+                //     eprintln!("Failed to commit haiku: {}", e);
+                // }
+            }
         }
         Some(Commands::Init { project_type, name, description }) => {
             // Transfer to project agent

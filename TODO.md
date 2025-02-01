@@ -36,10 +36,10 @@
 
 ## In Progress
 - Fix agent registration errors
-  - Remove incorrect .await usage
-  - Fix Arc mutability issues
-  - Correct RwLockWriteGuard usage
-  - Add registration tests
+  - [x] Remove incorrect .await usage
+  - [x] Fix Arc mutability issues
+  - [x] Correct RwLockWriteGuard usage
+  - [x] Add registration tests
 
 ## Completed
 - Initial agent system implementation

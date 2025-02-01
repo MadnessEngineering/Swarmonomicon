@@ -6,6 +6,7 @@ use crate::types::{Agent, AgentConfig, Result, Message, Tool, State};
 use crate::error::Error;
 use std::collections::HashMap;
 use async_trait::async_trait;
+use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
@@ -32,6 +33,7 @@ pub struct UserAgentState {
     last_processed: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone)]
 pub struct UserAgent {
     config: AgentConfig,
     state: UserAgentState,
