@@ -113,19 +113,21 @@ impl GitAssistantAgent {
         self.execute_git_command(&["rebase", branch]).await
     }
 
-    fn create_branch(&self, branch_name: &str) -> Result<()> {
-        Command::new("git")
+    async fn create_branch(&self, branch_name: &str) -> Result<()> {
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["checkout", "-b", branch_name])
-            .output()?;
+            .output()
+            .await?;
         Ok(())
     }
 
-    fn stage_changes(&self) -> Result<()> {
-        Command::new("git")
+    async fn stage_changes(&self) -> Result<()> {
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
-            .output()?;
+            .output()
+            .await?;
         Ok(())
     }
 
@@ -156,16 +158,18 @@ impl GitAssistantAgent {
 
     pub async fn commit_for_agent(&mut self, agent_name: &str, message: &str) -> Result<()> {
         // Stage all changes
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
-            .output()?;
+            .output()
+            .await?;
 
         // Commit with provided message
-        Command::new("git")
+        TokioCommand::new("git")
             .current_dir(&self.get_working_dir()?)
             .args(["commit", "-m", &format!("[{}] {}", agent_name, message)])
-            .output()?;
+            .output()
+            .await?;
 
         Ok(())
     }
@@ -259,35 +263,26 @@ impl GitAssistantAgent {
             },
             "branch" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                    .args(["checkout", "-b", &branch_name])
-                    .output() {
-                        Ok(_) => format!("🌌 Initiating parallel timeline branch: {}", branch_name),
-                        Err(_) => "⚠️ Failed to create parallel timeline. Is this a valid temporal nexus?".to_string(),
-                    }
+                match self.create_branch(&branch_name).await {
+                    Ok(_) => format!("🌌 Initiating parallel timeline branch: {}", branch_name),
+                    Err(_) => "⚠️ Failed to create parallel timeline. Is this a valid temporal nexus?".to_string(),
+                }
             },
             "checkout" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                    .args(["checkout", &branch_name])
-                    .output() {
-                        Ok(_) => format!("🌠 Shifting to timeline: {}", branch_name),
-                        Err(_) => "⚠️ Timeline shift failed. Does this reality branch exist?".to_string(),
-                    }
+                match self.checkout(&branch_name).await {
+                    Ok(_) => format!("🌠 Shifting to timeline: {}", branch_name),
+                    Err(_) => "⚠️ Timeline shift failed. Does this reality branch exist?".to_string(),
+                }
             },
             "merge" => {
                 let branch_name = args.join(" ");
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                    .args(["merge", &branch_name])
-                    .output() {
-                        Ok(output) => format!("🌊 Converging timeline {} with current timeline\n{}",
-                            branch_name,
-                            String::from_utf8_lossy(&output.stdout)),
-                        Err(_) => "⚠️ Timeline convergence failed. Are both realities compatible?".to_string(),
-                    }
+                match self.merge(&branch_name).await {
+                    Ok(output) => format!("🌊 Converging timeline {} with current timeline\n{}",
+                        branch_name,
+                        output),
+                    Err(_) => "⚠️ Timeline convergence failed. Are both realities compatible?".to_string(),
+                }
             },
             "push" => {
                 match TokioCommand::new("git")

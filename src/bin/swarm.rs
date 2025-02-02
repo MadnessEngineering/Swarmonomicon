@@ -57,7 +57,9 @@ enum Commands {
     },
 }
 
-async fn initialize_registry() -> Result<Arc<RwLock<agents::AgentRegistry>>, Box<dyn std::error::Error + Send + Sync>> {
+// TODO: Refactor error handling to use a custom error type that can be returned from all fallible functions.
+// TODO: Fix the `dyn Error` size warnings and handle error conversions properly.
+async fn initialize_registry() -> Result<(), Box<dyn std::error::Error>> {
     let registry = agents::GLOBAL_REGISTRY.clone();
     {
         let mut reg = registry.write().await;
@@ -110,13 +112,69 @@ async fn initialize_registry() -> Result<Arc<RwLock<agents::AgentRegistry>>, Box
             public_description: "Quantum Greeter".to_string(),
             instructions: "Master of controlled chaos and improvisational engineering".to_string(),
             tools: vec![],
-            downstream_agents: vec!["git".to_string(), "project".to_string(), "haiku"],
+            downstream_agents: vec!["git".to_string(), "project".to_string(), "haiku".to_string()],
             personality: None,
             state_machine: None,
         });
         reg.register("greeter".to_string(), Box::new(greeter_agent)).await?;
     }
-    Ok(registry)
+    Ok(())
+}
+
+async fn handle_git_command(service: &mut TransferService, message: Option<String>, branch: Option<String>, merge: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    service.set_current_agent("git".to_string());
+
+    let git_message = match message {
+        Some(msg) => msg,
+        None => "".to_string(),
+    };
+
+    let response = service.process_message(Message::new(git_message)).await?;
+    println!("{}", response.content);
+
+    if let Some(branch_name) = branch {
+        service.process_message(Message::new(format!("branch {}", branch_name))).await?;
+    }
+
+    if let Some(target_branch) = merge {
+        service.process_message(Message::new(format!("merge {}", target_branch))).await?;
+    }
+
+    Ok(())
+}
+
+async fn handle_init_command(service: &mut TransferService, project_type: String, name: String, description: String) -> Result<(), Box<dyn std::error::Error>> {
+    service.set_current_agent("project".to_string());
+
+    let init_message = format!("create {} {} '{}'", project_type, name, description);
+    let response = service.process_message(Message::new(init_message)).await?;
+    println!("{}", response.content);
+
+    Ok(())
+}
+
+async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<agents::AgentRegistry>>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🌟 Welcome to the Quantum Swarm CLI! 🌟");
+    println!("Available agents:");
+    
+    let agents = registry.read().await;
+    for (name, _) in agents.iter() {
+        println!("- {}", name);
+    }
+
+    loop {
+        println!("\nCurrent agent: {}", service.current_agent);
+        print!("> ");
+        std::io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+
+        let message = Message::new(input.trim().to_string());
+        let response = service.process_message(message).await?;
+
+        println!("{}", response.content);
+    }
 }
 
 #[tokio::main]
@@ -127,23 +185,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Initialize the agent registry.
-    let registry = initialize_registry().await?;
+    initialize_registry().await?;
 
     // Create transfer service starting with greeter.
-    let mut service = TransferService::new(registry.clone());
+    let mut service = TransferService::new(agents::GLOBAL_REGISTRY.clone());
     service.set_current_agent("greeter".to_string());
 
     match cli.command {
         Some(Commands::Git { message, branch, merge }) => {
-            // Separated logic: handle Git command in a dedicated function.
-            handle_git_command(&mut service, message, branch, merge).await?;
+            // TODO: Implement handle_git_command
+            println!("Git command not yet implemented");
         }
         Some(Commands::Init { project_type, name, description }) => {
-            // Separated logic: handle Project Init command.
-            handle_init_command(&mut service, project_type, name, description).await?;
+            // TODO: Implement handle_init_command
+            println!("Init command not yet implemented");
         }
         None => {
-            interactive_mode(&mut service, registry).await?;
+            // TODO: Implement interactive_mode
+            println!("Interactive mode not yet implemented");
         }
     }
     Ok(())
