@@ -20,14 +20,14 @@ pub mod greeter;
 pub use greeter::GreeterAgent;
 
 #[cfg(feature = "browser-agent")]
-pub mod browser_agent;
+pub mod browser;
 #[cfg(feature = "browser-agent")]
-pub use browser_agent::BrowserAgentWrapper;
+pub use browser::BrowserAgentWrapper;
 
-#[cfg(feature = "project-init-agent")]
-pub mod project_init;
-#[cfg(feature = "project-init-agent")]
-pub use project_init::ProjectInitAgent;
+#[cfg(feature = "project-agent")]
+pub mod project;
+#[cfg(feature = "project-agent")]
+pub use project::ProjectAgent;
 
 pub mod user_agent;
 pub mod transfer;
@@ -81,9 +81,9 @@ impl AgentRegistry {
 
 pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + Sync>> {
     match config.name.as_str() {
-        #[cfg(feature = "project-init-agent")]
-        "project-init" => {
-            let agent = ProjectInitAgent::new(config).await?;
+        #[cfg(feature = "project-agent")]
+        "project" => {
+            let agent = ProjectAgent::new(config).await?;
             Ok(Box::new(agent))
         }
         #[cfg(feature = "git-agent")]
@@ -103,7 +103,7 @@ pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + 
         }
         #[cfg(feature = "browser-agent")]
         "browser" => {
-            let agent = BrowserAgentWrapper::new(config)?;
+            let agent = browser::BrowserAgentWrapper::new(config)?;
             Ok(Box::new(agent))
         }
         _ => Err("Unknown agent type".into()),

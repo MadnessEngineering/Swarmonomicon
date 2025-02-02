@@ -13,8 +13,8 @@ use swarmonomicon::agents::git_assistant::GitAssistantAgent;
 #[cfg(feature = "haiku-agent")]
 use swarmonomicon::agents::haiku::HaikuAgent;
 
-#[cfg(feature = "project-init-agent")]
-use swarmonomicon::agents::ProjectInitAgent;
+#[cfg(feature = "project-agent")]
+use swarmonomicon::agents::project::ProjectAgent;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -98,9 +98,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         #[cfg(feature = "haiku-agent")]
         registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
 
-        #[cfg(feature = "project-init-agent")]
-        let project_agent = ProjectInitAgent::new(AgentConfig {
-            name: "project-init".to_string(),
+        #[cfg(feature = "project-agent")]
+        let project_agent = ProjectAgent::new(AgentConfig {
+            name: "project".to_string(),
             public_description: "Project initialization tool".to_string(),
             instructions: "Creates new projects with proper structure and configuration".to_string(),
             tools: vec![],
@@ -109,8 +109,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             state_machine: None,
         }).await?;
 
-        #[cfg(feature = "project-init-agent")]
-        registry.register("project-init".to_string(), Box::new(project_agent)).await?;
+        #[cfg(feature = "project-agent")]
+        registry.register("project".to_string(), Box::new(project_agent)).await?;
 
         let greeter_agent = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
@@ -150,7 +150,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         Some(Commands::Init { project_type, name, description }) => {
             // Transfer to project agent
-            service.transfer("greeter", "project-init").await?;
+            service.transfer("greeter", "project").await?;
 
             // Process command
             let command = Message::new(format!("create {} {} {}", project_type, name, description));
@@ -248,8 +248,8 @@ mod tests {
                 state_machine: None,
             });
 
-            #[cfg(feature = "project-init-agent")]
-            let project_agent = ProjectInitAgent::new(AgentConfig {
+            #[cfg(feature = "project-agent")]
+            let project_agent = ProjectAgent::new(AgentConfig {
                 name: "project".to_string(),
                 public_description: "Test project agent".to_string(),
                 instructions: "Test project initialization".to_string(),
@@ -260,7 +260,7 @@ mod tests {
             }).await?;
 
             registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
-            #[cfg(feature = "project-init-agent")]
+            #[cfg(feature = "project-agent")]
             registry.register("project".to_string(), Box::new(project_agent)).await?;
         }
 

@@ -7,13 +7,13 @@ use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall,
 use crate::tools::ToolRegistry;
 use crate::Result;
 
-pub struct ProjectInitAgent {
+pub struct ProjectAgent {
     config: AgentConfig,
     tools: ToolRegistry,
     current_state: Option<String>,
 }
 
-impl ProjectInitAgent {
+impl ProjectAgent {
     pub async fn new(config: AgentConfig) -> Result<Self> {
         Ok(Self {
             config,
@@ -135,7 +135,7 @@ This is a {project_type} project created with the project initialization tool.
 }
 
 #[async_trait]
-impl Agent for ProjectInitAgent {
+impl Agent for ProjectAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
         let mut response = Message::new(format!("Project init received: {}", message.content));
         if let Some(metadata) = message.metadata {
@@ -187,7 +187,7 @@ mod tests {
             state_machine: None,
         };
 
-        let agent = ProjectInitAgent::new(config).await?;
+        let agent = ProjectAgent::new(config).await?;
         let response = agent.process_message(Message::new("test".to_string())).await?;
         assert!(response.content.contains("Project init received"));
         Ok(())
