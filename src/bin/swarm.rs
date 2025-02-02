@@ -6,6 +6,7 @@ use swarmonomicon::{
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::io::Write;
 
 #[cfg(feature = "git-agent")]
 use swarmonomicon::agents::git_assistant::GitAssistantAgent;
@@ -156,14 +157,18 @@ async fn handle_init_command(service: &mut TransferService, project_type: String
 async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<agents::AgentRegistry>>) -> Result<(), Box<dyn std::error::Error>> {
     println!("🌟 Welcome to the Quantum Swarm CLI! 🌟");
     println!("Available agents:");
-    
+
     let agents = registry.read().await;
     for (name, _) in agents.iter() {
         println!("- {}", name);
     }
 
     loop {
-        println!("\nCurrent agent: {}", service.current_agent);
+        let current_agent_display = match service.get_current_agent() {
+            Some(agent) => agent,
+            None => "No current agent",
+        };
+        println!("\nCurrent agent: {}", current_agent_display);
         print!("> ");
         std::io::stdout().flush().unwrap();
 
