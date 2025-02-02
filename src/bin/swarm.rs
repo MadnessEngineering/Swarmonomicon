@@ -57,16 +57,11 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let cli = Cli::parse();
-
-    // Initialize the global registry with default agents
+async fn initialize_registry() -> Result<Arc<RwLock<agents::AgentRegistry>>, Box<dyn std::error::Error + Send + Sync>> {
     let registry = agents::GLOBAL_REGISTRY.clone();
     {
-        let mut registry = registry.write().await;
+        let mut reg = registry.write().await;
 
-        // Create agent instances
         #[cfg(feature = "git-agent")]
         {
             let git_assistant = GitAssistantAgent::new(AgentConfig {
@@ -78,128 +73,76 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 personality: None,
                 state_machine: None,
             }).await?;
-
             let mut git = git_assistant;
             git.update_working_dir(std::env::current_dir()?.into())?;
-            registry.register("git".to_string(), Box::new(git)).await?;
+            reg.register("git".to_string(), Box::new(git)).await?;
+        }
+        #[cfg(feature = "haiku-agent")]
+        {
+            let haiku_agent = HaikuAgent::new(AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Creates haikus from user input".to_string(),
+                instructions: "Creates haikus based on user input and context".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            });
+            reg.register("haiku".to_string(), Box::new(haiku_agent)).await?;
+        }
+        #[cfg(feature = "project-agent")]
+        {
+            let project_agent = ProjectAgent::new(AgentConfig {
+                name: "project".to_string(),
+                public_description: "Project initialization tool".to_string(),
+                instructions: "Creates new projects with proper structure and configuration".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            }).await?;
+            reg.register("project".to_string(), Box::new(project_agent)).await?;
         }
 
-        #[cfg(feature = "haiku-agent")]
-        let haiku_agent = HaikuAgent::new(AgentConfig {
-            name: "haiku".to_string(),
-            public_description: "Creates haikus from user input".to_string(),
-            instructions: "Creates haikus based on user input and context".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        });
-
-        #[cfg(feature = "haiku-agent")]
-        registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
-
-        #[cfg(feature = "project-agent")]
-        let project_agent = ProjectAgent::new(AgentConfig {
-            name: "project".to_string(),
-            public_description: "Project initialization tool".to_string(),
-            instructions: "Creates new projects with proper structure and configuration".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        }).await?;
-
-        #[cfg(feature = "project-agent")]
-        registry.register("project".to_string(), Box::new(project_agent)).await?;
-
+        // Register greeter agent (always available)
         let greeter_agent = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
             public_description: "Quantum Greeter".to_string(),
             instructions: "Master of controlled chaos and improvisational engineering".to_string(),
             tools: vec![],
-            downstream_agents: vec!["git".to_string(), "project-init".to_string(), "haiku".to_string()],
+            downstream_agents: vec!["git".to_string(), "project", "haiku"].iter().map(|s| s.to_string()).collect(),
             personality: None,
             state_machine: None,
         });
-
-        registry.register("greeter".to_string(), Box::new(greeter_agent)).await?;
+        reg.register("greeter".to_string(), Box::new(greeter_agent)).await?;
     }
+    Ok(registry)
+}
 
-    // Create transfer service starting with greeter
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cli = Cli::parse();
+
+    // Initialize the agent registry.
+    let registry = initialize_registry().await?;
+
+    // Create transfer service starting with greeter.
     let mut service = TransferService::new(registry.clone());
     service.set_current_agent("greeter".to_string());
 
     match cli.command {
         Some(Commands::Git { message, branch, merge }) => {
-            // Transfer to git agent
-            service.transfer("greeter", "git").await?;
-
-            // Process command
-            let command = if let Some(msg) = message {
-                Message::new(format!("commit {}", msg))
-            } else if let Some(branch_name) = branch {
-                Message::new(format!("branch {}", branch_name))
-            } else if let Some(target) = merge {
-                Message::new(format!("merge {}", target))
-            } else {
-                Message::new("commit".to_string()) // Default to auto-commit
-            };
-
-            let response = service.process_message(command).await?;
-            println!("{}", response.content);
+            // Separated logic: handle Git command in a dedicated function.
+            handle_git_command(&mut service, message, branch, merge).await?;
         }
         Some(Commands::Init { project_type, name, description }) => {
-            // Transfer to project agent
-            service.transfer("greeter", "project").await?;
-
-            // Process command
-            let command = Message::new(format!("create {} {} {}", project_type, name, description));
-            let response = service.process_message(command).await?;
-            println!("{}", response.content);
+            // Separated logic: handle Project Init command.
+            handle_init_command(&mut service, project_type, name, description).await?;
         }
         None => {
-            // Interactive mode with greeter
-            println!("Welcome to Swarmonomicon! Type 'help' for available commands.");
-
-            let mut buffer = String::new();
-            loop {
-                buffer.clear();
-                if std::io::stdin().read_line(&mut buffer).is_err() {
-                    break;
-                }
-
-                let message = buffer.trim();
-                if message.is_empty() {
-                    continue;
-                }
-
-                if message == "exit" || message == "quit" {
-                    break;
-                }
-
-                match service.process_message(Message::new(message.to_string())).await {
-                    Ok(response) => {
-                        println!("{}", response.content);
-
-                        // Check for haiku generation and commit if needed
-                        if response.content.contains("Generated haiku:") &&
-                           service.get_current_agent().as_deref() == Some("haiku") {
-                            // Get the git agent and commit the haiku
-                            let mut registry = registry.write().await;
-                            if let Some(mut git_agent) = registry.get_mut("git") {
-                                let haiku = response.content.replace("Generated haiku:\n", "");
-//                                 if let Err(e) = git_agent.commit_for_agent("haiku", &haiku).await {
-//                                     eprintln!("Failed to commit haiku: {}", e);
-//                                 }
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("Error: {}", e),
-                }
-            }
+            interactive_mode(&mut service, registry).await?;
         }
     }
-
     Ok(())
 }
 
