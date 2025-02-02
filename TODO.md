@@ -177,3 +177,17 @@
 3. Identify and implement any missing features based on the project requirements.
 4. Refactor and optimize the codebase for better maintainability and performance.
 5. Enhance the test coverage to ensure robustness and catch potential bugs.
+## Todo Worker and Multi-Agent Integration
+1. [ ] Integrate task injection for the todo worker:
+   - [ ] Update src/bin/todo_worker.rs to actively fetch and process tasks from the shared TodoList.
+   - [ ] Connect MQTT callbacks to add new tasks into the TodoList.
+   - [ ] Ensure that agents (e.g., GreeterAgent) can submit tasks to the TodoList.
+   - [ ] Implement proper error handling for task processing (e.g., timeouts, retries, logging failures).
+   - [ ] Write unit and integration tests to simulate multi-source task injection and processing.
+## Todo Worker and Multi-Agent Integration
+1. [ ] Integrate task injection for the todo worker:
+   - [ ] Update src/bin/todo_worker.rs to actively fetch and process tasks from the shared TodoList.
+   - [ ] Connect MQTT callbacks to add new tasks into the TodoList.
+   - [ ] Ensure that agents (e.g., GreeterAgent) can submit tasks to the TodoList.
+   - [ ] Implement proper error handling for task processing (e.g., timeouts, retries, logging failures).
+   - [ ] Write unit and integration tests to simulate multi-source task injection and processing.
