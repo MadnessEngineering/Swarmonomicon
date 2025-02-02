@@ -110,7 +110,7 @@ async fn initialize_registry() -> Result<Arc<RwLock<agents::AgentRegistry>>, Box
             public_description: "Quantum Greeter".to_string(),
             instructions: "Master of controlled chaos and improvisational engineering".to_string(),
             tools: vec![],
-            downstream_agents: vec!["git".to_string(), "project", "haiku"].iter().map(|s| s.to_string()).collect(),
+            downstream_agents: vec!["git".to_string(), "project".to_string(), "haiku"],
             personality: None,
             state_machine: None,
         });
@@ -120,7 +120,10 @@ async fn initialize_registry() -> Result<Arc<RwLock<agents::AgentRegistry>>, Box
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    tracing_subscriber::fmt::init();
+
     let cli = Cli::parse();
 
     // Initialize the agent registry.

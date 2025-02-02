@@ -9,6 +9,8 @@ use crate::Result;
 use rand::Rng;
 use chrono;
 use crate::ai::AiClient;
+use tokio::process::Command as TokioCommand;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 pub struct GitAssistantAgent {
     config: AgentConfig,
@@ -51,29 +53,64 @@ impl GitAssistantAgent {
         }
     }
 
-    fn get_git_diff(&self) -> Result<String> {
-        // Check staged changes
-        let staged = Command::new("git")
+    async fn execute_git_command(&self, args: &[&str]) -> Result<String> {
+        let output = TokioCommand::new("git")
+            .args(args)
             .current_dir(&self.get_working_dir()?)
-            .args(["diff", "--staged"])
-            .output()?;
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute git command: {}", e))?;
 
-        if !staged.stdout.is_empty() {
-            return Ok(String::from_utf8_lossy(&staged.stdout).to_string());
+        let stdout = String::from_utf8(output.stdout)?;
+        let stderr = String::from_utf8(output.stderr)?;
+
+        if !output.status.success() {
+            return Err(format!("Git command failed: {}", stderr).into());
         }
 
-        // Check unstaged changes
-        let unstaged = Command::new("git")
-            .current_dir(&self.get_working_dir()?)
-            .args(["diff"])
-            .output()?;
+        Ok(stdout)
+    }
 
-        let diff = String::from_utf8_lossy(&unstaged.stdout).to_string();
-        if diff.is_empty() {
-            return Err(format!("No changes detected in directory: {}", self.get_working_dir()?.display()).into());
-        }
+    async fn get_current_branch(&self) -> Result<String> {
+        let output = self.execute_git_command(&["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+        Ok(output.trim().to_string())
+    }
 
-        Ok(diff)
+    async fn get_status(&self) -> Result<String> {
+        self.execute_git_command(&["status"]).await
+    }
+
+    async fn get_log(&self, num_commits: usize) -> Result<String> {
+        self.execute_git_command(&["log", &format!("-{}", num_commits)]).await
+    }
+
+    async fn get_diff(&self) -> Result<String> {
+        self.execute_git_command(&["diff"]).await
+    }
+
+    async fn commit(&self, message: &str) -> Result<String> {
+        self.execute_git_command(&["commit", "-m", message]).await
+    }
+
+    async fn push(&self) -> Result<String> {
+        let branch = self.get_current_branch().await?;
+        self.execute_git_command(&["push", "origin", &branch]).await
+    }
+
+    async fn pull(&self) -> Result<String> {
+        self.execute_git_command(&["pull"]).await
+    }
+
+    async fn checkout(&self, branch: &str) -> Result<String> {
+        self.execute_git_command(&["checkout", branch]).await
+    }
+
+    async fn merge(&self, branch: &str) -> Result<String> {
+        self.execute_git_command(&["merge", branch]).await
+    }
+
+    async fn rebase(&self, branch: &str) -> Result<String> {
+        self.execute_git_command(&["rebase", branch]).await
     }
 
     fn create_branch(&self, branch_name: &str) -> Result<()> {
@@ -89,37 +126,6 @@ impl GitAssistantAgent {
             .current_dir(&self.get_working_dir()?)
             .args(["add", "."])
             .output()?;
-        Ok(())
-    }
-
-    fn commit_changes(&self, message: &str) -> Result<()> {
-        Command::new("git")
-            .current_dir(&self.get_working_dir()?)
-            .args(["commit", "-m", message])
-            .output()?;
-        Ok(())
-    }
-
-    fn merge_branch(&self, target_branch: &str) -> Result<()> {
-        // Get current branch
-        let current = Command::new("git")
-            .current_dir(&self.get_working_dir()?)
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .output()?;
-        let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
-
-        // Switch to target branch
-        Command::new("git")
-            .current_dir(&self.get_working_dir()?)
-            .args(["checkout", target_branch])
-            .output()?;
-
-        // Merge the feature branch
-        Command::new("git")
-            .current_dir(&self.get_working_dir()?)
-            .args(["merge", &current_branch])
-            .output()?;
-
         Ok(())
     }
 
@@ -195,7 +201,7 @@ impl GitAssistantAgent {
                 .with_state(state)))
     }
 
-    fn handle_git_command(&self, command: &str) -> Message {
+    async fn handle_git_command(&self, command: &str) -> Message {
         let parts: Vec<&str> = command.split_whitespace().collect();
         let cmd = parts.first().unwrap_or(&"");
         let args = if parts.len() > 1 { &parts[1..] } else { &[] };
@@ -215,38 +221,36 @@ impl GitAssistantAgent {
                 - pull: Retrieve quantum state updates from the temporal nexus"
             ),
             "status" => {
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                    .args(["status"])
-                    .output() {
-                        Ok(output) => {
-                            let status = String::from_utf8_lossy(&output.stdout).to_string();
-                            if status.is_empty() {
-                                "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string()
-                            } else {
-                                format!("🔮 Quantum State Analysis:\n{}", status)
-                            }
-                        },
-                        Err(_) => "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string(),
-                    }
+                match self.get_status().await {
+                    Ok(status) => {
+                        if status.is_empty() {
+                            "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string()
+                        } else {
+                            format!("🔮 Quantum State Analysis:\n{}", status)
+                        }
+                    },
+                    Err(_) => "🌌 This dimension appears to lack a temporal nexus. Initialize one with 'init'".to_string(),
+                }
             },
             "add" => {
                 let files = args.join(" ");
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                match TokioCommand::new("git")
+                    .current_dir(&self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["add"])
                     .args(args)
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => format!("🌟 Preparing to preserve the following artifacts in the temporal archive: {}", files),
                         Err(_) => "⚠️ Temporal preservation failed. Is this a valid timeline branch?".to_string(),
                     }
             },
             "commit" => {
                 let msg = args.join(" ");
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                match TokioCommand::new("git")
+                    .current_dir(&self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["commit", "-m", if msg.is_empty() { "archival" } else { &msg }])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(output) => format!("✨ Creating quantum state marker: {}\n{}",
                             if msg.is_empty() { "archival" } else { &msg },
                             String::from_utf8_lossy(&output.stdout)),
@@ -286,19 +290,21 @@ impl GitAssistantAgent {
                     }
             },
             "push" => {
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                match TokioCommand::new("git")
+                    .current_dir(&self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["push"])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => "🚀 Synchronizing local quantum states with the temporal nexus...".to_string(),
                         Err(_) => "⚠️ Temporal synchronization failed. Is the nexus reachable?".to_string(),
                     }
             },
             "pull" => {
-                match Command::new("git")
-                    .current_dir(self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                match TokioCommand::new("git")
+                    .current_dir(&self.get_working_dir().unwrap_or_else(|_| PathBuf::from(".")))
                     .args(["pull"])
-                    .output() {
+                    .output()
+                    .await {
                         Ok(_) => "📥 Retrieving quantum state updates from the temporal nexus...".to_string(),
                         Err(_) => "⚠️ Failed to retrieve temporal updates. Is the nexus reachable?".to_string(),
                     }
@@ -314,16 +320,15 @@ impl GitAssistantAgent {
 impl Agent for GitAssistantAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
         let command = message.content.trim().to_lowercase();
-        Ok(self.handle_git_command(&command))
+        Ok(self.handle_git_command(&command).await)
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        Ok(message)
+        Err("Transfer not supported by GitAssistantAgent".into())
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        let response = format!("Executing tool: {} with parameters: {:?}", tool.name, params);
-        Ok(response)
+        Err("Tool calls not supported by GitAssistantAgent".into())
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
