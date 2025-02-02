@@ -1,6 +1,6 @@
 use std::time::Duration;
 use swarmonomicon::agents::{self, UserAgent};
-use swarmonomicon::types::{AgentConfig, Message, TodoList, TodoTask, TaskStatus};
+use swarmonomicon::types::{AgentConfig, Message, TodoList, TodoTask, TaskStatus, TaskPriority};
 use swarmonomicon::Agent;
 use rumqttc::{MqttOptions, AsyncClient, QoS, Event, Packet};
 use tokio::task;
