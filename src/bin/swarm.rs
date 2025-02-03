@@ -3,10 +3,10 @@ use swarmonomicon::{
     agents::{self, TransferService, GreeterAgent},
     types::{Agent, AgentConfig, Message},
 };
-use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::io::Write;
+use swarmonomicon::error::Error;
 
 #[cfg(feature = "git-agent")]
 use swarmonomicon::agents::git_assistant::GitAssistantAgent;
@@ -58,9 +58,7 @@ enum Commands {
     },
 }
 
-// TODO: Refactor error handling to use a custom error type that can be returned from all fallible functions.
-// TODO: Fix the `dyn Error` size warnings and handle error conversions properly.
-async fn initialize_registry() -> Result<(), Box<dyn std::error::Error>> {
+async fn initialize_registry() -> Result<(), Error> {
     let registry = agents::GLOBAL_REGISTRY.clone();
     {
         let mut reg = registry.write().await;
@@ -122,7 +120,7 @@ async fn initialize_registry() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_git_command(service: &mut TransferService, message: Option<String>, branch: Option<String>, merge: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_git_command(service: &mut TransferService, message: Option<String>, branch: Option<String>, merge: Option<String>) -> Result<(), Error> {
     service.set_current_agent("git".to_string());
 
     let git_message = match message {
@@ -144,7 +142,7 @@ async fn handle_git_command(service: &mut TransferService, message: Option<Strin
     Ok(())
 }
 
-async fn handle_init_command(service: &mut TransferService, project_type: String, name: String, description: String) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_init_command(service: &mut TransferService, project_type: String, name: String, description: String) -> Result<(), Error> {
     service.set_current_agent("project".to_string());
 
     let init_message = format!("create {} {} '{}'", project_type, name, description);
@@ -154,7 +152,7 @@ async fn handle_init_command(service: &mut TransferService, project_type: String
     Ok(())
 }
 
-async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<agents::AgentRegistry>>) -> Result<(), Box<dyn std::error::Error>> {
+async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<agents::AgentRegistry>>) -> Result<(), Error> {
     println!("🌟 Welcome to the Quantum Swarm CLI! 🌟");
     println!("Available agents:");
 
@@ -184,6 +182,10 @@ async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<ag
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+}
+
+async fn run() -> Result<(), Error> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
@@ -220,9 +222,10 @@ mod tests {
 
     #[tokio::test]
     #[cfg(all(feature = "haiku-agent", feature = "git-agent"))]
-    async fn test_haiku_git_integration() -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Set up a temporary directory for git
+    async fn test_haiku_git_integration() -> Result<(), Error> {
         let temp_dir = tempdir()?;
+        let repo_path = temp_dir.path().join("repo");
+        std::fs::create_dir(&repo_path)?;
 
         // Initialize the registry with test agents
         let registry = Arc::new(RwLock::new(agents::AgentRegistry::new()));
