@@ -58,6 +58,22 @@
    - [ ] Add timeouts to prevent deadlocks
    - [ ] Handle lock poisoning cases
 
+### Error Handling
+1. [x] Refactor error handling to use custom Error type
+   - [x] Define custom Error enum in src/error.rs
+   - [x] Implement From trait for conversions
+   - [x] Replace usage of std::error::Error with custom Error
+   - [x] Update function signatures and return types
+
+2. [x] Resolve compilation errors related to dyn Error
+   - [x] Refactor main() to return Result<(), Box<dyn std::error::Error>>
+   - [x] Introduce run() function returning Result<(), Error>
+   - [x] Map custom Error to Box<dyn std::error::Error> in main()
+
+3. [x] Update tests to use custom Error type
+   - [x] Fix test_haiku_git_integration return type
+   - [x] Update other test functions as needed
+
 ### Test Coverage
 1. [ ] Fix failing integration tests
    - [ ] Review `test_haiku_git_integration`
@@ -170,6 +186,9 @@
 - [x] Add conversation history support
 - [x] Update agents to use AI client
 - [x] Fix concurrent access patterns
+- [x] Refactor error handling to use custom Error type
+- [x] Resolve compilation errors related to dyn Error
+- [x] Update tests to use custom Error type
 
 ## Next Steps
 1. Prioritize fixing the failing tests to ensure the existing functionality is working as expected.
@@ -177,13 +196,7 @@
 3. Identify and implement any missing features based on the project requirements.
 4. Refactor and optimize the codebase for better maintainability and performance.
 5. Enhance the test coverage to ensure robustness and catch potential bugs.
-## Todo Worker and Multi-Agent Integration
-1. [ ] Integrate task injection for the todo worker:
-   - [ ] Update src/bin/todo_worker.rs to actively fetch and process tasks from the shared TodoList.
-   - [ ] Connect MQTT callbacks to add new tasks into the TodoList.
-   - [ ] Ensure that agents (e.g., GreeterAgent) can submit tasks to the TodoList.
-   - [ ] Implement proper error handling for task processing (e.g., timeouts, retries, logging failures).
-   - [ ] Write unit and integration tests to simulate multi-source task injection and processing.
+
 ## Todo Worker and Multi-Agent Integration
 1. [ ] Integrate task injection for the todo worker:
    - [ ] Update src/bin/todo_worker.rs to actively fetch and process tasks from the shared TodoList.
