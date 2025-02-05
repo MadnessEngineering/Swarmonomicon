@@ -70,3 +70,7 @@ path = "src/bin/swarm.rs"
 [[bin]]
 name = "todo_worker"
 path = "src/bin/todo_worker.rs"
+
+[[bin]]
+name = "mcp_todo_server"
+path = "src/bin/mcp_todo_server.rs"
