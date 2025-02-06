@@ -14,6 +14,8 @@ use crate::{
     agents::AgentRegistry,
 };
 
+use super::models::TaskResponse;
+
 pub async fn index() -> Response {
     "Welcome to the Swarmonomicon API".into_response()
 }
@@ -184,64 +186,6 @@ pub struct AddTaskRequest {
     pub source_agent: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct TaskResponse {
-    pub id: String,
-    pub description: String,
-    pub priority: TaskPriority,
-    pub source_agent: Option<String>,
-    pub target_agent: String,
-    pub status: TaskStatus,
-    pub created_at: i64,
-    pub completed_at: Option<i64>,
-}
-
-impl From<TodoTask> for TaskResponse {
-    fn from(task: TodoTask) -> Self {
-        Self {
-            id: task.id,
-            description: task.description,
-            priority: task.priority,
-            source_agent: task.source_agent,
-            target_agent: task.target_agent,
-            status: task.status,
-            created_at: task.created_at,
-            completed_at: task.completed_at,
-        }
-    }
-}
-
-// Add a task to an agent's todo list
-pub async fn add_task(
-    State(state): State<Arc<AppState>>,
-    Path(agent_name): Path<String>,
-    Json(request): Json<AddTaskRequest>,
-) -> Result<Json<TaskResponse>, StatusCode> {
-    let registry = state.agents.read().await;
-    
-    let agent = registry.get(&agent_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    let task = TodoTask {
-        id: uuid::Uuid::new_v4().to_string(),
-        description: request.description,
-        priority: request.priority,
-        source_agent: request.source_agent,
-        target_agent: agent_name,
-        status: TaskStatus::Pending,
-        created_at: chrono::Utc::now().timestamp(),
-        completed_at: None,
-    };
-    
-    // Get the todo list from the agent
-    let todo_list = <dyn Agent>::get_todo_list(agent)
-        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
-    todo_list.add_task(task.clone()).await;
-    
-    Ok(Json(TaskResponse::from(task)))
-}
-
 // Get all tasks for an agent
 pub async fn get_tasks(
     State(state): State<Arc<AppState>>,
@@ -252,11 +196,11 @@ pub async fn get_tasks(
     let agent = registry.get(&agent_name)
         .ok_or(StatusCode::NOT_FOUND)?;
     
-    // Get the todo list from the agent
     let todo_list = <dyn Agent>::get_todo_list(agent)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
     
-    let tasks = todo_list.get_all_tasks().await;
+    let tasks = todo_list.get_all_tasks().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     Ok(Json(tasks.into_iter().map(TaskResponse::from).collect()))
 }
@@ -271,12 +215,43 @@ pub async fn get_task(
     let agent = registry.get(&agent_name)
         .ok_or(StatusCode::NOT_FOUND)?;
     
-    // Get the todo list from the agent
     let todo_list = <dyn Agent>::get_todo_list(agent)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
     
     let task = todo_list.get_task(&task_id).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+    
+    Ok(Json(TaskResponse::from(task)))
+}
+
+// Add a task to an agent's todo list
+pub async fn add_task(
+    State(state): State<Arc<AppState>>,
+    Path(agent_name): Path<String>,
+    Json(request): Json<AddTaskRequest>,
+) -> Result<Json<TaskResponse>, StatusCode> {
+    let registry = state.agents.read().await;
+    
+    let agent = registry.get(&agent_name)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    
+    let todo_list = <dyn Agent>::get_todo_list(agent)
+        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
+    
+    let task = TodoTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        description: request.description,
+        priority: request.priority,
+        source_agent: request.source_agent,
+        target_agent: agent_name,
+        status: TaskStatus::Pending,
+        created_at: chrono::Utc::now().timestamp(),
+        completed_at: None,
+    };
+    
+    todo_list.add_task(task.clone()).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     Ok(Json(TaskResponse::from(task)))
 }

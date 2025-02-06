@@ -28,10 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create a shared TodoList
-    let todo_list = Arc::new(TodoList::new());
+    let todo_list = Arc::new(TodoList::new().await?);
 
     // Start the MQTT listener in a separate task
-    let mut mqtt_options = MqttOptions::new("todo_worker", "broker.hivemq.com", 1883);
+    let mut mqtt_options = MqttOptions::new("todo_worker", "3.134.3.199", 3003);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
 
@@ -60,7 +60,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             created_at: chrono::Utc::now().timestamp(),
                             completed_at: None,
                         };
-                        todo_list_clone.add_task(task).await;
+                        if let Err(e) = todo_list_clone.add_task(task).await {
+                            tracing::error!("Failed to add task: {}", e);
+                        }
                     }
                 }
                 Err(e) => {
@@ -76,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main worker loop to process tasks from the TodoList
     loop {
         // Get the next task from the TodoList, if any
-        if let Some(task) = todo_list.get_next_task().await {
+        if let Some(task) = todo_list.get_next_task().await? {
             tracing::info!("Processing task: {:?}", task);
 
             // Create a message for the user agent
@@ -84,12 +86,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match user_agent.process_message(message).await {
                 Ok(_) => {
                     // Mark the task completed if processing succeeded
-                    todo_list.mark_task_completed(&task.id).await;
+                    todo_list.mark_task_completed(&task.id).await?;
                     tracing::info!("Task completed");
                 }
                 Err(e) => {
                     // Mark the task failed if processing failed
-                    todo_list.mark_task_failed(&task.id).await;
+                    todo_list.mark_task_failed(&task.id).await?;
                     tracing::error!("Task failed: {}", e);
                 }
             }

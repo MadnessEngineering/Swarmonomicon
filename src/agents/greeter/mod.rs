@@ -6,6 +6,7 @@ use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentSta
 use crate::types::{TodoProcessor, TodoList, TodoTask};
 use crate::ai::AiClient;
 use uuid::Uuid;
+use futures::executor::block_on;
 
 pub struct GreeterAgent {
     config: AgentConfig,
@@ -22,7 +23,7 @@ impl GreeterAgent {
             state_manager: AgentStateManager::new(None),
             ai_client: AiClient::new(),
             conversation_history: Vec::new(),
-            todo_list: TodoList::new(),
+            todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),
         }
     }
 

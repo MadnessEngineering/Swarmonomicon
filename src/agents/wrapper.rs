@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use crate::types::{Agent, Message, Tool, State, AgentConfig, Result};
 use crate::types::{TodoProcessor, TodoList, TodoTask};
+use futures::executor::block_on;
 
 /// A wrapper type that handles the complexity of agent type management.
 /// This provides a consistent interface for working with agents while
@@ -20,7 +21,7 @@ impl AgentWrapper {
     pub fn new(agent: Box<dyn Agent + Send + Sync>) -> Self {
         Self {
             inner: Arc::new(agent),
-            todo_list: TodoList::new(),
+            todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),
         }
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use axum::{
     extract::ws::{WebSocket, Message as WsMessage},
     extract::{State, WebSocketUpgrade},
-    response::IntoResponse,
+    response::Response,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
@@ -55,11 +55,11 @@ pub enum ServerMessage {
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
+async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
     while let Some(Ok(msg)) = receiver.next().await {

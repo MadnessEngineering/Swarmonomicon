@@ -3,8 +3,6 @@ use std::net::SocketAddr;
 use axum::{
     routing::{get, post},
     Router,
-    extract::ws::{WebSocket, Message as WsMessage},
-    extract::{State, WebSocketUpgrade},
 };
 use tower_http::cors::CorsLayer;
 use tokio::sync::RwLock;
@@ -13,8 +11,13 @@ use crate::{
     types::Agent,
 };
 
-pub mod routes;
-pub mod websocket;
+mod models;
+mod routes;
+mod websocket;
+
+pub use models::*;
+pub use routes::*;
+pub use websocket::*;
 
 pub struct AppState {
     pub transfer_service: Arc<RwLock<TransferService>>,
