@@ -88,7 +88,7 @@ pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + 
         }
         #[cfg(feature = "git-agent")]
         "git" => {
-            let agent = GitAssistantAgent::new(config).await?;
+            let agent = GitAssistantAgent::new(config);
             Ok(Box::new(agent))
         }
         #[cfg(feature = "greeter-agent")]
