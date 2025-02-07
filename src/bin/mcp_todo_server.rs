@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", "3.134.3.199", 3003);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
-    mqtt_options.set_connection_timeout(10);
+    mqtt_options.set_connection_timeout_ms(10000);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
 
     // Wait for connection and subscribe
@@ -95,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    tokio::signal::ctrl_c().await?;
+    if let Err(e) = tokio::signal::ctrl_c().await {
+        tracing::error!("Failed to listen for ctrl-c: {}", e);
+    }
     Ok(())
 }
