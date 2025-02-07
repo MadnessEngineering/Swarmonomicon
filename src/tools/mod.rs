@@ -1,19 +1,21 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use crate::types::Tool;
-use crate::Result;
+use anyhow::Result;
 
 mod git;
 mod project;
 mod object_detection;
 mod screenshot_detection;
 mod todo;
+mod goose;
 
 pub use git::GitTool;
 pub use project::ProjectTool;
 pub use object_detection::ObjectDetectionTool;
 pub use screenshot_detection::ScreenshotDetectionTool;
 pub use todo::TodoTool;
+pub use goose::GooseTool;
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -74,7 +76,7 @@ impl ToolRegistry {
         if let Some(executor) = self.tools.get(&tool.name) {
             executor.execute(params).await
         } else {
-            Err("Tool not found in registry".into())
+            Err(anyhow::anyhow!("Tool not found in registry"))
         }
     }
 
@@ -90,6 +92,9 @@ impl ToolRegistry {
         // Register Todo tool
         let todo_tool = TodoTool::new().await?;
         registry.register("todo".to_string(), todo_tool);
+
+        // Register Goose tool
+        registry.register("goose".to_string(), GooseTool::new());
 
         Ok(registry)
     }

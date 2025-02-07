@@ -73,14 +73,12 @@ async fn initialize_registry() -> Result<(), Error> {
                 downstream_agents: vec![],
                 personality: None,
                 state_machine: None,
-            }).await?;
-            let mut git = git_assistant;
-            git.update_working_dir(std::env::current_dir()?.into())?;
-            reg.register("git".to_string(), Box::new(git)).await?;
+            });
+            reg.register("git".to_string(), Box::new(git_assistant)).await?;
         }
         #[cfg(feature = "haiku-agent")]
         {
-            let haiku_agent = HaikuAgent::new(AgentConfig {
+            let haiku = HaikuAgent::new(AgentConfig {
                 name: "haiku".to_string(),
                 public_description: "Creates haikus from user input".to_string(),
                 instructions: "Creates haikus based on user input and context".to_string(),
@@ -89,7 +87,7 @@ async fn initialize_registry() -> Result<(), Error> {
                 personality: None,
                 state_machine: None,
             });
-            reg.register("haiku".to_string(), Box::new(haiku_agent)).await?;
+            reg.register("haiku".to_string(), Box::new(haiku)).await?;
         }
         #[cfg(feature = "project-agent")]
         {
@@ -106,7 +104,7 @@ async fn initialize_registry() -> Result<(), Error> {
         }
 
         // Register greeter agent (always available)
-        let greeter_agent = GreeterAgent::new(AgentConfig {
+        let greeter = GreeterAgent::new(AgentConfig {
             name: "greeter".to_string(),
             public_description: "Quantum Greeter".to_string(),
             instructions: "Master of controlled chaos and improvisational engineering".to_string(),
@@ -115,7 +113,7 @@ async fn initialize_registry() -> Result<(), Error> {
             personality: None,
             state_machine: None,
         });
-        reg.register("greeter".to_string(), Box::new(greeter_agent)).await?;
+        reg.register("greeter".to_string(), Box::new(greeter)).await?;
     }
     Ok(())
 }
