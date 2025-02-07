@@ -10,7 +10,7 @@ use mongodb::{
 };
 use crate::tools::ToolExecutor;
 use crate::agents::user_agent::{TodoItem, TodoStatus};
-use crate::Result;
+use anyhow::{Result, anyhow};
 
 pub struct TodoTool {
     collection: Collection<TodoItem>,
@@ -18,7 +18,9 @@ pub struct TodoTool {
 
 impl TodoTool {
     pub async fn new() -> Result<Self> {
-        let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon");
         let collection = db.collection::<TodoItem>("todos");
 
@@ -27,7 +29,9 @@ impl TodoTool {
             .keys(doc! { "description": 1 })
             .options(Some(IndexOptions::builder().unique(true).build()))
             .build();
-        collection.create_index(index, None).await?;
+        collection.create_index(index, None)
+            .await
+            .map_err(|e| anyhow!("Failed to create index: {}", e))?;
 
         Ok(Self { collection })
     }
@@ -44,12 +48,16 @@ impl TodoTool {
             updated_at: now,
         };
 
-        self.collection.insert_one(new_todo, None).await?;
+        self.collection.insert_one(new_todo, None)
+            .await
+            .map_err(|e| anyhow!("Failed to insert todo: {}", e))?;
         Ok(format!("Added new todo: {}", description))
     }
 
     async fn list_todos(&self) -> Result<String> {
-        let mut cursor = self.collection.find(None, None).await?;
+        let mut cursor = self.collection.find(None, None)
+            .await
+            .map_err(|e| anyhow!("Failed to find todos: {}", e))?;
         let mut todos = Vec::new();
 
         while let Some(todo_result) = cursor.next().await {
@@ -72,7 +80,8 @@ impl TodoTool {
 
     async fn update_todo_status(&self, description: &str, status: TodoStatus) -> Result<String> {
         let now = Utc::now();
-        let status_bson = to_bson(&status).unwrap_or_else(|_| to_bson(&format!("{:?}", status)).unwrap());
+        let status_bson = to_bson(&status)
+            .map_err(|e| anyhow!("Failed to convert status to BSON: {}", e))?;
         
         let update_result = self.collection.update_one(
             doc! { "description": description },
@@ -83,12 +92,14 @@ impl TodoTool {
                 } 
             },
             None,
-        ).await?;
+        )
+        .await
+        .map_err(|e| anyhow!("Failed to update todo: {}", e))?;
 
         if update_result.modified_count == 1 {
             Ok(format!("Updated todo status to {:?}", status))
         } else {
-            Err(format!("Todo with description '{}' not found", description).into())
+            Err(anyhow!("Todo with description '{}' not found", description))
         }
     }
 }
@@ -96,11 +107,11 @@ impl TodoTool {
 #[async_trait]
 impl ToolExecutor for TodoTool {
     async fn execute(&self, params: HashMap<String, String>) -> Result<String> {
-        let command = params.get("command").ok_or("Missing command parameter")?;
+        let command = params.get("command").ok_or_else(|| anyhow!("Missing command parameter"))?;
 
         match command.as_str() {
             "add" => {
-                let description = params.get("description").ok_or("Missing todo description")?;
+                let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 let context = params.get("context").map(|s| s.as_str());
                 self.add_todo(description, context).await
             }
@@ -108,14 +119,14 @@ impl ToolExecutor for TodoTool {
                 self.list_todos().await
             }
             "complete" => {
-                let description = params.get("description").ok_or("Missing todo description")?;
+                let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 self.update_todo_status(description, TodoStatus::Completed).await
             }
             "fail" => {
-                let description = params.get("description").ok_or("Missing todo description")?;
+                let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 self.update_todo_status(description, TodoStatus::Failed).await
             }
-            _ => Err("Unknown todo command".into()),
+            _ => Err(anyhow!("Unknown todo command")),
         }
     }
 }
@@ -127,7 +138,9 @@ mod tests {
     #[tokio::test]
     async fn test_todo_operations() -> Result<()> {
         // Set up a temporary collection
-        let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = db.collection::<TodoItem>("todos");
 
@@ -149,7 +162,9 @@ mod tests {
         assert!(result.contains("Test todo"));
 
         // Cleanup: Drop the test collection
-        db.collection::<TodoItem>("todos").drop(None).await?;
+        db.collection::<TodoItem>("todos").drop(None)
+            .await
+            .map_err(|e| anyhow!("Failed to drop test collection: {}", e))?;
 
         Ok(())
     }

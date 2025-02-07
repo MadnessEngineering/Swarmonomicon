@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use crate::tools::ToolExecutor;
-use crate::Result;
+use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
 use screenshots::Screen;
 use std::path::Path;
@@ -18,13 +18,13 @@ impl ScreenshotDetectionTool {
     }
 
     pub async fn capture_screen(&self) -> Result<DynamicImage> {
-        let screens = Screen::all()?;
+        let screens = Screen::all().map_err(|e| anyhow!("Failed to get screens: {}", e))?;
         if let Some(screen) = screens.first() {
-            let image = screen.capture()?;
+            let image = screen.capture().map_err(|e| anyhow!("Failed to capture screen: {}", e))?;
             let dynamic_image = DynamicImage::from(image);
             Ok(dynamic_image)
         } else {
-            Err("No screens found".into())
+            Err(anyhow!("No screens found"))
         }
     }
 

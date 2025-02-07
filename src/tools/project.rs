@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 use async_trait::async_trait;
 use crate::tools::ToolExecutor;
-use crate::Result;
+use anyhow::{Result, anyhow};
 
 pub struct ProjectTool;
 
@@ -16,16 +16,16 @@ impl ProjectTool {
     fn init_python_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
         // Create project structure
         let src_dir = path.join("src");
-        fs::create_dir_all(&src_dir)?;
-        fs::create_dir_all(src_dir.join(name))?;
-        fs::create_dir_all(src_dir.join("tests"))?;
+        fs::create_dir_all(&src_dir).map_err(|e| anyhow!("Failed to create src directory: {}", e))?;
+        fs::create_dir_all(src_dir.join(name)).map_err(|e| anyhow!("Failed to create project directory: {}", e))?;
+        fs::create_dir_all(src_dir.join("tests")).map_err(|e| anyhow!("Failed to create tests directory: {}", e))?;
 
         // Create __init__.py files
-        fs::write(src_dir.join(name).join("__init__.py"), "")?;
-        fs::write(src_dir.join("tests").join("__init__.py"), "")?;
+        fs::write(src_dir.join(name).join("__init__.py"), "").map_err(|e| anyhow!("Failed to create __init__.py: {}", e))?;
+        fs::write(src_dir.join("tests").join("__init__.py"), "").map_err(|e| anyhow!("Failed to create test __init__.py: {}", e))?;
 
         // Create requirements.txt
-        fs::write(path.join("requirements.txt"), "# Core dependencies\n")?;
+        fs::write(path.join("requirements.txt"), "# Core dependencies\n").map_err(|e| anyhow!("Failed to create requirements.txt: {}", e))?;
 
         // Create setup.py
         let setup_content = format!(
@@ -41,7 +41,7 @@ setup(
 )"#,
             name
         );
-        fs::write(path.join("setup.py"), setup_content)?;
+        fs::write(path.join("setup.py"), setup_content).map_err(|e| anyhow!("Failed to create setup.py: {}", e))?;
 
         self.create_readme(name, description, "python", path)?;
         Ok(())
@@ -51,16 +51,17 @@ setup(
         Command::new("cargo")
             .args(["init", "--name", name])
             .current_dir(path)
-            .output()?;
+            .output()
+            .map_err(|e| anyhow!("Failed to initialize Rust project: {}", e))?;
 
         self.create_readme(name, description, "rust", path)?;
         Ok(())
     }
 
     fn init_common_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
-        fs::create_dir_all(path.join("src"))?;
-        fs::create_dir_all(path.join("docs"))?;
-        fs::create_dir_all(path.join("examples"))?;
+        fs::create_dir_all(path.join("src")).map_err(|e| anyhow!("Failed to create src directory: {}", e))?;
+        fs::create_dir_all(path.join("docs")).map_err(|e| anyhow!("Failed to create docs directory: {}", e))?;
+        fs::create_dir_all(path.join("examples")).map_err(|e| anyhow!("Failed to create examples directory: {}", e))?;
 
         self.create_readme(name, description, "common", path)?;
         Ok(())
@@ -120,7 +121,7 @@ This is a {project_type} project created with the project initialization tool.
             _ => {}
         }
 
-        fs::write(path.join("README.md"), content)?;
+        fs::write(path.join("README.md"), content).map_err(|e| anyhow!("Failed to create README.md: {}", e))?;
         Ok(())
     }
 }
@@ -128,13 +129,13 @@ This is a {project_type} project created with the project initialization tool.
 #[async_trait]
 impl ToolExecutor for ProjectTool {
     async fn execute(&self, params: HashMap<String, String>) -> Result<String> {
-        let project_type = params.get("type").ok_or("Missing project type")?;
-        let name = params.get("name").ok_or("Missing project name")?;
-        let description = params.get("description").ok_or("Missing project description")?;
+        let project_type = params.get("type").ok_or_else(|| anyhow!("Missing project type"))?;
+        let name = params.get("name").ok_or_else(|| anyhow!("Missing project name"))?;
+        let description = params.get("description").ok_or_else(|| anyhow!("Missing project description"))?;
 
         // Validate project type
         if !["python", "rust", "common"].contains(&project_type.as_str()) {
-            return Err("Project type must be one of: python, rust, common".into());
+            return Err(anyhow!("Project type must be one of: python, rust, common"));
         }
 
         // Create project directory
@@ -142,10 +143,10 @@ impl ToolExecutor for ProjectTool {
         let project_dir = base_dir.join(name);
 
         if project_dir.exists() {
-            return Err(format!("Project directory {} already exists!", project_dir.display()).into());
+            return Err(anyhow!("Project directory {} already exists!", project_dir.display()));
         }
 
-        fs::create_dir_all(&project_dir)?;
+        fs::create_dir_all(&project_dir).map_err(|e| anyhow!("Failed to create project directory: {}", e))?;
 
         // Initialize project based on type
         match project_type.as_str() {
