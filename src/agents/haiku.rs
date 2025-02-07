@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use crate::ai::{AiProvider, DefaultAiClient};
 use anyhow::anyhow;
 
 pub struct HaikuAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
+    ai_client: Box<dyn AiProvider + Send + Sync>,
 }
 
 impl HaikuAgent {
@@ -54,7 +56,24 @@ impl HaikuAgent {
         Self {
             config,
             state_manager: AgentStateManager::new(state_machine),
+            ai_client: Box::new(DefaultAiClient::new()),
         }
+    }
+
+    pub fn with_ai_client<T: AiProvider + Send + Sync + 'static>(mut self, client: T) -> Self {
+        self.ai_client = Box::new(client);
+        self
+    }
+
+    async fn generate_haiku(&self, topic: String) -> Result<String> {
+        let system_prompt = "You are a poetic AI that creates haikus. A haiku is a three-line poem with 5 syllables in the first line, 7 in the second, and 5 in the third. Create a haiku that blends nature imagery with technical concepts.";
+        
+        let messages = vec![HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), format!("Create a haiku about: {}", topic)),
+        ])];
+
+        self.ai_client.chat(system_prompt, messages).await
     }
 
     fn create_response(&self, content: String) -> Message {
@@ -67,53 +86,21 @@ impl HaikuAgent {
                 "zen_like".to_string(),
                 "pattern_seeking".to_string(),
                 "mad_tinker_inspired".to_string(),
-            ])
-            .with_context(HashMap::new());
+            ]);
 
         Message {
             content,
-            role: Some("assistant".to_string()),
-            timestamp: Some(std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64),
             metadata: Some(metadata),
+            role: Some("assistant".to_string()),
+            timestamp: Some(chrono::Utc::now().timestamp()),
         }
-    }
-
-    fn generate_haiku(&self, topic: String) -> String {
-        // In a real implementation, this would use more sophisticated haiku generation
-        // For now, we'll return themed mock haikus based on the topic
-        let haikus = vec![
-            format!(
-                "🌸 {} flows soft\nThrough quantum gates of spring code\nPatterns emerge now",
-                topic
-            ),
-            format!(
-                "🍁 Digital leaves\nFloat through {} streams of thought\nAlgorithms bloom",
-                topic
-            ),
-            format!(
-                "⚡ {} sparks bright\nIn binary gardens grow\nPoetic functions",
-                topic
-            ),
-            format!(
-                "🌿 Nature's patterns\nMeet {} in code space\nHarmony achieved",
-                topic
-            ),
-        ];
-
-        // Select a haiku based on a simple hash of the topic
-        let index = topic.bytes().fold(0usize, |acc, b| (acc + b as usize) % haikus.len());
-        haikus[index].clone()
     }
 }
 
 #[async_trait]
 impl Agent for HaikuAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
-        // Generate a haiku response
-        let haiku = self.generate_haiku(message.content);
+        let haiku = self.generate_haiku(message.content).await?;
         Ok(self.create_response(haiku))
     }
 

@@ -4,14 +4,14 @@ use std::time::Duration;
 use serde_json::Value;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
 use crate::types::{TodoProcessor, TodoList, TodoTask};
-use crate::ai::AiClient;
+use crate::ai::{AiProvider, DefaultAiClient};
 use uuid::Uuid;
 use futures::executor::block_on;
 
 pub struct GreeterAgent {
     config: AgentConfig,
     state_manager: AgentStateManager,
-    ai_client: AiClient,
+    ai_client: Box<dyn AiProvider + Send + Sync>,
     conversation_history: Vec<Message>,
     todo_list: TodoList,
 }
@@ -21,10 +21,15 @@ impl GreeterAgent {
         Self {
             config,
             state_manager: AgentStateManager::new(None),
-            ai_client: AiClient::new(),
+            ai_client: Box::new(DefaultAiClient::new()),
             conversation_history: Vec::new(),
             todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),
         }
+    }
+
+    pub fn with_ai_client<T: AiProvider + Send + Sync + 'static>(mut self, client: T) -> Self {
+        self.ai_client = Box::new(client);
+        self
     }
 
     async fn get_ai_response(&self, prompt: &str) -> Result<String> {

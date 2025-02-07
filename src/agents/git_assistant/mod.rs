@@ -8,49 +8,44 @@ use crate::tools::ToolRegistry;
 use crate::Result;
 use rand::Rng;
 use chrono;
-use crate::ai::AiClient;
+use crate::ai::{AiProvider, DefaultAiClient};
 use tokio::process::Command as TokioCommand;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use futures::executor::block_on;
 
 pub struct GitAssistantAgent {
     config: AgentConfig,
-    tools: ToolRegistry,
-    state_manager: AgentStateManager,
     working_dir: Arc<Mutex<Option<PathBuf>>>,
     current_state: Option<State>,
-    ai_client: AiClient,
+    ai_client: Box<dyn AiProvider + Send + Sync>,
 }
 
 impl GitAssistantAgent {
-    pub async fn new(config: AgentConfig) -> Result<Self> {
-        Ok(Self {
+    pub fn new(config: AgentConfig) -> Self {
+        Self {
             config,
-            tools: ToolRegistry::create_default_tools().await?,
-            state_manager: AgentStateManager::new(None),
             working_dir: Arc::new(Mutex::new(None)),
             current_state: None,
-            ai_client: AiClient::new(),
-        })
+            ai_client: Box::new(DefaultAiClient::new()),
+        }
     }
 
-    // Helper to get working directory or return error
+    pub fn with_ai_client<T: AiProvider + Send + Sync + 'static>(mut self, client: T) -> Self {
+        self.ai_client = Box::new(client);
+        self
+    }
+
     fn get_working_dir(&self) -> Result<PathBuf> {
-        self.working_dir.lock()
-            .map_err(|e| format!("Lock error: {}", e))?
+        self.working_dir
+            .lock()
+            .unwrap()
             .clone()
             .ok_or_else(|| "Working directory not set".into())
     }
 
-    // Change to use interior mutability pattern
     pub fn update_working_dir(&self, path: PathBuf) -> Result<()> {
-        if path.exists() && path.is_dir() {
-            let mut wd = self.working_dir.lock()
-                .map_err(|e| format!("Lock error: {}", e))?;
-            *wd = Some(path);
-            Ok(())
-        } else {
-            Err("Invalid working directory path".into())
-        }
+        *self.working_dir.lock().unwrap() = Some(path);
+        Ok(())
     }
 
     async fn execute_git_command(&self, args: &[&str]) -> Result<String> {
@@ -194,15 +189,19 @@ impl GitAssistantAgent {
     }
 
     fn format_git_response(&self, content: String) -> Message {
-        let traits = vec!["helpful".to_string(), "technical".to_string()];
-        let state = self.current_state.as_ref()
-            .map(|s| s.name.clone())
-            .unwrap_or_else(|| "archival".to_string());
+        let metadata = MessageMetadata::new(self.config.name.clone())
+            .with_personality(vec![
+                "git_expert".to_string(),
+                "precise".to_string(),
+                "helpful".to_string(),
+            ]);
 
-        Message::new(content)
-            .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
-                .with_personality(traits)
-                .with_state(state)))
+        Message {
+            content,
+            metadata: Some(metadata),
+            role: Some("assistant".to_string()),
+            timestamp: Some(chrono::Utc::now().timestamp()),
+        }
     }
 
     async fn handle_git_command(&self, command: &str) -> Message {
@@ -359,7 +358,7 @@ mod tests {
 
     async fn setup_test_repo() -> (GitAssistantAgent, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
-        let mut agent = GitAssistantAgent::new(create_test_config()).await.unwrap();
+        let mut agent = GitAssistantAgent::new(create_test_config());
         agent.update_working_dir(temp_dir.path().to_path_buf()).unwrap();
 
         // Initialize git repo
@@ -547,7 +546,7 @@ mod tests {
             personality: None,
             state_machine: None,
         };
-        let agent = GitAssistantAgent::new(config).await.unwrap();
+        let agent = GitAssistantAgent::new(config);
 
         let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("preserve") || response.content.contains("artifact"),
