@@ -55,6 +55,8 @@ futures-util = "0.3"
 
 anyhow = "1.0"
 
+opencv = { version = "0.84", features = ["dnn"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"

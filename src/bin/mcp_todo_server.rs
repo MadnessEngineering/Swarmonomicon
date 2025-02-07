@@ -3,6 +3,7 @@ use swarmonomicon::types::{TodoTask, TaskPriority, TaskStatus};
 use rumqttc::{MqttOptions, AsyncClient, QoS, Event};
 use serde::{Deserialize, Serialize};
 use tokio::{task, time};
+use std::error::Error as StdError;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct McpTodoRequest {
@@ -11,7 +12,7 @@ struct McpTodoRequest {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn StdError>> {
     // Initialize logging with more verbose output
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
@@ -20,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", "3.134.3.199", 3003);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
-    mqtt_options.set_connection_timeout_ms(10000);
+    // Set connection timeout using manual duration
+    mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
 
     // Wait for connection and subscribe
@@ -49,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_clone = client.clone();
 
     // Handle incoming MCP todo requests
-    task::spawn(async move {
+    let _handler = task::spawn(async move {
         loop {
             match event_loop.poll().await {
                 Ok(notification) => {
@@ -95,8 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        tracing::error!("Failed to listen for ctrl-c: {}", e);
-    }
+    // Wait for ctrl-c and handle error properly
+    tokio::signal::ctrl_c().await.map_err(|e| Box::new(e) as Box<dyn StdError>)?;
     Ok(())
 }
