@@ -29,7 +29,7 @@ Evaluation Criteria:
 - Will it introduce new complexity or potential regressions?
 
 Recommended Actions:
-- make a branch for debugging
+- make a branch
 - Comment out problematic code instead of deleting
 - Create feature flags for experimental changes
 - Discuss potential systemic improvements

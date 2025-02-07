@@ -14,6 +14,7 @@ haiku-agent = []
 greeter-agent = []
 browser-agent = []
 project-init-agent = []
+goose = []  # Feature flag for using Goose CLI as the AI provider
 
 # Dependencies required by browser-agent
 browser-agent-deps = ["chromiumoxide", "chromiumoxide_cdp", "tokio-tungstenite"]
