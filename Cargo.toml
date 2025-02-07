@@ -55,7 +55,7 @@ futures-util = "0.3"
 
 anyhow = "1.0"
 
-opencv = { version = "0.84", features = ["dnn"] }
+opencv = { version = "0.84", features = ["dnn"], default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -81,3 +81,6 @@ path = "src/bin/mcp_todo_server.rs"
 [[bin]]
 name = "test_mcp_todo_publish"
 path = "src/bin/test_mcp_todo_publish.rs"
+
+[build-dependencies]
+pkg-config = "0.3"

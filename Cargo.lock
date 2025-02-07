@@ -3145,6 +3145,7 @@ dependencies = [
  "mockall",
  "mongodb",
  "opencv",
+ "pkg-config",
  "rand",
  "reqwest",
  "rumqttc",
