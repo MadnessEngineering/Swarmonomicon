@@ -76,10 +76,6 @@ name = "todo_worker"
 path = "src/bin/todo_worker.rs"
 
 [[bin]]
-name = "mcp_todo_server"
-path = "src/bin/mcp_todo_server.rs"
-
-[[bin]]
 name = "test_mcp_todo_publish"
 path = "src/bin/test_mcp_todo_publish.rs"
 
