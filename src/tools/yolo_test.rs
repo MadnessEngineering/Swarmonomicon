@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod tests {
+#[cfg(feature = "yolo")]
+mod yolo_test {
     use super::*;
     use std::path::PathBuf;
     use tokio;

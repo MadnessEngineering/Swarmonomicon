@@ -15,6 +15,7 @@ greeter-agent = []
 browser-agent = []
 project-init-agent = []
 goose = []  # Feature flag for using Goose CLI as the AI provider
+yolo = ["opencv"] # Feature flag for YOLO tool and OpenCV dependency
 
 # Dependencies required by browser-agent
 browser-agent-deps = ["chromiumoxide", "chromiumoxide_cdp", "tokio-tungstenite"]
@@ -55,7 +56,7 @@ futures-util = "0.3"
 
 anyhow = "1.0"
 
-opencv = { version = "0.84", features = ["dnn"], default-features = false }
+opencv = { version = "0.84", features = ["dnn"], default-features = false, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

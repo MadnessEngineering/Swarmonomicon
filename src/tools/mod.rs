@@ -10,6 +10,9 @@ mod screenshot_detection;
 mod todo;
 mod goose;
 
+#[cfg(feature = "yolo")]
+pub mod yolo;
+
 pub use git::GitTool;
 pub use project::ProjectTool;
 pub use object_detection::ObjectDetectionTool;
