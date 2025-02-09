@@ -403,7 +403,7 @@ mod tests {
 
     #[cfg(test)]
     async fn create_test_agent() -> Result<GitAssistantAgent> {
-        GitAssistantAgent::new(AgentConfig {
+        Ok(GitAssistantAgent::new(AgentConfig {
             name: "git".to_string(),
             public_description: "Git test agent".to_string(),
             instructions: "Test git operations".to_string(),
@@ -411,7 +411,7 @@ mod tests {
             downstream_agents: vec![],
             personality: None,
             state_machine: None,
-        }).await
+        }))
     }
 
     #[tokio::test]
