@@ -1,31 +1,63 @@
 use std::time::Duration;
+use std::collections::HashMap;
 use swarmonomicon::types::{TodoTask, TaskPriority, TaskStatus};
+use swarmonomicon::tools::todo::TodoTool;
+use swarmonomicon::tools::ToolExecutor;
 use rumqttc::{MqttOptions, AsyncClient, QoS, Event};
 use serde::{Deserialize, Serialize};
 use tokio::{task, time};
 use std::error::Error as StdError;
+use std::process::Command;
+use anyhow::{Result, anyhow};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct McpTodoRequest {
     description: String,
-    priority: TaskPriority,
+    priority: Option<TaskPriority>,
+}
+
+async fn enhance_todo_with_ai(description: &str) -> Result<(String, TaskPriority), Box<dyn StdError>> {
+    // Use goose CLI to enhance the todo description and guess priority
+    let output = Command::new("goose")
+        .arg("chat")
+        .arg("-m")
+        .arg(format!(
+            "Given this todo task: '{}', please analyze it and return a JSON object with two fields: \
+             1. An enhanced description with more details if possible \
+             2. A suggested priority level (low, medium, or high) based on the task's urgency and importance. \
+             Format: {{\"description\": \"enhanced text\", \"priority\": \"priority_level\"}}",
+            description
+        ))
+        .output()?;
+
+    let ai_response = String::from_utf8(output.stdout)?;
+    let enhanced: serde_json::Value = serde_json::from_str(&ai_response)?;
+
+    let priority = match enhanced["priority"].as_str().unwrap_or("medium") {
+        "high" => TaskPriority::High,
+        "low" => TaskPriority::Low,
+        _ => TaskPriority::Medium,
+    };
+
+    Ok((enhanced["description"].as_str().unwrap_or(description).to_string(), priority))
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn StdError>> {
+async fn main() -> Result<()> {
     // Initialize logging with more verbose output
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
+    // Initialize TodoTool
+    let todo_tool = TodoTool::new().await.map_err(|e| anyhow!("Failed to initialize TodoTool: {}", e))?;
+
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", "3.134.3.199", 3003);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
-    // Set connection timeout using manual duration
     mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
 
-    // Wait for connection and subscribe
     tracing::info!("Connecting to MQTT broker...");
 
     // Subscribe to "mcp/todo/new" topic with retry logic
@@ -37,7 +69,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             }
             Err(e) => {
                 if attempt == 3 {
-                    return Err(Box::new(e));
+                    return Err(anyhow!("Failed to subscribe after 3 attempts: {}", e));
                 }
                 tracing::warn!("Subscribe attempt {} failed: {}. Retrying...", attempt, e);
                 time::sleep(Duration::from_secs(1)).await;
@@ -49,43 +81,54 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     // Create a client clone for the task
     let client_clone = client.clone();
+    let todo_tool_clone = todo_tool.clone();
 
     // Handle incoming MCP todo requests
     let _handler = task::spawn(async move {
         loop {
             match event_loop.poll().await {
                 Ok(notification) => {
-                    tracing::debug!("Received notification: {:?}", notification);
                     if let Event::Incoming(rumqttc::Packet::Publish(publish)) = notification {
                         let payload = String::from_utf8_lossy(&publish.payload).to_string();
                         tracing::info!("Received payload: {}", payload);
 
-                        match serde_json::from_str::<McpTodoRequest>(&payload) {
+                        // Try to parse as McpTodoRequest, if fails treat as plain text
+                        let (description, priority) = match serde_json::from_str::<McpTodoRequest>(&payload) {
                             Ok(request) => {
-                                tracing::info!("Parsed request: {:?}", request);
-                                let task = TodoTask {
-                                    id: uuid::Uuid::new_v4().to_string(),
-                                    description: request.description,
-                                    priority: request.priority,
-                                    source_agent: Some("mcp_server".to_string()),
-                                    target_agent: "user".to_string(),
-                                    status: TaskStatus::Pending,
-                                    created_at: chrono::Utc::now().timestamp(),
-                                    completed_at: None,
-                                };
-
-                                // Handle serialization and publishing errors
-                                match serde_json::to_string(&task) {
-                                    Ok(payload) => {
-                                        match client_clone.publish("todos/new", QoS::AtLeastOnce, false, payload).await {
-                                            Ok(_) => tracing::info!("Published new MCP todo: {:?}", task),
-                                            Err(e) => tracing::error!("Failed to publish task: {}", e),
+                                // If priority is not provided, enhance with AI
+                                if request.priority.is_none() {
+                                    match enhance_todo_with_ai(&request.description).await {
+                                        Ok((enhanced_desc, suggested_priority)) => (enhanced_desc, suggested_priority),
+                                        Err(e) => {
+                                            tracing::error!("Failed to enhance todo with AI: {}", e);
+                                            (request.description, TaskPriority::Medium)
                                         }
                                     }
-                                    Err(e) => tracing::error!("Failed to serialize task: {}", e),
+                                } else {
+                                    (request.description, request.priority.unwrap_or(TaskPriority::Medium))
+                                }
+                            },
+                            Err(_) => {
+                                // Treat as plain text and enhance with AI
+                                match enhance_todo_with_ai(&payload).await {
+                                    Ok((enhanced_desc, suggested_priority)) => (enhanced_desc, suggested_priority),
+                                    Err(e) => {
+                                        tracing::error!("Failed to enhance todo with AI: {}", e);
+                                        (payload, TaskPriority::Medium)
+                                    }
                                 }
                             }
-                            Err(e) => tracing::error!("Failed to parse MCP request: {}\nPayload was: {}", e, payload),
+                        };
+
+                        // Add todo using TodoTool
+                        let mut params = HashMap::new();
+                        params.insert("command".to_string(), "add".to_string());
+                        params.insert("description".to_string(), description.clone());
+                        params.insert("context".to_string(), "mcp_server".to_string());
+
+                        match todo_tool_clone.execute(params).await {
+                            Ok(_) => tracing::info!("Successfully added todo: {}", description),
+                            Err(e) => tracing::error!("Failed to add todo: {}", e),
                         }
                     }
                 }
@@ -97,7 +140,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         }
     });
 
-    // Wait for ctrl-c and handle error properly
-    tokio::signal::ctrl_c().await.map_err(|e| Box::new(e) as Box<dyn StdError>)?;
+    // Wait for ctrl-c
+    tokio::signal::ctrl_c().await.map_err(|e| anyhow!("Failed to wait for ctrl-c: {}", e))?;
     Ok(())
 }

@@ -240,7 +240,7 @@ mod tests {
                 downstream_agents: vec![],
                 personality: None,
                 state_machine: None,
-            }).await?;
+            });
 
             #[cfg(feature = "git-agent")]
             {
