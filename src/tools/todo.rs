@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures_util::StreamExt;
@@ -12,8 +13,9 @@ use crate::tools::ToolExecutor;
 use crate::agents::user_agent::{TodoItem, TodoStatus};
 use anyhow::{Result, anyhow};
 
+#[derive(Clone)]
 pub struct TodoTool {
-    collection: Collection<TodoItem>,
+    collection: Arc<Collection<TodoItem>>,
 }
 
 impl TodoTool {
@@ -22,7 +24,7 @@ impl TodoTool {
             .await
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon");
-        let collection = db.collection::<TodoItem>("todos");
+        let collection = Arc::new(db.collection::<TodoItem>("todos"));
 
         // Create a unique index on the description field
         let index = IndexModel::builder()
@@ -142,7 +144,7 @@ mod tests {
             .await
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
-        let collection = db.collection::<TodoItem>("todos");
+        let collection = Arc::new(db.collection::<TodoItem>("todos"));
 
         let tool = TodoTool { collection };
 
@@ -162,7 +164,9 @@ mod tests {
         assert!(result.contains("Test todo"));
 
         // Cleanup: Drop the test collection
-        db.collection::<TodoItem>("todos").drop(None)
+        Arc::try_unwrap(tool.collection)
+            .unwrap()
+            .drop(None)
             .await
             .map_err(|e| anyhow!("Failed to drop test collection: {}", e))?;
 

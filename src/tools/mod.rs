@@ -7,7 +7,7 @@ mod git;
 mod project;
 mod object_detection;
 mod screenshot_detection;
-mod todo;
+pub mod todo;
 mod goose;
 
 #[cfg(feature = "yolo")]

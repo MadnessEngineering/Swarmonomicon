@@ -189,6 +189,8 @@
 - [x] Refactor error handling to use custom Error type
 - [x] Resolve compilation errors related to dyn Error
 - [x] Update tests to use custom Error type
+- [x] Enhanced mcp_todo_server with TodoTool integration and AI-powered todo enhancement
+- [x] Fixed GitAssistantAgent initialization in swarm.rs
 
 ## Next Steps
 1. Prioritize fixing the failing tests to ensure the existing functionality is working as expected.
@@ -204,3 +206,12 @@
    - [ ] Ensure that agents (e.g., GreeterAgent) can submit tasks to the TodoList.
    - [ ] Implement proper error handling for task processing (e.g., timeouts, retries, logging failures).
    - [ ] Write unit and integration tests to simulate multi-source task injection and processing.
+
+## Completed Tasks
+- Enhanced mcp_todo_server with TodoTool integration and AI-powered todo enhancement
+- Fixed GitAssistantAgent initialization in swarm.rs
+
+## Known Issues
+- Several test failures in git assistant, haiku generation, and agent transfer components need investigation
+- Todo list API endpoints tests failing
+- Goose tool tests failing
