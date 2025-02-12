@@ -78,15 +78,16 @@ impl<S: State, A: Action> QLearningAgent<S, A> {
 
     /// Update Q-value based on experience
     pub fn learn(&mut self, state: S, action: A, reward: f64, next_state: &S, next_valid_actions: &[A]) {
-        let current_q = self.q_table.entry((state.clone(), action.clone())).or_insert(0.0);
-
+        // First, find the maximum Q-value for the next state
         let next_max_q = next_valid_actions
             .iter()
             .map(|a| self.q_table.get(&(next_state.clone(), a.clone())).unwrap_or(&0.0))
             .fold(f64::NEG_INFINITY, |a, &b| a.max(b))
             .max(0.0);
 
-        *current_q = (1.0 - self.learning_rate) * *current_q +
+        // Then update the current Q-value
+        let current_q = self.q_table.entry((state, action)).or_insert(0.0);
+        *current_q = (1.0 - self.learning_rate) * *current_q + 
                     self.learning_rate * (reward + self.discount_factor * next_max_q);
     }
 }
@@ -188,113 +189,5 @@ mod tests {
         }
 
         assert!(total_reward != 0.0, "Agent should have received some rewards");
-    }
-}
-
-enum FlappyBirdAction {
-    Flap,
-    DoNothing,
-}
-
-impl Action for FlappyBirdAction {
-    fn to_index(&self) -> usize {
-        match self {
-            FlappyBirdAction::Flap => 0,
-            FlappyBirdAction::DoNothing => 1,
-        }
-    }
-
-    fn from_index(index: usize) -> Option<Self> {
-        match index {
-            0 => Some(FlappyBirdAction::Flap),
-            1 => Some(FlappyBirdAction::DoNothing),
-            _ => None,
-        }
-    }
-}
-
-struct FlappyBirdEnv {
-    // game state
-    state: FlappyBirdState,
-    // parameters like gravity, flap force, etc
-}
-
-impl Environment for FlappyBirdEnv {
-    type S = FlappyBirdState;
-    type A = FlappyBirdAction;
-
-    fn reset(&mut self) -> Self::S {
-        // Reset game to initial state
-        self.state = FlappyBirdState::default();
-        self.state.clone()
-    }
-
-    fn step(&mut self, action: &Self::A) -> (Self::S, f64, bool) {
-        // Update game state based on action
-        match action {
-            FlappyBirdAction::Flap => {
-                // apply flap force to bird velocity
-            },
-            FlappyBirdAction::DoNothing => {
-                // apply gravity to bird velocity
-            }
-        }
-
-        // Update bird position based on velocity
-        // Check for collision with pipes
-        // Update score if passing pipe
-
-        // Calculate reward
-        let reward = if collision {
-            // Negative reward for crashing
-            -1.0
-        } else if passed_pipe {
-            // Positive reward for passing pipe
-            1.0
-        } else {
-            // Small negative reward otherwise
-            0.0
-        };
-
-        // Check if terminal state
-        let done = collision || self.state.score >= MAX_SCORE;
-
-        (self.state.clone(), reward, done)
-    }
-
-    fn action_space_size(&self) -> usize {
-        2 // Flap or do nothing
-    }
-
-    fn valid_actions(&self, _state: &Self::S) -> Vec<Self::A> {
-        vec![FlappyBirdAction::Flap, FlappyBirdAction::DoNothing]
-    }
-}
-
-fn train_flappy_agent(num_episodes: i32) {
-    let mut env = FlappyBirdEnv::default();
-    let mut agent = QLearningAgent::new(0.1, 0.99, 0.1);
-
-    for episode in 1..num_episodes {
-        let mut state = env.reset();
-        let mut total_reward = 0.0;
-
-        loop {
-            let valid_actions = env.valid_actions(&state);
-            let action = agent.choose_action(&state, &valid_actions);
-            let (next_state, reward, done) = env.step(&action);
-
-            total_reward += reward;
-
-            let next_valid_actions = env.valid_actions(&next_state);
-            agent.learn(state, action, reward, &next_state, &next_valid_actions);
-
-            state = next_state;
-
-            if done {
-                println!("Episode {} finished with total reward {}", episode, total_reward);
-                break;
-            }
-        }
     }
 }
