@@ -3,6 +3,7 @@ pub mod viz;
 
 use super::{State, Action, Environment};
 use std::f64::consts::PI;
+use rand::Rng;
 
 const GRAVITY: f64 = 0.25;
 const FLAP_FORCE: f64 = -4.0;
@@ -11,6 +12,8 @@ const PIPE_WIDTH: f64 = 52.0;
 const PIPE_GAP: f64 = 100.0;
 const SCREEN_WIDTH: f64 = 288.0;
 const SCREEN_HEIGHT: f64 = 512.0;
+const MIN_PIPE_HEIGHT: f64 = 50.0;  // Minimum height for pipes
+const MAX_PIPE_HEIGHT: f64 = SCREEN_HEIGHT - PIPE_GAP - MIN_PIPE_HEIGHT;  // Maximum height considering gap
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct FlappyBirdState {
@@ -84,6 +87,42 @@ impl Default for FlappyBirdEnv {
     }
 }
 
+impl FlappyBirdEnv {
+    fn check_collision(&self) -> bool {
+        // Bird hits the ground or ceiling
+        if self.state.bird_y <= 0 || self.state.bird_y >= SCREEN_HEIGHT as i32 {
+            return true;
+        }
+
+        // Bird hits pipes
+        if self.state.next_pipe_dist <= PIPE_WIDTH as i32 && 
+           self.state.next_pipe_dist >= -PIPE_WIDTH as i32 {
+            if self.state.bird_y <= self.state.next_pipe_top || 
+               self.state.bird_y >= self.state.next_pipe_bottom {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn get_score(&self) -> i32 {
+        self.state.score
+    }
+
+    fn generate_new_pipe(&mut self) {
+        let mut rng = rand::thread_rng();
+        
+        // Generate random height for top pipe
+        let top_height = rng.gen_range(MIN_PIPE_HEIGHT as i32..MAX_PIPE_HEIGHT as i32);
+        
+        self.state.next_pipe_dist = SCREEN_WIDTH as i32;
+        self.state.next_pipe_top = top_height;
+        self.state.next_pipe_bottom = top_height + PIPE_GAP as i32;
+        self.state.score += 1;
+    }
+}
+
 impl Environment for FlappyBirdEnv {
     type S = FlappyBirdState;
     type A = FlappyBirdAction;
@@ -91,6 +130,12 @@ impl Environment for FlappyBirdEnv {
     fn reset(&mut self) -> Self::S {
         self.state = FlappyBirdState::default();
         self.frame_iteration = 0;
+        
+        // Generate initial pipe
+        let mut rng = rand::thread_rng();
+        self.state.next_pipe_top = rng.gen_range(MIN_PIPE_HEIGHT as i32..MAX_PIPE_HEIGHT as i32);
+        self.state.next_pipe_bottom = self.state.next_pipe_top + PIPE_GAP as i32;
+        
         self.state.clone()
     }
 
@@ -114,10 +159,7 @@ impl Environment for FlappyBirdEnv {
         // Update pipe position
         self.state.next_pipe_dist -= 2;  // Pipe movement speed
         if self.state.next_pipe_dist <= -PIPE_WIDTH as i32 {
-            // Generate new pipe
-            self.state.next_pipe_dist = SCREEN_WIDTH as i32;
-            self.state.score += 1;
-            // Randomize pipe height here if desired
+            self.generate_new_pipe();
         }
 
         // Check for collisions
@@ -129,10 +171,12 @@ impl Environment for FlappyBirdEnv {
         } else if self.state.next_pipe_dist == (SCREEN_WIDTH/2.0) as i32 {
             10.0   // Reward for passing pipe
         } else {
+            // Improved reward shaping
             let dist_reward = 1.0 - (self.state.next_pipe_dist.abs() as f64 / SCREEN_WIDTH);
             let height_diff = (self.state.bird_y - ((self.state.next_pipe_top + self.state.next_pipe_bottom) / 2)) as f64;
             let height_reward = 1.0 - (height_diff.abs() / SCREEN_HEIGHT);
-            (dist_reward + height_reward) / 2.0  // Small reward for staying alive and being in good position
+            let velocity_penalty = (self.state.bird_velocity.abs() as f64 / 10.0).min(1.0);  // Penalize high velocities
+            (dist_reward + height_reward) / 2.0 - velocity_penalty * 0.2  // Small reward for staying alive and being in good position
         };
 
         // Check terminal conditions
@@ -150,30 +194,6 @@ impl Environment for FlappyBirdEnv {
 
     fn valid_actions(&self, _state: &Self::S) -> Vec<Self::A> {
         vec![FlappyBirdAction::Flap, FlappyBirdAction::DoNothing]
-    }
-}
-
-impl FlappyBirdEnv {
-    fn check_collision(&self) -> bool {
-        // Bird hits the ground or ceiling
-        if self.state.bird_y <= 0 || self.state.bird_y >= SCREEN_HEIGHT as i32 {
-            return true;
-        }
-
-        // Bird hits pipes
-        if self.state.next_pipe_dist <= PIPE_WIDTH as i32 && 
-           self.state.next_pipe_dist >= -PIPE_WIDTH as i32 {
-            if self.state.bird_y <= self.state.next_pipe_top || 
-               self.state.bird_y >= self.state.next_pipe_bottom {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn get_score(&self) -> i32 {
-        self.state.score
     }
 }
 

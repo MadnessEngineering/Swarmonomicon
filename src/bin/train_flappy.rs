@@ -8,7 +8,7 @@ use swarmonomicon::agents::rl::{
 use swarmonomicon::agents::rl::flappy::viz::FlappyViz;
 use std::time::Duration;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
+use winit::event_loop::{ControlFlow, EventLoop};
 
 const TRAINING_EPISODES: i32 = 1000;
 const RENDER_EVERY_N_EPISODES: i32 = 1;
@@ -24,23 +24,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut episode = 0;
     let mut best_score = 0;
     
-    event_loop.run(move |event, elwt| {
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+        
         match event {
-            Event::AboutToWait => {
+            Event::MainEventsCleared => {
                 // Run training loop
                 if episode < TRAINING_EPISODES {
                     if episode % RENDER_EVERY_N_EPISODES == 0 {
                         // Run one step with visualization
                         if let Err(e) = run_training_step(&mut env, &mut agent, Some(&mut viz)) {
                             eprintln!("Error during training: {}", e);
-                            elwt.exit();
+                            *control_flow = ControlFlow::Exit;
                             return;
                         }
                     } else {
                         // Run one step without visualization
                         if let Err(e) = run_training_step(&mut env, &mut agent, None) {
                             eprintln!("Error during training: {}", e);
-                            elwt.exit();
+                            *control_flow = ControlFlow::Exit;
                             return;
                         }
                     }
@@ -58,24 +60,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     
                     episode += 1;
                 } else {
-                    elwt.exit();
+                    *control_flow = ControlFlow::Exit;
                 }
             }
             Event::WindowEvent { 
                 event: WindowEvent::CloseRequested,
                 ..
-            } => elwt.exit(),
+            } => *control_flow = ControlFlow::Exit,
             _ => (),
         }
-    })?;
-
-    Ok(())
+    })
 }
 
 fn run_training_step(
     env: &mut FlappyBirdEnv,
     agent: &mut QLearningAgent<FlappyBirdState, FlappyBirdAction>,
-    viz: Option<&mut FlappyViz>,
+    mut viz: Option<&mut FlappyViz>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = env.reset();
     let mut total_reward = 0.0;
