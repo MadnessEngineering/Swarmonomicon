@@ -32,6 +32,8 @@ pub use project::ProjectAgent;
 pub mod user_agent;
 pub mod transfer;
 pub mod wrapper;
+#[cfg(feature = "rl")]
+pub mod rl;
 
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;

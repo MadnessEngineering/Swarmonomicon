@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State, StateMachine, AgentStateManager};
 use crate::tools::ToolRegistry;
 use crate::Result;
+#[cfg(feature = "git-agent")]
 use rand::Rng;
 use chrono;
 use crate::ai::{AiProvider, DefaultAiClient};

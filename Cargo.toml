@@ -9,13 +9,14 @@ description = "Madness Interactive - Agent Swarm and Eventbase"
 
 [features]
 default = ["git-agent", "haiku-agent", "greeter-agent", "browser-agent", "project-init-agent"]
-git-agent = []
+git-agent = ["rand"]  # Git agent needs rand for some operations
 haiku-agent = []
 greeter-agent = []
 browser-agent = []
 project-init-agent = []
 goose = []  # Feature flag for using Goose CLI as the AI provider
 yolo = ["opencv"] # Feature flag for YOLO tool and OpenCV dependency
+rl = ["rand"] # Feature flag for Reinforcement Learning capabilities
 
 # Dependencies required by browser-agent
 browser-agent-deps = ["chromiumoxide", "chromiumoxide_cdp", "tokio-tungstenite"]
@@ -41,7 +42,7 @@ clap = { version = "4.0", features = ["derive"] }
 image = "0.24"
 screenshots = "0.8"
 lazy_static = "1.4"
-rand = "0.8"
+rand = { version = "0.8.5", optional = true }
 
 # Optional dependencies for browser-agent
 chromiumoxide = { version = "0.5", optional = true }
