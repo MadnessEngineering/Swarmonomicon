@@ -35,7 +35,7 @@
 1. ✅ Updated TODO.md to track model persistence feature
 2. ✅ Added serde dependencies to Cargo.toml
    - Added serde with derive feature
-   - Added serde_json for JSON serialization
+   - Added serde_json for JSON serialization (made optional)
    - Gated behind rl feature flag
 
 #### 2024-02-12: Implementing Model Serialization
@@ -44,40 +44,54 @@
    - Implemented QModel for Q-table serialization
    - Added save/load functionality with JSON format
    - Added unit tests for serialization/deserialization
+   - Fixed serialization issues with proper trait bounds
 
 2. ✅ Updated QLearningAgent with model persistence:
    - Added save_model and load_model methods
    - Integrated with QModel for serialization
-   - TODO: Track episodes_trained and best_score
+   - Added tracking for episodes_trained and best_score
 
-3. Next steps:
-   - Update training binary to support model persistence:
-     ```rust
-     use clap::{Parser, Subcommand};
+3. ✅ Updated training binary with model persistence support:
+   - Added command-line arguments using clap:
+     - `--load-model`: Path to load a saved model from
+     - `--save-model`: Path to save the model to
+     - `--episodes`: Number of episodes to train for
+     - `--save-interval`: Save model every N episodes
+     - `--render-interval`: Render visualization every N episodes
+   - Implemented periodic model saving
+   - Added final model saving on completion
+   - Added proper error handling for save/load operations
 
-     #[derive(Parser)]
-     struct Args {
-         #[command(subcommand)]
-         command: Command,
-     }
+### Next Steps
+1. Testing
+   - Add integration tests for model persistence
+   - Test continued training from saved models
+   - Verify model versioning works correctly
 
-     #[derive(Subcommand)]
-     enum Command {
-         Train {
-             #[arg(long)]
-             model_path: Option<String>,
-             #[arg(long, default_value = "100")]
-             save_interval: i32,
-         },
-         Evaluate {
-             #[arg(long)]
-             model_path: String,
-         },
-     }
-     ```
+2. Documentation
+   - Update README.md with model persistence usage
+   - Document command-line arguments
+   - Add examples of saving/loading models
 
-4. Implementation notes:
-   - Using JSON format for better readability and debugging
-   - Consider adding compression for large models later
-   - Need to handle model versioning for future updates
-   - Consider adding model validation on load
+3. Future Improvements
+   - Consider adding compression for large models
+   - Add model validation on load
+   - Add support for different serialization formats
+   - Implement automatic backup of previous model versions
+
+### Technical Notes
+1. Serialization Implementation:
+   - Used separate serialization structs to handle lifetime and trait bounds
+   - Added proper trait bounds (Eq + Hash) for HashMap keys
+   - Used DeserializeOwned to avoid lifetime issues
+   - Implemented custom serialization/deserialization to handle generic types
+
+2. Error Handling:
+   - Used proper error propagation with Result types
+   - Added descriptive error messages
+   - Implemented graceful error handling in the training binary
+
+3. Performance Considerations:
+   - Used pretty-printing for better debugging
+   - Considered future compression support
+   - Implemented efficient serialization with references

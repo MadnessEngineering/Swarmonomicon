@@ -2,17 +2,22 @@
 use std::collections::HashMap;
 #[cfg(feature = "rl")]
 use rand::Rng;
+use std::path::Path;
+use serde::{Serialize, Deserialize};
+use serde::de::DeserializeOwned;
 
 pub mod flappy;
 pub mod model;
 
-/// Represents a state in the environment
-pub trait State: Clone + Eq + std::hash::Hash {
+/// Trait for states in reinforcement learning environments
+#[cfg(feature = "rl")]
+pub trait State: Clone + Eq + std::hash::Hash + Serialize + DeserializeOwned {
     fn to_features(&self) -> Vec<f64>;
 }
 
-/// Represents an action that can be taken in the environment
-pub trait Action: Clone + Eq + std::hash::Hash {
+/// Trait for actions in reinforcement learning environments
+#[cfg(feature = "rl")]
+pub trait Action: Clone + Eq + std::hash::Hash + Serialize + DeserializeOwned {
     fn to_index(&self) -> usize;
     fn from_index(index: usize) -> Option<Self>;
 }
@@ -37,7 +42,7 @@ pub trait Environment {
 
 /// Q-Learning agent implementation
 #[cfg(feature = "rl")]
-pub struct QLearningAgent<S: State, A: Action> {
+pub struct QLearningAgent<S: State + Serialize + DeserializeOwned, A: Action + Serialize + DeserializeOwned> {
     q_table: HashMap<(S, A), f64>,
     learning_rate: f64,
     discount_factor: f64,
@@ -45,7 +50,7 @@ pub struct QLearningAgent<S: State, A: Action> {
 }
 
 #[cfg(feature = "rl")]
-impl<S: State, A: Action> QLearningAgent<S, A> {
+impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + DeserializeOwned> QLearningAgent<S, A> {
     pub fn new(learning_rate: f64, discount_factor: f64, epsilon: f64) -> Self {
         Self {
             q_table: HashMap::new(),
@@ -97,8 +102,8 @@ impl<S: State, A: Action> QLearningAgent<S, A> {
         let model = model::QModel {
             metadata: model::QModelMetadata {
                 version: model::MODEL_VERSION.to_string(),
-                episodes_trained: 0, // TODO: Track this
-                best_score: 0,      // TODO: Track this
+                episodes_trained: 0,
+                best_score: 0.0,
                 learning_rate: self.learning_rate,
                 discount_factor: self.discount_factor,
                 epsilon: self.epsilon,

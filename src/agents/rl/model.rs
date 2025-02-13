@@ -3,15 +3,17 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::fs;
+use serde::de::DeserializeOwned;
 use super::{State, Action};
+use std::hash::Hash;
 
-const MODEL_VERSION: &str = "0.1.0";
+pub const MODEL_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QModelMetadata {
     pub version: String,
-    pub episodes_trained: i32,
-    pub best_score: i32,
+    pub episodes_trained: u32,
+    pub best_score: f64,
     pub learning_rate: f64,
     pub discount_factor: f64,
     pub epsilon: f64,
@@ -22,7 +24,7 @@ impl Default for QModelMetadata {
         Self {
             version: MODEL_VERSION.to_string(),
             episodes_trained: 0,
-            best_score: 0,
+            best_score: 0.0,
             learning_rate: 0.1,
             discount_factor: 0.99,
             epsilon: 0.1,
@@ -30,13 +32,17 @@ impl Default for QModelMetadata {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QModel<S: State, A: Action> {
+#[derive(Debug)]
+pub struct QModel<S, A> {
     pub metadata: QModelMetadata,
     pub q_table: HashMap<(S, A), f64>,
 }
 
-impl<S: State, A: Action> QModel<S, A> {
+impl<S, A> QModel<S, A>
+where
+    S: State + Serialize + DeserializeOwned + Eq + Hash,
+    A: Action + Serialize + DeserializeOwned + Eq + Hash,
+{
     pub fn new(learning_rate: f64, discount_factor: f64, epsilon: f64) -> Self {
         Self {
             metadata: QModelMetadata {
@@ -49,22 +55,55 @@ impl<S: State, A: Action> QModel<S, A> {
         }
     }
 
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let json = serde_json::to_string_pretty(self)?;
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>>
+    where
+        S: Serialize,
+        A: Serialize,
+    {
+        #[derive(Serialize)]
+        struct SerializedModel<'a, S, A> {
+            metadata: &'a QModelMetadata,
+            q_table: &'a HashMap<(S, A), f64>,
+        }
+
+        let serialized = SerializedModel {
+            metadata: &self.metadata,
+            q_table: &self.q_table,
+        };
+
+        let json = serde_json::to_string_pretty(&serialized)?;
         fs::write(path, json)?;
         Ok(())
     }
 
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        S: DeserializeOwned,
+        A: DeserializeOwned,
+    {
+        #[derive(Deserialize)]
+        struct SerializedModel<S, A>
+        where
+            S: Eq + Hash,
+            A: Eq + Hash,
+        {
+            metadata: QModelMetadata,
+            q_table: HashMap<(S, A), f64>,
+        }
+
         let json = fs::read_to_string(path)?;
-        let model = serde_json::from_str(&json)?;
-        Ok(model)
+        let serialized: SerializedModel<S, A> = serde_json::from_str(&json)?;
+
+        Ok(Self {
+            metadata: serialized.metadata,
+            q_table: serialized.q_table,
+        })
     }
 
     pub fn update_training_stats(&mut self, episodes: i32, score: i32) {
-        self.metadata.episodes_trained = episodes;
-        if score > self.metadata.best_score {
-            self.metadata.best_score = score;
+        self.metadata.episodes_trained = episodes as u32;
+        if score as f64 > self.metadata.best_score {
+            self.metadata.best_score = score as f64;
         }
     }
 }
@@ -125,7 +164,7 @@ mod tests {
         // Test loading
         let loaded_model = QModel::<TestState, TestAction>::load(&file_path).unwrap();
         assert_eq!(loaded_model.metadata.episodes_trained, 100);
-        assert_eq!(loaded_model.metadata.best_score, 10);
+        assert_eq!(loaded_model.metadata.best_score, 10.0);
         assert_eq!(loaded_model.q_table.len(), 2);
         assert_eq!(loaded_model.q_table.get(&(TestState(1), TestAction::Up)), Some(&0.5));
     }

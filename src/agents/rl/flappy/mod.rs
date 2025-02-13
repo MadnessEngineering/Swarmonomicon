@@ -4,6 +4,7 @@ pub mod viz;
 use super::{State, Action, Environment};
 use std::f64::consts::PI;
 use rand::Rng;
+use serde::{Serialize, Deserialize};
 
 const GRAVITY: f64 = 0.25;
 const FLAP_FORCE: f64 = -4.0;
@@ -15,7 +16,7 @@ const SCREEN_HEIGHT: f64 = 512.0;
 const MIN_PIPE_HEIGHT: f64 = 50.0;  // Minimum height for pipes
 const MAX_PIPE_HEIGHT: f64 = SCREEN_HEIGHT - PIPE_GAP - MIN_PIPE_HEIGHT;  // Maximum height considering gap
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FlappyBirdState {
     pub(crate) bird_y: i32,
     pub(crate) bird_velocity: i32,
@@ -50,7 +51,7 @@ impl State for FlappyBirdState {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FlappyBirdAction {
     Flap,
     DoNothing,
