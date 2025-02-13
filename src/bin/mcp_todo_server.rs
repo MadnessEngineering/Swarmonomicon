@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
     let todo_tool = TodoTool::new().await.map_err(|e| anyhow!("Failed to initialize TodoTool: {}", e))?;
 
     // Connect to MQTT broker
-    let mut mqtt_options = MqttOptions::new("mcp_todo_server", "3.134.3.199", 3003);
+    let mut mqtt_options = MqttOptions::new("mcp_todo_server", &std::env::var("AWSIP").expect("AWSIP environment variable not set"), 3003);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
     mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
@@ -62,9 +62,9 @@ async fn main() -> Result<()> {
 
     // Subscribe to "mcp/todo/new" topic with retry logic
     for attempt in 1..=3 {
-        match client.subscribe("mcp/todo/new", QoS::AtLeastOnce).await {
+        match client.subscribe("mcp/todo", QoS::AtLeastOnce).await {
             Ok(_) => {
-                tracing::info!("Successfully subscribed to mcp/todo/new");
+                tracing::info!("Successfully subscribed to mcp/todo");
                 break;
             }
             Err(e) => {
