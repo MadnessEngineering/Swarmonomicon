@@ -15,6 +15,7 @@ use crate::types::{TodoTask, TaskPriority, TaskStatus};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
+use regex::Regex;
 
 #[derive(Clone)]
 pub struct TodoTool {
@@ -79,25 +80,49 @@ impl TodoTool {
 
         tracing::debug!("Received AI response: {}", ai_response);
 
-        // First try to find JSON between { and } on their own lines 
-        let json_content = if let Some(start) = ai_response.find("{\n") {
-            if let Some(end) = ai_response[start..].find("\n}") {
-                let json_str = &ai_response[start..start+end+2];
-                tracing::debug!("Found JSON block: {}", json_str);
-                
-                // Remove any extra newlines or whitespace
-                json_str.replace('\n', "").trim().to_string()
-            } else {
+        // Use regex to extract JSON substring
+        let json_regex = Regex::new(r#"\{.*\}"#).unwrap();
+        let mut json_content = match json_regex.find(&ai_response) {
+            Some(json_match) => {
+                let json_str = json_match.as_str().to_string();
+                tracing::debug!("Found JSON substring: {}", json_str);
+                json_str  
+            }
+            None => {
+                tracing::warn!("Could not find JSON substring in AI response");
                 ai_response.clone()
             }
-        } else {
-            ai_response.clone()
         };
 
         tracing::debug!("Attempting to parse JSON content: {}", json_content);
 
-        // Try to parse the JSON response
-        match serde_json::from_str::<Value>(&json_content) {
+        // Try to parse the JSON response, with a few rounds of cleanup if needed
+        let mut parse_attempts = 0;
+        let parsed_json = loop {
+            match serde_json::from_str::<Value>(&json_content) {
+                Ok(parsed) => break Ok(parsed),
+                Err(e) => {
+                    parse_attempts += 1;
+                    if parse_attempts == 1 {
+                        // First attempt failed, try removing trailing commas
+                        let cleaned_json = json_content.trim_end_matches(',');
+                        tracing::debug!("Attempting to parse cleaned JSON: {}", cleaned_json);
+                        json_content = cleaned_json.to_string();
+                    } else if parse_attempts == 2 {
+                        // Second attempt failed, try stripping non-ASCII
+                        let cleaned_json = json_content.replace(|c: char| !c.is_ascii(), "");
+                        tracing::debug!("Attempting to parse ASCII-only JSON: {}", cleaned_json);  
+                        json_content = cleaned_json;
+                    } else {
+                        // Giving up after 2 failed cleanup attempts
+                        tracing::error!("Failed to parse JSON after cleanup attempts: {}", e);
+                        break Err(e);
+                    }
+                }
+            }
+        };
+
+        match parsed_json {
             Ok(enhanced) => {
                 let enhanced_desc = enhanced["description"]
                     .as_str()
@@ -113,17 +138,15 @@ impl TodoTool {
                 tracing::debug!("Successfully enhanced description: {} with priority: {:?}", enhanced_desc, priority);
                 Ok((enhanced_desc, priority))
             }
-            Err(e) => {
-                tracing::warn!("Failed to parse complete AI response as JSON: {}", e);
-                
-                // Try to salvage just the description from a partial JSON parse
-                if let Ok(partial) = serde_json::from_str::<Value>(&json_content) {
-                    if let Some(desc) = partial["description"].as_str() {
-                        tracing::debug!("Parsed partial JSON, using enhanced description: {}", desc);
-                        return Ok((desc.to_string(), TaskPriority::Medium));
-                    }
+            Err(_) => {
+                // Attempt to extract just the description using regex
+                let desc_regex = Regex::new(r#""description"\s*:\s*"(.*?)""#).unwrap();
+                if let Some(desc_match) = desc_regex.captures(&json_content) {
+                    let desc = desc_match[1].to_string();
+                    tracing::debug!("Parsed description from JSON using regex: {}", desc);
+                    return Ok((desc, TaskPriority::Medium));
                 }
-                
+
                 tracing::debug!("Falling back to original description with medium priority");
                 Ok((description.to_string(), TaskPriority::Medium))
             }
