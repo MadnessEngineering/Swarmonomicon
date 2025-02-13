@@ -17,16 +17,16 @@ const SAVE_EVERY_N_EPISODES: i32 = 100;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut env = FlappyBirdEnv::default();
     let mut agent = QLearningAgent::new(0.1, 0.99, 0.1);
-    
+
     // Initialize visualization
     let (mut viz, event_loop) = FlappyViz::new()?;
-    
+
     let mut episode = 0;
     let mut best_score = 0;
-    
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
-        
+
         match event {
             Event::MainEventsCleared => {
                 // Run training loop
@@ -46,24 +46,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             return;
                         }
                     }
-                    
+
                     // Update best score
                     if env.get_score() > best_score {
                         best_score = env.get_score();
                         println!("New best score: {}", best_score);
                     }
-                    
+
                     // Save progress periodically
                     if episode % SAVE_EVERY_N_EPISODES == 0 {
                         println!("Episode {}: Score = {}, Best = {}", episode, env.get_score(), best_score);
                     }
-                    
+
                     episode += 1;
                 } else {
                     *control_flow = ControlFlow::Exit;
                 }
             }
-            Event::WindowEvent { 
+            Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => *control_flow = ControlFlow::Exit,
@@ -79,31 +79,31 @@ fn run_training_step(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = env.reset();
     let mut total_reward = 0.0;
-    
+
     loop {
         // Get action from agent
         let valid_actions = env.valid_actions(&state);
         let action = agent.choose_action(&state, &valid_actions);
-        
+
         // Take step in environment
         let (next_state, reward, done) = env.step(&action);
         total_reward += reward;
-        
+
         // Visualize if requested
         if let Some(viz) = viz.as_mut() {
             viz.render(&next_state)?;
             std::thread::sleep(Duration::from_millis(16)); // Cap at ~60 FPS
         }
-        
+
         // Learn from experience
         let next_valid_actions = env.valid_actions(&next_state);
         agent.learn(state.clone(), action, reward, &next_state, &next_valid_actions);
-        
+
         if done {
             break;
         }
         state = next_state;
     }
-    
+
     Ok(())
-} 
+}
