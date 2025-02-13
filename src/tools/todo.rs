@@ -43,24 +43,31 @@ impl TodoTool {
 
     async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority)> {
         tracing::debug!("Attempting to enhance description with AI: {}", description);
+        // Use ollama to enhance the todo description
+        // let output = Command::new("ollama")
+        //     .arg("run")
+        //     .arg("michaelneale/deepseek-r1-goose")
+
         // Use goose CLI to enhance the todo description
         let output = Command::new("goose")
             .arg("run")
             .arg("--text")
             .arg(format!(
-                "Given this todo task: '{}', please analyze it and return a JSON object with the following fields:
-                1. description: An enhanced description with more details
-                2. priority: Best guess of priority of [low, medium, high]
-                3. source_agent: Set to 'mcp_server'
-                4. target_agent: Set to your best guess from: UserAgent, BrowserAgent, GitAssistantAgent, ProjectManagerAgent
-                5. status: Set to 'pending'
-                Format example:
-                {{
-                    \"description\": \"enhanced task description\",
-                    \"priority\": \"medium\"
-                    \"source_agent\": \"mcp_server\",
-                    \"target_agent\": \"UserAgent\",
-                    \"status\": \"pending\"
+                "Please response exactly in the format requested. \
+                Thanks in advance, Given this todo task: '{}', \
+                please analyze it and return a JSON object with the following fields: \
+                1. description: An enhanced description with more details \
+                2. priority: Your guess of priority of [low, medium, high] \
+                3. source_agent: Always Set this to 'mcp_server' \
+                4. target_agent: Set to your best guess from: UserAgent, BrowserAgent, GitAssistantAgent, ProjectManagerAgent \
+                5. status: Set to 'pending' \
+                Format example: \
+                {{ \
+                    \"description\": \"enhanced task description\", \
+                    \"priority\": \"medium\" \
+                    \"source_agent\": \"mcp_server\", \
+                    \"target_agent\": \"UserAgent\", \
+                    \"status\": \"pending\" \
                 }}",
                 description
             ))
@@ -72,8 +79,21 @@ impl TodoTool {
 
         tracing::debug!("Received AI response: {}", ai_response);
 
+        // First try to find JSON between ```json and ``` markers
+        let json_content = if let Some(start) = ai_response.find("```json") {
+            if let Some(end) = ai_response[start..].find("```") {
+                let json_str = &ai_response[start + 7..start + end].trim();
+                tracing::debug!("Found JSON block: {}", json_str);
+                json_str.to_string()
+            } else {
+                ai_response.clone()
+            }
+        } else {
+            ai_response.clone()
+        };
+
         // Try to parse the JSON response
-        match serde_json::from_str::<Value>(&ai_response) {
+        match serde_json::from_str::<Value>(&json_content) {
             Ok(enhanced) => {
                 let enhanced_desc = enhanced["description"]
                     .as_str()
@@ -116,15 +136,15 @@ impl TodoTool {
         };
 
         tracing::debug!("Creating new TodoTask with description: {}", enhanced_description);
-        tracing::debug!("Creating new TodoItem with description: {}", enhanced_description);
-        let new_todo = TodoItem {
+        let new_todo = TodoTask {
+            id: Uuid::new_v4().to_string(),
             description: enhanced_description.clone(),
-            status: TodoStatus::Pending,
-            assigned_agent: None,
-            context: context.map(|s| s.to_string()),
-            error: None,
-            created_at: now,
-            updated_at: now,
+            priority: priority.clone(),
+            source_agent: Some("mcp_server".to_string()),
+            target_agent: "user".to_string(),
+            status: TaskStatus::Pending,
+            created_at: now.timestamp(),
+            completed_at: None,
         };
 
         tracing::debug!("Attempting to insert todo into database");
@@ -142,14 +162,15 @@ impl TodoTool {
                     let unique_description = format!("{} ({})", description, timestamp);
 
                     tracing::debug!("Attempting to insert with timestamped description: {}", unique_description);
-                    let fallback_todo = TodoItem {
+                    let fallback_todo = TodoTask {
+                        id: Uuid::new_v4().to_string(),
                         description: unique_description.clone(),
-                        status: TodoStatus::Pending,
-                        assigned_agent: None,
-                        context: context.map(|s| s.to_string()),
-                        error: None,
-                        created_at: now,
-                        updated_at: now,
+                        priority: priority.clone(),
+                        source_agent: Some("mcp_server".to_string()),
+                        target_agent: "user".to_string(),
+                        status: TaskStatus::Pending,
+                        created_at: now.timestamp(),
+                        completed_at: None,
                     };
 
                     match self.collection.insert_one(fallback_todo, None).await {
@@ -194,7 +215,7 @@ impl TodoTool {
         Ok(output)
     }
 
-    async fn update_todo_status(&self, description: &str, status: TodoStatus) -> Result<String> {
+    async fn update_todo_status(&self, description: &str, status: TaskStatus) -> Result<String> {
         let now = Utc::now();
         let status_bson = to_bson(&status)
             .map_err(|e| anyhow!("Failed to convert status to BSON: {}", e))?;
@@ -204,7 +225,7 @@ impl TodoTool {
             doc! {
                 "$set": {
                     "status": status_bson,
-                    "updated_at": now
+                    "updated_at": now.timestamp()
                 }
             },
             None,
@@ -240,12 +261,12 @@ impl ToolExecutor for TodoTool {
             "complete" => {
                 let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 tracing::debug!("Marking todo as complete: {}", description);
-                self.update_todo_status(description, TodoStatus::Completed).await
+                self.update_todo_status(description, TaskStatus::Completed).await
             }
             "fail" => {
                 let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 tracing::debug!("Marking todo as failed: {}", description);
-                self.update_todo_status(description, TodoStatus::Failed).await
+                self.update_todo_status(description, TaskStatus::Failed).await
             }
             _ => {
                 tracing::error!("Unknown todo command: {}", command);
@@ -266,7 +287,7 @@ mod tests {
             .await
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
-        let collection = Arc::new(db.collection::<TodoItem>("todos"));
+        let collection = Arc::new(db.collection::<TodoTask>("todos"));
 
         let tool = TodoTool { collection };
 
