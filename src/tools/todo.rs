@@ -79,18 +79,22 @@ impl TodoTool {
 
         tracing::debug!("Received AI response: {}", ai_response);
 
-        // First try to find JSON between ```json and ``` markers
-        let json_content = if let Some(start) = ai_response.find("```json") {
-            if let Some(end) = ai_response[start..].find("```") {
-                let json_str = &ai_response[start + 7..start + end].trim();
+        // First try to find JSON between { and } on their own lines 
+        let json_content = if let Some(start) = ai_response.find("{\n") {
+            if let Some(end) = ai_response[start..].find("\n}") {
+                let json_str = &ai_response[start..start+end+2];
                 tracing::debug!("Found JSON block: {}", json_str);
-                json_str.to_string()
+                
+                // Remove any extra newlines or whitespace
+                json_str.replace('\n', "").trim().to_string()
             } else {
                 ai_response.clone()
             }
         } else {
             ai_response.clone()
         };
+
+        tracing::debug!("Attempting to parse JSON content: {}", json_content);
 
         // Try to parse the JSON response
         match serde_json::from_str::<Value>(&json_content) {
@@ -101,7 +105,7 @@ impl TodoTool {
                     .to_string();
 
                 let priority = match enhanced["priority"].as_str().unwrap_or("medium") {
-                    "high" => TaskPriority::High,
+                    "high" => TaskPriority::High, 
                     "low" => TaskPriority::Low,
                     _ => TaskPriority::Medium,
                 };
@@ -110,7 +114,16 @@ impl TodoTool {
                 Ok((enhanced_desc, priority))
             }
             Err(e) => {
-                tracing::warn!("Failed to parse AI response as JSON: {}", e);
+                tracing::warn!("Failed to parse complete AI response as JSON: {}", e);
+                
+                // Try to salvage just the description from a partial JSON parse
+                if let Ok(partial) = serde_json::from_str::<Value>(&json_content) {
+                    if let Some(desc) = partial["description"].as_str() {
+                        tracing::debug!("Parsed partial JSON, using enhanced description: {}", desc);
+                        return Ok((desc.to_string(), TaskPriority::Medium));
+                    }
+                }
+                
                 tracing::debug!("Falling back to original description with medium priority");
                 Ok((description.to_string(), TaskPriority::Medium))
             }
@@ -148,39 +161,39 @@ impl TodoTool {
         };
 
         tracing::debug!("Attempting to insert todo into database");
-        match self.collection.insert_one(new_todo, None).await {
+        match self.collection.insert_one(new_todo.clone(), None).await {
             Ok(_) => {
                 tracing::info!("Successfully inserted todo into database: {}", enhanced_description);
                 Ok(format!("Added new todo: {}", enhanced_description))
             },
             Err(e) => {
                 tracing::warn!("Failed to insert todo: {}", e);
-                // If insertion fails due to duplicate, append timestamp and try again
+                // If insertion fails due to duplicate, generate a new ID and try again
                 if e.to_string().contains("duplicate key error") {
-                    tracing::debug!("Detected duplicate key error, creating timestamped version");
+                    tracing::debug!("Detected duplicate key error, generating new unique ID");
                     let timestamp = now.format("%Y%m%d_%H%M%S");
-                    let unique_description = format!("{} ({})", description, timestamp);
+                    let unique_id = format!("{}_{}", new_todo.id, timestamp);
 
-                    tracing::debug!("Attempting to insert with timestamped description: {}", unique_description);
+                    tracing::debug!("Attempting to insert with unique ID: {}", unique_id);
                     let fallback_todo = TodoTask {
-                        id: Uuid::new_v4().to_string(),
-                        description: unique_description.clone(),
-                        priority: priority.clone(),
-                        source_agent: Some("mcp_server".to_string()),
-                        target_agent: "user".to_string(),
-                        status: TaskStatus::Pending,
-                        created_at: now.timestamp(),
-                        completed_at: None,
+                        id: unique_id,
+                        description: new_todo.description,
+                        priority: new_todo.priority,
+                        source_agent: new_todo.source_agent,
+                        target_agent: new_todo.target_agent,
+                        status: new_todo.status,
+                        created_at: new_todo.created_at,
+                        completed_at: new_todo.completed_at,
                     };
 
-                    match self.collection.insert_one(fallback_todo, None).await {
+                    match self.collection.insert_one(fallback_todo.clone(), None).await {
                         Ok(_) => {
-                            tracing::info!("Successfully inserted timestamped todo into database: {}", unique_description);
-                            Ok(format!("Added new todo with timestamp: {}", unique_description))
+                            tracing::info!("Successfully inserted todo with unique ID into database: {}", enhanced_description);
+                            Ok(format!("Added new todo: {}", enhanced_description))
                         },
                         Err(e) => {
-                            tracing::error!("Failed to insert todo even with timestamp: {}", e);
-                            Err(anyhow!("Failed to insert todo even with timestamp: {}", e))
+                            tracing::error!("Failed to insert todo even with unique ID: {}", e);
+                            Err(anyhow!("Failed to insert todo even with unique ID: {}", e))
                         }
                     }
                 } else {
