@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use rand::Rng;
 
 pub mod flappy;
+pub mod model;
 
 /// Represents a state in the environment
 pub trait State: Clone + Eq + std::hash::Hash {
@@ -89,6 +90,33 @@ impl<S: State, A: Action> QLearningAgent<S, A> {
         let current_q = self.q_table.entry((state, action)).or_insert(0.0);
         *current_q = (1.0 - self.learning_rate) * *current_q + 
                     self.learning_rate * (reward + self.discount_factor * next_max_q);
+    }
+
+    /// Save the model to a file
+    pub fn save_model<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let model = model::QModel {
+            metadata: model::QModelMetadata {
+                version: model::MODEL_VERSION.to_string(),
+                episodes_trained: 0, // TODO: Track this
+                best_score: 0,      // TODO: Track this
+                learning_rate: self.learning_rate,
+                discount_factor: self.discount_factor,
+                epsilon: self.epsilon,
+            },
+            q_table: self.q_table.clone(),
+        };
+        model.save(path)
+    }
+
+    /// Load the model from a file
+    pub fn load_model<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let model = model::QModel::<S, A>::load(path)?;
+        Ok(Self {
+            q_table: model.q_table,
+            learning_rate: model.metadata.learning_rate,
+            discount_factor: model.metadata.discount_factor,
+            epsilon: model.metadata.epsilon,
+        })
     }
 }
 

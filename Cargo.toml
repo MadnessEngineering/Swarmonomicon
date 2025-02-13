@@ -16,7 +16,7 @@ browser-agent = []
 project-init-agent = []
 goose = []  # Feature flag for using Goose CLI as the AI provider
 yolo = ["opencv"] # Feature flag for YOLO tool and OpenCV dependency
-rl = ["rand", "pixels", "serde/derive", "serde_json"] # Feature flag for Reinforcement Learning capabilities with visualization
+rl = ["rand", "pixels", "serde/derive"] # Feature flag for Reinforcement Learning capabilities with visualization
 
 # Dependencies required by browser-agent
 browser-agent-deps = ["chromiumoxide", "chromiumoxide_cdp", "tokio-tungstenite"]
