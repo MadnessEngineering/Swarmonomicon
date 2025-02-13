@@ -54,13 +54,13 @@ async fn main() -> Result<()> {
 
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", &std::env::var("AWSIP").expect("AWSIP environment variable not set"), 3003);
-    mqtt_options.set_keep_alive(Duration::from_secs(5));
+    mqtt_options.set_keep_alive(Duration::from_secs(30));
     mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
 
     tracing::info!("Connecting to MQTT broker...");
 
-    // Subscribe to "mcp/todo/new" topic with retry logic
+    // Subscribe to "mcp/todo" topic with retry logic
     for attempt in 1..=3 {
         match client.subscribe("mcp/todo", QoS::AtLeastOnce).await {
             Ok(_) => {
@@ -93,31 +93,9 @@ async fn main() -> Result<()> {
                         tracing::info!("Received payload: {}", payload);
 
                         // Try to parse as McpTodoRequest, if fails treat as plain text
-                        let (description, priority) = match serde_json::from_str::<McpTodoRequest>(&payload) {
-                            Ok(request) => {
-                                // If priority is not provided, enhance with AI
-                                if request.priority.is_none() {
-                                    match enhance_todo_with_ai(&request.description).await {
-                                        Ok((enhanced_desc, suggested_priority)) => (enhanced_desc, suggested_priority),
-                                        Err(e) => {
-                                            tracing::error!("Failed to enhance todo with AI: {}", e);
-                                            (request.description, TaskPriority::Medium)
-                                        }
-                                    }
-                                } else {
-                                    (request.description, request.priority.unwrap_or(TaskPriority::Medium))
-                                }
-                            },
-                            Err(_) => {
-                                // Treat as plain text and enhance with AI
-                                match enhance_todo_with_ai(&payload).await {
-                                    Ok((enhanced_desc, suggested_priority)) => (enhanced_desc, suggested_priority),
-                                    Err(e) => {
-                                        tracing::error!("Failed to enhance todo with AI: {}", e);
-                                        (payload, TaskPriority::Medium)
-                                    }
-                                }
-                            }
+                        let description = match serde_json::from_str::<McpTodoRequest>(&payload) {
+                            Ok(request) => request.description,
+                            Err(_) => payload,
                         };
 
                         // Add todo using TodoTool
