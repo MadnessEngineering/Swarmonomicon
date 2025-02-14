@@ -1,156 +1,137 @@
 #[cfg(feature = "rl")]
+use clap::Parser;
 use swarmonomicon::agents::rl::{
     Environment,
+    flappy::{FlappyBirdEnv, FlappyBirdState, FlappyBirdAction, viz::FlappyViz},
     QLearningAgent,
-    flappy::{FlappyBirdEnv, FlappyBirdState, FlappyBirdAction},
 };
-#[cfg(feature = "rl")]
-use swarmonomicon::agents::rl::flappy::viz::FlappyViz;
-use std::time::Duration;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use clap::Parser;
+use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 
-const TRAINING_EPISODES: i32 = 1000;
-const RENDER_EVERY_N_EPISODES: i32 = 1;
-const SAVE_EVERY_N_EPISODES: i32 = 100;
-
+#[cfg(feature = "rl")]
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path to load a saved model from
-    #[arg(long)]
-    load_model: Option<PathBuf>,
+struct Cli {
+    /// Path to save/load the model
+    #[arg(short, long)]
+    model: Option<PathBuf>,
 
-    /// Path to save the model to
-    #[arg(long)]
-    save_model: Option<PathBuf>,
-
-    /// Number of episodes to train for
-    #[arg(long, default_value_t = TRAINING_EPISODES)]
+    /// Number of episodes to train
+    #[arg(short, long, default_value = "1000")]
     episodes: i32,
 
-    /// Save model every N episodes
-    #[arg(long, default_value_t = SAVE_EVERY_N_EPISODES)]
-    save_interval: i32,
+    /// Learning rate
+    #[arg(short, long, default_value = "0.1")]
+    learning_rate: f64,
 
-    /// Render visualization every N episodes
-    #[arg(long, default_value_t = RENDER_EVERY_N_EPISODES)]
-    render_interval: i32,
+    /// Discount factor
+    #[arg(short, long, default_value = "0.95")]
+    discount_factor: f64,
+
+    /// Exploration rate (epsilon)
+    #[arg(short, long, default_value = "0.1")]
+    epsilon: f64,
+
+    /// Whether to visualize the training
+    #[arg(short, long)]
+    visualize: bool,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+#[cfg(feature = "rl")]
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Cli::parse();
+
+    // Initialize environment and agent
     let mut env = FlappyBirdEnv::default();
-    
-    // Initialize agent, either new or from saved model
-    let mut agent = if let Some(load_path) = args.load_model {
-        println!("Loading model from {}", load_path.display());
-        QLearningAgent::load_model(load_path)?
+    let mut agent = if let Some(ref model_path) = args.model {
+        if model_path.exists() {
+            println!("Loading model from {}", model_path.display());
+            QLearningAgent::load_model(&model_path)
+                .map_err(|e| anyhow!("Failed to load model: {}", e))?
+        } else {
+            println!("Creating new model that will be saved to {}", model_path.display());
+            QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon)
+        }
     } else {
-        QLearningAgent::new(0.1, 0.99, 0.1)
+        QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon)
     };
 
-    // Initialize visualization
-    let (mut viz, event_loop) = FlappyViz::new()?;
+    // Initialize visualization if requested
+    let mut viz = if args.visualize {
+        let (viz, event_loop) = FlappyViz::new()
+            .map_err(|e| anyhow!("Failed to initialize visualization: {}", e))?;
+        Some((viz, event_loop))
+    } else {
+        None
+    };
 
-    let mut episode = 0;
     let mut best_score = 0;
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
-        match event {
-            Event::MainEventsCleared => {
-                // Run training loop
-                if episode < args.episodes {
-                    if episode % args.render_interval == 0 {
-                        // Run one step with visualization
-                        if let Err(e) = run_training_step(&mut env, &mut agent, Some(&mut viz)) {
-                            eprintln!("Error during training: {}", e);
-                            *control_flow = ControlFlow::Exit;
-                            return;
-                        }
-                    } else {
-                        // Run one step without visualization
-                        if let Err(e) = run_training_step(&mut env, &mut agent, None) {
-                            eprintln!("Error during training: {}", e);
-                            *control_flow = ControlFlow::Exit;
-                            return;
-                        }
-                    }
-
-                    // Update best score
-                    if env.get_score() > best_score {
-                        best_score = env.get_score();
-                        println!("New best score: {}", best_score);
-                    }
-
-                    // Save progress periodically
-                    if let Some(save_path) = &args.save_model {
-                        if episode % args.save_interval == 0 {
-                            println!("Episode {}: Score = {}, Best = {}", episode, env.get_score(), best_score);
-                            println!("Saving model to {}", save_path.display());
-                            if let Err(e) = agent.save_model(save_path) {
-                                eprintln!("Error saving model: {}", e);
-                            }
-                        }
-                    }
-
-                    episode += 1;
-                } else {
-                    // Save final model
-                    if let Some(save_path) = &args.save_model {
-                        println!("Training complete. Saving final model to {}", save_path.display());
-                        if let Err(e) = agent.save_model(save_path) {
-                            eprintln!("Error saving final model: {}", e);
-                        }
-                    }
-                    *control_flow = ControlFlow::Exit;
-                }
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => *control_flow = ControlFlow::Exit,
-            _ => (),
-        }
-    })
-}
-
-fn run_training_step(
-    env: &mut FlappyBirdEnv,
-    agent: &mut QLearningAgent<FlappyBirdState, FlappyBirdAction>,
-    mut viz: Option<&mut FlappyViz>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut state = env.reset();
     let mut total_reward = 0.0;
 
-    loop {
-        // Get action from agent
-        let valid_actions = env.valid_actions(&state);
-        let action = agent.choose_action(&state, &valid_actions);
+    println!("Starting training for {} episodes...", args.episodes);
+    for episode in 0..args.episodes {
+        let mut state = env.reset();
+        let mut episode_reward = 0.0;
 
-        // Take step in environment
-        let (next_state, reward, done) = env.step(&action);
-        total_reward += reward;
+        loop {
+            let valid_actions = env.valid_actions(&state);
+            let action = agent.choose_action(&state, &valid_actions);
+            let (next_state, reward, done) = env.step(&action);
 
-        // Visualize if requested
-        if let Some(viz) = viz.as_mut() {
-            viz.render(&next_state)?;
-            std::thread::sleep(Duration::from_millis(16)); // Cap at ~60 FPS
+            episode_reward += reward;
+
+            // Update the agent
+            let next_valid_actions = env.valid_actions(&next_state);
+            agent.learn(state.clone(), action, reward, &next_state, &next_valid_actions);
+
+            // Visualize if requested
+            if let Some((viz, _)) = &mut viz {
+                viz.render(&next_state)
+                    .map_err(|e| anyhow!("Visualization error: {}", e))?;
+            }
+
+            if done {
+                break;
+            }
+            state = next_state;
         }
 
-        // Learn from experience
-        let next_valid_actions = env.valid_actions(&next_state);
-        agent.learn(state.clone(), action, reward, &next_state, &next_valid_actions);
-
-        if done {
-            break;
+        total_reward += episode_reward;
+        let score = env.get_score();
+        if score > best_score {
+            best_score = score;
         }
-        state = next_state;
+
+        if (episode + 1) % 100 == 0 {
+            println!(
+                "Episode {}/{}: Score = {}, Best = {}, Avg Reward = {:.2}",
+                episode + 1,
+                args.episodes,
+                score,
+                best_score,
+                total_reward / (episode + 1) as f64
+            );
+
+            // Save model if path was provided
+            if let Some(model_path) = &args.model {
+                agent.save_model(model_path)
+                    .map_err(|e| anyhow!("Failed to save model: {}", e))?;
+                println!("Model saved to {}", model_path.display());
+            }
+        }
     }
+
+    println!("\nTraining completed!");
+    println!("Best score: {}", best_score);
+    println!("Average reward: {:.2}", total_reward / args.episodes as f64);
 
     Ok(())
 }
+
+#[cfg(not(feature = "rl"))]
+fn main() {
+    println!("This binary requires the 'rl' feature to be enabled.");
+    println!("Please rebuild with: cargo build --features rl");
+    std::process::exit(1);
+} 
