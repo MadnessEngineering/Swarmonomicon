@@ -128,36 +128,28 @@ impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + Deserializ
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::Rng;
 
-    // Simple test environment
-    #[derive(Clone, Eq, PartialEq, Hash)]
+    #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
     struct TestState(i32);
 
     impl State for TestState {
-        fn to_features(&self) -> Vec<f64> {
-            vec![self.0 as f64]
+        fn to_string(&self) -> String {
+            self.0.to_string()
         }
     }
 
-    #[derive(Clone, Eq, PartialEq, Hash)]
+    #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
     enum TestAction {
-        Left,
-        Right,
+        Up,
+        Down,
     }
 
     impl Action for TestAction {
-        fn to_index(&self) -> usize {
+        fn to_string(&self) -> String {
             match self {
-                TestAction::Left => 0,
-                TestAction::Right => 1,
-            }
-        }
-
-        fn from_index(index: usize) -> Option<Self> {
-            match index {
-                0 => Some(TestAction::Left),
-                1 => Some(TestAction::Right),
-                _ => None,
+                TestAction::Up => "up".to_string(),
+                TestAction::Down => "down".to_string(),
             }
         }
     }

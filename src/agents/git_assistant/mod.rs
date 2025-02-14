@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, Tool, ToolCall, State, StateMachine, AgentStateManager};
 use crate::tools::ToolRegistry;
-use crate::Result;
+use anyhow::{Result, anyhow};
 #[cfg(feature = "git-agent")]
 use rand::Rng;
 use chrono;
@@ -41,7 +41,7 @@ impl GitAssistantAgent {
             .lock()
             .unwrap()
             .clone()
-            .ok_or_else(|| "Working directory not set".into())
+            .ok_or_else(|| anyhow!("Working directory not set"))
     }
 
     pub fn update_working_dir(&self, path: PathBuf) -> Result<()> {
@@ -55,13 +55,13 @@ impl GitAssistantAgent {
             .current_dir(&self.get_working_dir()?)
             .output()
             .await
-            .map_err(|e| format!("Failed to execute git command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to execute git command: {}", e))?;
 
         let stdout = String::from_utf8(output.stdout)?;
         let stderr = String::from_utf8(output.stderr)?;
 
         if !output.status.success() {
-            return Err(format!("Git command failed: {}", stderr).into());
+            return Err(anyhow!("Git command failed: {}", stderr));
         }
 
         Ok(stdout)
@@ -319,11 +319,11 @@ impl Agent for GitAssistantAgent {
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        Err("Transfer not supported by GitAssistantAgent".into())
+        Ok(Message::new(format!("Transferring to {} agent...", target_agent)))
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Err("Tool calls not supported by GitAssistantAgent".into())
+        Err(anyhow!("GitAssistantAgent does not support tool calls"))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {

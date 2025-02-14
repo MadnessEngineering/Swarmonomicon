@@ -2,9 +2,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Duration;
 use serde_json::Value;
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, Tool};
 use crate::types::{TodoProcessor, TodoList, TodoTask};
 use crate::ai::{AiProvider, DefaultAiClient};
+use anyhow::{Result, anyhow};
+use std::error::Error as StdError;
 use uuid::Uuid;
 use futures::executor::block_on;
 
@@ -102,19 +104,11 @@ impl Agent for GreeterAgent {
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        // Check if the target agent is in our downstream agents list
-        if !self.config.downstream_agents.contains(&target_agent) {
-            return Err(format!("Cannot transfer to unknown agent: {}", target_agent).into());
-        }
-
-        let mut response = message;
-        response.metadata = Some(MessageMetadata::new("greeter".to_string())
-            .with_transfer(target_agent));
-        Ok(response)
+        Ok(Message::new(format!("Transferring to {} agent...", target_agent)))
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok(format!("Called tool {} with params {:?}", tool.name, params))
+        Err(anyhow!("GreeterAgent does not support tool calls"))
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {
@@ -129,12 +123,10 @@ impl Agent for GreeterAgent {
 #[async_trait]
 impl TodoProcessor for GreeterAgent {
     async fn process_task(&self, task: TodoTask) -> Result<Message> {
-        // For the greeter, we'll treat tasks as messages to process
         self.process_message(Message::new(task.description)).await
     }
 
     fn get_check_interval(&self) -> Duration {
-        // Check for new tasks every 5 seconds
         Duration::from_secs(5)
     }
 

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Tool};
 use crate::ai::{AiProvider, DefaultAiClient};
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
+use std::error::Error as StdError;
 
 pub struct HaikuAgent {
     config: AgentConfig,
@@ -67,7 +68,7 @@ impl HaikuAgent {
 
     async fn generate_haiku(&self, topic: String) -> Result<String> {
         let system_prompt = "You are a poetic AI that creates haikus. A haiku is a three-line poem with 5 syllables in the first line, 7 in the second, and 5 in the third. Create a haiku that blends nature imagery with technical concepts.";
-        
+
         let messages = vec![HashMap::from([
             ("role".to_string(), "user".to_string()),
             ("content".to_string(), format!("Create a haiku about: {}", topic)),
@@ -100,20 +101,34 @@ impl HaikuAgent {
 #[async_trait]
 impl Agent for HaikuAgent {
     async fn process_message(&self, message: Message) -> Result<Message> {
-        let haiku = self.generate_haiku(message.content).await?;
-        Ok(self.create_response(haiku))
+        let response = match self.state_manager.get_current_state_name() {
+            Some(state) => match state {
+                "awaiting_topic" => {
+                    let haiku = self.generate_haiku(message.content).await?;
+                    self.create_response(haiku)
+                }
+                "complete" => {
+                    match message.content.to_lowercase().as_str() {
+                        "yes" => self.create_response("🌸 What new topic shall inspire our next algorithmic verse?".to_string()),
+                        "no" => self.create_response("🌟 May your path be illuminated by the glow of poetic algorithms...".to_string()),
+                        _ => self.create_response("Please respond with 'yes' to continue or 'no' to conclude.".to_string()),
+                    }
+                }
+                "goodbye" => self.create_response("Farewell, seeker of digital poetry.".to_string()),
+                _ => return Err(anyhow!("Invalid state: {}", state)),
+            },
+            None => self.create_response("🌸 What shall we crystallize into algorithmic verse today?".to_string()),
+        };
+
+        Ok(response)
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        if !self.config.downstream_agents.contains(&target_agent) {
-            Err(anyhow!("Invalid transfer target: {}", target_agent).into())
-        } else {
-            Ok(message)
-        }
+        Ok(Message::new(format!("Transferring to {} agent...", target_agent)))
     }
 
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok(format!("Called tool {} with params {:?}", tool.name, params))
+        Err(anyhow!("HaikuAgent does not support tool calls").into())
     }
 
     async fn get_current_state(&self) -> Result<Option<State>> {

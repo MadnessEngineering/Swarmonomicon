@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, Result, ToolCall, Tool, TodoProcessor};
+use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, ToolCall, Tool, TodoProcessor};
+use anyhow::Result;
 use lazy_static::lazy_static;
+use anyhow::anyhow;
 
 #[cfg(feature = "git-agent")]
 pub mod git_assistant;
@@ -40,13 +42,15 @@ pub use transfer::TransferService;
 pub use wrapper::AgentWrapper;
 
 pub struct AgentRegistry {
-    pub(crate) agents: HashMap<String, AgentWrapper>,
+    pub agents: HashMap<String, AgentWrapper>,
+    current_agent: Option<String>,
 }
 
 impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             agents: HashMap::new(),
+            current_agent: None,
         }
     }
 
@@ -63,12 +67,20 @@ impl AgentRegistry {
         self.agents.get_mut(name)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &AgentWrapper)> {
-        self.agents.iter()
-    }
-
     pub fn exists(&self, name: &str) -> bool {
         self.agents.contains_key(name)
+    }
+
+    pub fn get_current_agent(&self) -> Option<&str> {
+        self.current_agent.as_deref()
+    }
+
+    pub fn set_current_agent(&mut self, agent: String) {
+        self.current_agent = Some(agent);
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &AgentWrapper)> {
+        self.agents.iter()
     }
 
     pub async fn create_default_agents(configs: Vec<AgentConfig>) -> Result<Self> {
@@ -108,7 +120,7 @@ pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + 
             let agent = browser::BrowserAgentWrapper::new(config)?;
             Ok(Box::new(agent))
         }
-        _ => Err("Unknown agent type".into()),
+        _ => Err(anyhow!("Unknown agent type: {}", config.name)),
     }
 }
 
@@ -243,6 +255,45 @@ mod tests {
         // Test haiku generation
         let response = service.process_message(Message::new("nature".to_string())).await.unwrap();
         assert!(response.content.contains("haiku"), "Response should contain a haiku");
+    }
+
+    #[tokio::test]
+    async fn test_agent_transfer() {
+        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
+        let mut service = TransferService::new(registry.clone());
+
+        // Set up test agents
+        {
+            let mut reg = registry.write().await;
+            let greeter = GreeterAgent::new(AgentConfig {
+                name: "greeter".to_string(),
+                public_description: "Test greeter agent".to_string(),
+                instructions: "Test greeting".to_string(),
+                tools: vec![],
+                downstream_agents: vec!["haiku".to_string()],
+                personality: None,
+                state_machine: None,
+            });
+
+            let haiku = HaikuAgent::new(AgentConfig {
+                name: "haiku".to_string(),
+                public_description: "Test haiku agent".to_string(),
+                instructions: "Test haiku generation".to_string(),
+                tools: vec![],
+                downstream_agents: vec![],
+                personality: None,
+                state_machine: None,
+            });
+
+            reg.register("greeter".to_string(), Box::new(greeter)).await.unwrap();
+            reg.register("haiku".to_string(), Box::new(haiku)).await.unwrap();
+        }
+
+        // Test agent transfer
+        service.set_current_agent_name("greeter".to_string()).await.unwrap();
+        let message = Message::new("Hello, transfer me to haiku!".to_string());
+        service.transfer("greeter", "haiku", message).await.unwrap();
+        assert_eq!(service.get_current_agent_name().await.unwrap(), "haiku");
     }
 }
 

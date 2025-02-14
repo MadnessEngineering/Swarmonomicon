@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
-use crate::types::{Agent, AgentConfig, Message, Result, Tool, State};
+use crate::types::{Agent, AgentConfig, Message, Tool, State};
 use serde::Deserialize;
+use anyhow::Result;
 
 #[derive(Debug, Deserialize)]
 pub struct BrowserAgentConfig {
