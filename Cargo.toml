@@ -54,6 +54,9 @@ futures-util = "0.3"
 
 anyhow = "1.0"
 
+# Omnispindle integration
+omnispindle = { path = "../Omnispindle" }
+
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"

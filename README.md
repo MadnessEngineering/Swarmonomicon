@@ -299,3 +299,36 @@ Each agent runs in its own async task, processing its todo list at configurable 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Omnispindle Integration
+
+Swarmonomicon now integrates with [Omnispindle](../Omnispindle), a tool for conducting information via MQTT in the Madness_Interactive ecosystem.
+
+The `omnispindle` module provides an `OmniSpindle` struct that wraps the core Omnispindle functionality:
+
+- Connecting to an MQTT broker
+- Publishing messages to a topic
+- Subscribing to a topic
+- Receiving messages from subscribed topics
+
+### Usage
+
+```rust
+use swarmonomicon::omnispindle::{OmniSpindle, MqttConfig};
+
+let config = MqttConfig {
+    host: "localhost".to_string(), 
+    port: 1883,
+    client_id: "swarmonomicon".to_string(),
+};
+
+let omnispindle = OmniSpindle::new(config)?;
+
+omnispindle.subscribe("swarmonomicon/test")?;
+omnispindle.publish("swarmonomicon/test", "Hello, Swarmonomicon!", true)?;
+
+let msg = omnispindle.receive_message()?;
+println!("Received: {}", msg);
+```
+
+This integration allows Swarmonomicon to seamlessly interact with the MQTT bus used by other tools in the Madness_Interactive ecosystem.
