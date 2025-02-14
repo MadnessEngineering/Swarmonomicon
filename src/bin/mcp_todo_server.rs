@@ -60,11 +60,11 @@ async fn main() -> Result<()> {
 
     tracing::info!("Connecting to MQTT broker...");
 
-    // Subscribe to "mcp/todo" topic with retry logic
+    // Subscribe to "mcp/*" topic with retry logic
     for attempt in 1..=3 {
-        match client.subscribe("mcp/todo", QoS::AtLeastOnce).await {
+        match client.subscribe("mcp/*", QoS::AtLeastOnce).await {
             Ok(_) => {
-                tracing::info!("Successfully subscribed to mcp/todo");
+                tracing::info!("Successfully subscribed to mcp/*");
                 break;
             }
             Err(e) => {
@@ -98,11 +98,15 @@ async fn main() -> Result<()> {
                             Err(_) => payload,
                         };
 
+                        let topic = publish.topic;
+                        let target_agent = topic.split('/').nth(1).unwrap_or("user");
+
                         // Add todo using TodoTool
                         let mut params = HashMap::new();
                         params.insert("command".to_string(), "add".to_string());
                         params.insert("description".to_string(), description.clone());
                         params.insert("context".to_string(), "mcp_server".to_string());
+                        params.insert("target_agent".to_string(), target_agent.to_string());
 
                         match todo_tool_clone.execute(params).await {
                             Ok(_) => tracing::info!("Successfully added todo: {}", description),

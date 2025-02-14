@@ -299,3 +299,15 @@ Each agent runs in its own async task, processing its todo list at configurable 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## MCP Topic Routing
+
+Added support for subscribing to `mcp/*` topics in the MCP Todo Server and routing todos to the appropriate target agent based on the topic path.
+
+Changes made:
+- Updated the MQTT subscription in `mcp_todo_server.rs` from `mcp/todo` to `mcp/*` to subscribe to all mcp topics
+- Parse the topic path from received messages and pass it to the `TodoTool.add_todo()` method as the `target_agent` parameter
+- Modified the `TodoTool.add_todo()` method to accept a `target_agent` parameter and use it when creating new `TodoTask` instances
+- Fixed a "temporary value dropped while borrowed" error in `todo.rs` by assigning the default `target_agent` value to a variable before using it in `unwrap_or()`
+
+These changes allow for more flexible routing of todos based on the MQTT topic they are published to. The target agent can be determined from the topic path.

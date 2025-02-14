@@ -86,7 +86,7 @@ impl TodoTool {
             Some(json_match) => {
                 let json_str = json_match.as_str().to_string();
                 tracing::debug!("Found JSON substring: {}", json_str);
-                json_str  
+                json_str
             }
             None => {
                 tracing::warn!("Could not find JSON substring in AI response");
@@ -111,7 +111,7 @@ impl TodoTool {
                     } else if parse_attempts == 2 {
                         // Second attempt failed, try stripping non-ASCII
                         let cleaned_json = json_content.replace(|c: char| !c.is_ascii(), "");
-                        tracing::debug!("Attempting to parse ASCII-only JSON: {}", cleaned_json);  
+                        tracing::debug!("Attempting to parse ASCII-only JSON: {}", cleaned_json);
                         json_content = cleaned_json;
                     } else {
                         // Giving up after 2 failed cleanup attempts
@@ -130,7 +130,7 @@ impl TodoTool {
                     .to_string();
 
                 let priority = match enhanced["priority"].as_str().unwrap_or("medium") {
-                    "high" => TaskPriority::High, 
+                    "high" => TaskPriority::High,
                     "low" => TaskPriority::Low,
                     _ => TaskPriority::Medium,
                 };
@@ -153,8 +153,8 @@ impl TodoTool {
         }
     }
 
-    async fn add_todo(&self, description: &str, context: Option<&str>) -> Result<String> {
-        tracing::debug!("Adding new todo - Description: {}, Context: {:?}", description, context);
+    async fn add_todo(&self, description: &str, context: Option<&str>, target_agent: &str) -> Result<String> {
+        tracing::debug!("Adding new todo - Description: {}, Context: {:?}, Target Agent: {}", description, context, target_agent);
         let now = Utc::now();
 
         // Try to enhance the description with AI, fallback to original if enhancement fails
@@ -177,7 +177,7 @@ impl TodoTool {
             description: enhanced_description.clone(),
             priority: priority.clone(),
             source_agent: Some("mcp_server".to_string()),
-            target_agent: "user".to_string(),
+            target_agent: target_agent.to_string(),
             status: TaskStatus::Pending,
             created_at: now.timestamp(),
             completed_at: None,
@@ -287,8 +287,10 @@ impl ToolExecutor for TodoTool {
             "add" => {
                 let description = params.get("description").ok_or_else(|| anyhow!("Missing todo description"))?;
                 let context = params.get("context").map(|s| s.as_str());
-                tracing::debug!("Adding todo - Description: {}, Context: {:?}", description, context);
-                self.add_todo(description, context).await
+                let default_agent = "user".to_string();
+                let target_agent = params.get("target_agent").unwrap_or(&default_agent);
+                tracing::debug!("Adding todo - Description: {}, Context: {:?}, Target Agent: {}", description, context, target_agent);
+                self.add_todo(description, context, target_agent).await
             }
             "list" => {
                 tracing::debug!("Listing todos");
