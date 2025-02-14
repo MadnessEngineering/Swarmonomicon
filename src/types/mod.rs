@@ -6,6 +6,9 @@ use std::str::FromStr;
 use thiserror::Error;
 use std::fmt;
 use crate::agents::{AgentRegistry, AgentWrapper};
+use std::sync::Arc;
+use anyhow::{Result, anyhow};
+use std::error::Error as StdError;
 
 pub mod todo;
 pub use todo::{TodoList, TodoProcessor, TodoTask, TaskPriority, TaskStatus};
@@ -158,7 +161,7 @@ pub struct State {
 }
 
 impl FromStr for State {
-    type Err = Box<dyn std::error::Error + Send + Sync>;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self> {
         Ok(State {
@@ -177,9 +180,7 @@ pub struct ValidationRule {
     pub error_message: String,
 }
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-#[async_trait::async_trait]
+#[async_trait]
 pub trait Agent: Send + Sync {
     async fn process_message(&self, message: Message) -> Result<Message>;
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message>;
@@ -187,19 +188,17 @@ pub trait Agent: Send + Sync {
     async fn get_current_state(&self) -> Result<Option<State>>;
     async fn get_config(&self) -> Result<AgentConfig>;
     
-    /// Get the todo list for this agent if it supports task processing
     fn get_todo_list(&self) -> Option<&TodoList> {
         None
     }
     
-    /// Add a task to another agent's todo list if it supports task processing
     async fn delegate_task(&self, task: TodoTask, registry: &AgentRegistry) -> Result<()> {
         if let Some(target_agent) = registry.get(&task.target_agent) {
             let todo_list = <AgentWrapper as TodoProcessor>::get_todo_list(target_agent);
             todo_list.add_task(task).await;
             Ok(())
         } else {
-            Err(format!("Target agent '{}' not found", task.target_agent).into())
+            Err(anyhow!("Target agent '{}' not found", task.target_agent).into())
         }
     }
 }

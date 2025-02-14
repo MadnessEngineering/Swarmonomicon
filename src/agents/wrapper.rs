@@ -3,9 +3,10 @@ use tokio::sync::RwLock;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Duration;
-use crate::types::{Agent, Message, Tool, State, AgentConfig, Result};
+use crate::types::{Agent, Message, Tool, State, AgentConfig};
 use crate::types::{TodoProcessor, TodoList, TodoTask};
 use futures::executor::block_on;
+use anyhow::Result;
 
 /// A wrapper type that handles the complexity of agent type management.
 /// This provides a consistent interface for working with agents while

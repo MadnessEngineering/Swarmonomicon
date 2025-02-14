@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::types::Result;
+use anyhow::Result;
 
 mod goose;
 mod local;

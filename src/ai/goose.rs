@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use serde_json::Value;
-use crate::types::Result;
+use anyhow::{Result, anyhow};
 use tokio::process::Command as TokioCommand;
-use anyhow::anyhow;
 use super::AiProvider;
 
 pub struct GooseClient {
@@ -54,10 +53,10 @@ impl AiProvider for GooseClient {
             .map_err(|e| anyhow!("Failed to execute goose command: {}", e))?;
 
         if output.status.success() {
-            Ok(String::from_utf8(output.stdout)
-                .map_err(|e| anyhow!("Failed to parse goose output: {}", e))?)
+            String::from_utf8(output.stdout)
+                .map_err(|e| anyhow!("Failed to parse goose output: {}", e))
         } else {
-            Err(anyhow!("Goose command failed: {}", String::from_utf8_lossy(&output.stderr)).into())
+            Err(anyhow!("Goose command failed: {}", String::from_utf8_lossy(&output.stderr)))
         }
     }
 } 

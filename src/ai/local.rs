@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use serde_json::Value;
-use crate::types::Result;
+use anyhow::{Result, anyhow};
 use super::AiProvider;
 use tokio::process::Command as TokioCommand;
-use anyhow::anyhow;
 
 const DEFAULT_MODEL: &str = "michaelneale/deepseek-r1-goose";
 
@@ -55,10 +54,10 @@ impl AiProvider for LocalAiClient {
             .map_err(|e| anyhow!("Failed to execute ollama command: {}", e))?;
 
         if output.status.success() {
-            Ok(String::from_utf8(output.stdout)
-                .map_err(|e| anyhow!("Failed to parse ollama output: {}", e))?)
+            String::from_utf8(output.stdout)
+                .map_err(|e| anyhow!("Failed to parse ollama output: {}", e))
         } else {
-            Err(anyhow!("Ollama command failed: {}", String::from_utf8_lossy(&output.stderr)).into())
+            Err(anyhow!("Ollama command failed: {}", String::from_utf8_lossy(&output.stderr)))
         }
     }
 }
@@ -70,8 +69,8 @@ mod tests {
     #[tokio::test]
     async fn test_local_ai_client_creation() {
         let client = LocalAiClient::new()
-            .with_model("test-model".to_string());
+            .with_model("qwen2.5-7b-instruct".to_string());
 
-        assert_eq!(client.model, "test-model");
+        assert_eq!(client.model, "qwen2.5-7b-instruct");
     }
 }

@@ -1,73 +1,61 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::{
-    types::{Message, Result, Agent},
+    types::{Message, Agent},
+    error::Error,
     agents::AgentRegistry,
 };
+use anyhow::{Result, anyhow};
 
 pub struct TransferService {
-    current_agent: Option<String>,
     registry: Arc<RwLock<AgentRegistry>>,
 }
 
 impl TransferService {
     pub fn new(registry: Arc<RwLock<AgentRegistry>>) -> Self {
-        Self {
-            current_agent: None,
-            registry,
-        }
+        Self { registry }
     }
 
-    pub fn get_registry(&self) -> &Arc<RwLock<AgentRegistry>> {
-        &self.registry
-    }
-
-    pub fn get_current_agent(&self) -> Option<&str> {
-        self.current_agent.as_deref()
-    }
-
-    pub fn set_current_agent(&mut self, agent: String) {
-        self.current_agent = Some(agent);
-    }
-
-    pub async fn process_message(&mut self, message: Message) -> Result<Message> {
-        if let Some(agent_name) = &self.current_agent {
-            let registry = self.registry.read().await;
-            if let Some(agent) = registry.get(agent_name) {
-                let response = agent.process_message(message).await?;
-                
-                // Check if we need to transfer to another agent
-                if let Some(metadata) = &response.metadata {
-                    if let Some(target) = &metadata.transfer_target {
-                        // Verify target agent exists before transferring
-                        if registry.exists(target) {
-                            self.current_agent = Some(target.clone());
-                            return Ok(Message::new(format!("Transferring to {} agent...", target)));
-                        } else {
-                            return Err(format!("Target agent '{}' not found", target).into());
-                        }
-                    }
-                }
-                
-                return Ok(response);
-            }
-        }
-        Err("No current agent set".into())
-    }
-
-    pub async fn transfer(&mut self, from: &str, to: &str) -> Result<()> {
+    pub async fn process_message(&self, message: Message) -> Result<Message> {
         let registry = self.registry.read().await;
+        let current_agent = self.get_current_agent_name().await?;
+        let agent = self.get_agent(&current_agent).await?;
+        agent.process_message(message).await
+    }
 
-        if !registry.exists(from) {
-            return Err(format!("Source agent '{}' not found", from).into());
+    pub async fn transfer(&self, from: &str, to: &str, message: Message) -> Result<Message> {
+        let registry = self.registry.read().await;
+        let source_agent = registry.get(from)
+            .ok_or_else(|| anyhow!("Source agent '{}' not found", from))?;
+
+        let target_agent = registry.get(to)
+            .ok_or_else(|| anyhow!("Target agent '{}' not found", to))?;
+
+        source_agent.transfer_to(to.to_string(), message).await
+    }
+
+    pub async fn get_agent(&self, name: &str) -> Result<Arc<Box<dyn Agent + Send + Sync>>> {
+        let registry = self.registry.read().await;
+        registry.get(name)
+            .map(|wrapper| Arc::new(Box::new(wrapper.clone()) as Box<dyn Agent + Send + Sync>))
+            .ok_or_else(|| anyhow!("Agent '{}' not found", name))
+    }
+
+    pub async fn get_current_agent_name(&self) -> Result<String> {
+        let registry = self.registry.read().await;
+        registry.get_current_agent()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("No current agent set"))
+    }
+
+    pub async fn set_current_agent_name(&self, target: &str) -> Result<()> {
+        let mut registry = self.registry.write().await;
+        if registry.get(target).is_some() {
+            registry.set_current_agent(target.to_string());
+            Ok(())
+        } else {
+            Err(anyhow!("Target agent '{}' not found", target))
         }
-
-        if !registry.exists(to) {
-            return Err(format!("Target agent '{}' not found", to).into());
-        }
-
-        self.current_agent = Some(to.to_string());
-        Ok(())
     }
 }
 
@@ -92,17 +80,14 @@ mod tests {
 
         registry.register("test_greeter".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
-        let mut service = TransferService::new(registry);
-
-        // Set current agent
-        service.set_current_agent("test_greeter".to_string());
+        let service = TransferService::new(registry);
 
         // Process message that should trigger transfer
-        let response = service.process_message(Message::new("transfer to test_target".to_string())).await;
+        let response = service.transfer("test_greeter", "test_target", Message::new("transfer to test_target".to_string())).await;
         assert!(response.is_err()); // Should fail because test_target doesn't exist
 
         // Test manual transfer
-        let result = service.transfer("test_greeter", "nonexistent").await;
+        let result = service.transfer("test_greeter", "nonexistent", Message::new("transfer to nonexistent".to_string())).await;
         assert!(result.is_err());
     }
 }
