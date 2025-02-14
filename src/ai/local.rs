@@ -5,7 +5,7 @@ use crate::types::Result;
 use super::AiProvider;
 
 const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:1234/v1/chat/completions";
-const DEFAULT_MODEL: &str = "qwen2.5-7b-instruct";
+const DEFAULT_MODEL: &str = "michaelneale/deepseek-r1-goose"
 
 pub struct LocalAiClient {
     client: Client,
@@ -81,4 +81,4 @@ mod tests {
         assert_eq!(client.endpoint, "http://test.endpoint");
         assert_eq!(client.model, "test-model");
     }
-} 
+}

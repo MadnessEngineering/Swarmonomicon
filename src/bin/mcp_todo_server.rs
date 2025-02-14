@@ -16,32 +16,6 @@ struct McpTodoRequest {
     priority: Option<TaskPriority>,
 }
 
-async fn enhance_todo_with_ai(description: &str) -> Result<(String, TaskPriority), Box<dyn StdError>> {
-    // Use goose CLI to enhance the todo description and guess priority
-    let output = Command::new("goose")
-        .arg("chat")
-        .arg("-m")
-        .arg(format!(
-            "Given this todo task: '{}', please analyze it and return a JSON object with two fields: \
-             1. An enhanced description with more details if possible \
-             2. A suggested priority level (low, medium, or high) based on the task's urgency and importance. \
-             Format: {{\"description\": \"enhanced text\", \"priority\": \"priority_level\"}}",
-            description
-        ))
-        .output()?;
-
-    let ai_response = String::from_utf8(output.stdout)?;
-    let enhanced: serde_json::Value = serde_json::from_str(&ai_response)?;
-
-    let priority = match enhanced["priority"].as_str().unwrap_or("medium") {
-        "high" => TaskPriority::High,
-        "low" => TaskPriority::Low,
-        _ => TaskPriority::Medium,
-    };
-
-    Ok((enhanced["description"].as_str().unwrap_or(description).to_string(), priority))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging with more verbose output
@@ -62,9 +36,9 @@ async fn main() -> Result<()> {
 
     // Subscribe to "mcp/*" topic with retry logic
     for attempt in 1..=3 {
-        match client.subscribe("mcp/*", QoS::AtLeastOnce).await {
+        match client.subscribe("mcp/#", QoS::AtLeastOnce).await {
             Ok(_) => {
-                tracing::info!("Successfully subscribed to mcp/*");
+                tracing::info!("Successfully subscribed to mcp/#");
                 break;
             }
             Err(e) => {

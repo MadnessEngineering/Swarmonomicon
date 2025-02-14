@@ -54,23 +54,8 @@ impl TodoTool {
             .arg("run")
             .arg("--text")
             .arg(format!(
-                "Please response exactly in the format requested. \
-                Thanks in advance, Given this todo task: '{}', \
-                please analyze it and return a JSON object with the following fields: \
-                1. description: An enhanced description with more details \
-                2. priority: Your guess of priority of [low, medium, high] \
-                3. source_agent: Always Set this to 'mcp_server' \
-                4. target_agent: Set to your best guess from: UserAgent, BrowserAgent, GitAssistantAgent, ProjectManagerAgent \
-                5. status: Set to 'pending' \
-                Format example: \
-                {{ \
-                    \"description\": \"enhanced task description\", \
-                    \"priority\": \"medium\" \
-                    \"source_agent\": \"mcp_server\", \
-                    \"target_agent\": \"UserAgent\", \
-                    \"status\": \"pending\" \
-                }}",
-                description
+                "I would like to get your assistance in improving a todo task description and assessing its priority. The current description is: '{}'. Please return a JSON object with an 'enhanced_description' field containing your suggested improvements to the wording, if any, and a 'priority' field with your recommendation of 'low', 'medium' or 'high'. No need to take any other action, just provide the JSON.",
+            description
             ))
             .output()
             .map_err(|e| anyhow!("Failed to execute goose command: {}", e))?;
@@ -158,10 +143,10 @@ impl TodoTool {
         let now = Utc::now();
 
         // Try to enhance the description with AI, fallback to original if enhancement fails
-        tracing::debug!("Attempting AI enhancement");
+        tracing::debug!("Attempting AI enhancement..");
         let (enhanced_description, priority) = match self.enhance_with_ai(description).await {
             Ok((desc, prio)) => {
-                tracing::debug!("AI enhancement successful");
+                tracing::debug!("AI enhancement successful!");
                 (desc, prio)
             },
             Err(e) => {
