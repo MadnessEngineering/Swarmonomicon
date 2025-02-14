@@ -1,18 +1,15 @@
 use clap::{Parser, Subcommand};
 use swarmonomicon::{
-    agents::{self, TransferService, GreeterAgent},
-    types::{Agent, AgentConfig, Message},
+    agents::{self, AgentRegistry, TransferService, GitAssistantAgent, HaikuAgent, GreeterAgent},
+    types::{AgentConfig, Message, Agent, TodoProcessor, TodoTask, TaskPriority, TaskStatus},
+    error::Error,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::io::Write;
-use swarmonomicon::error::Error;
-
-#[cfg(feature = "git-agent")]
-use swarmonomicon::agents::git_assistant::GitAssistantAgent;
-
-#[cfg(feature = "haiku-agent")]
-use swarmonomicon::agents::haiku::HaikuAgent;
+use anyhow::{Result, anyhow};
+use chrono::Utc;
+use uuid::Uuid;
 
 #[cfg(feature = "project-agent")]
 use swarmonomicon::agents::project::ProjectAgent;
@@ -56,160 +53,165 @@ enum Commands {
         #[arg(short = 'd', long)]
         description: String,
     },
+
+    /// Send a message to the current agent
+    Message {
+        /// The message to send
+        message: String,
+    },
 }
 
-async fn initialize_registry() -> Result<(), Error> {
-    let registry = agents::GLOBAL_REGISTRY.clone();
-    {
-        let mut reg = registry.write().await;
+async fn initialize_registry() -> Result<AgentRegistry> {
+    let mut reg = agents::AgentRegistry::new();
+    
+    let git_assistant = GitAssistantAgent::new(AgentConfig {
+        name: "git".to_string(),
+        public_description: "Git operations assistant".to_string(),
+        instructions: "Help with git operations".to_string(),
+        tools: vec![],
+        downstream_agents: vec![],
+        personality: None,
+        state_machine: None,
+    });
 
-        #[cfg(feature = "git-agent")]
-        {
-            let git_assistant = GitAssistantAgent::new(AgentConfig {
-                name: "git".to_string(),
-                public_description: "Git operations with intelligent commit messages".to_string(),
-                instructions: "Manages git operations with quantum-themed messages".to_string(),
-                tools: vec![],
-                downstream_agents: vec![],
-                personality: None,
-                state_machine: None,
-            });
-            reg.register("git".to_string(), Box::new(git_assistant)).await?;
-        }
-        #[cfg(feature = "haiku-agent")]
-        {
-            let haiku = HaikuAgent::new(AgentConfig {
-                name: "haiku".to_string(),
-                public_description: "Creates haikus from user input".to_string(),
-                instructions: "Creates haikus based on user input and context".to_string(),
-                tools: vec![],
-                downstream_agents: vec![],
-                personality: None,
-                state_machine: None,
-            });
-            reg.register("haiku".to_string(), Box::new(haiku)).await?;
-        }
-        #[cfg(feature = "project-agent")]
-        {
-            let project_agent = ProjectAgent::new(AgentConfig {
-                name: "project".to_string(),
-                public_description: "Project initialization tool".to_string(),
-                instructions: "Creates new projects with proper structure and configuration".to_string(),
-                tools: vec![],
-                downstream_agents: vec![],
-                personality: None,
-                state_machine: None,
-            }).await?;
-            reg.register("project".to_string(), Box::new(project_agent)).await?;
-        }
+    let haiku = HaikuAgent::new(AgentConfig {
+        name: "haiku".to_string(),
+        public_description: "Haiku generator".to_string(),
+        instructions: "Generate haikus".to_string(),
+        tools: vec![],
+        downstream_agents: vec![],
+        personality: None,
+        state_machine: None,
+    });
 
-        // Register greeter agent (always available)
-        let greeter = GreeterAgent::new(AgentConfig {
-            name: "greeter".to_string(),
-            public_description: "Quantum Greeter".to_string(),
-            instructions: "Master of controlled chaos and improvisational engineering".to_string(),
-            tools: vec![],
-            downstream_agents: vec!["git".to_string(), "project".to_string(), "haiku".to_string()],
-            personality: None,
-            state_machine: None,
-        });
-        reg.register("greeter".to_string(), Box::new(greeter)).await?;
-    }
-    Ok(())
+    let greeter = GreeterAgent::new(AgentConfig {
+        name: "greeter".to_string(),
+        public_description: "Greeting agent".to_string(),
+        instructions: "Greet users".to_string(),
+        tools: vec![],
+        downstream_agents: vec![],
+        personality: None,
+        state_machine: None,
+    });
+
+    reg.register("git".to_string(), Box::new(git_assistant)).await
+        .map_err(|e| anyhow!("Failed to register git agent: {}", e))?;
+    reg.register("haiku".to_string(), Box::new(haiku)).await
+        .map_err(|e| anyhow!("Failed to register haiku agent: {}", e))?;
+    reg.register("greeter".to_string(), Box::new(greeter)).await
+        .map_err(|e| anyhow!("Failed to register greeter agent: {}", e))?;
+
+    Ok(reg)
 }
 
-async fn handle_git_command(service: &mut TransferService, message: Option<String>, branch: Option<String>, merge: Option<String>) -> Result<(), Error> {
-    service.set_current_agent("git".to_string());
-
-    let git_message = match message {
-        Some(msg) => msg,
-        None => "".to_string(),
+async fn handle_git_command(
+    reg: &mut AgentRegistry,
+    git_message: String,
+    branch_name: String,
+    target_branch: String,
+) -> Result<()> {
+    reg.set_current_agent("git".to_string());
+    let input = format!(
+        "Message: {}\nBranch: {}\nTarget: {}",
+        git_message, branch_name, target_branch
+    );
+    let task = TodoTask {
+        id: Uuid::new_v4().to_string(),
+        description: input,
+        priority: TaskPriority::Medium,
+        source_agent: Some("swarm".to_string()),
+        target_agent: "git".to_string(),
+        status: TaskStatus::Pending,
+        created_at: Utc::now().timestamp(),
+        completed_at: None,
     };
-
-    let response = service.process_message(Message::new(git_message)).await?;
-    println!("{}", response.content);
-
-    if let Some(branch_name) = branch {
-        service.process_message(Message::new(format!("branch {}", branch_name))).await?;
-    }
-
-    if let Some(target_branch) = merge {
-        service.process_message(Message::new(format!("merge {}", target_branch))).await?;
-    }
-
+    let agent = reg.get("git").ok_or_else(|| anyhow!("Git agent not found"))?;
+    agent.process_task(task).await.map_err(|e| anyhow!(e))?;
     Ok(())
 }
 
-async fn handle_init_command(service: &mut TransferService, project_type: String, name: String, description: String) -> Result<(), Error> {
-    service.set_current_agent("project".to_string());
-
-    let init_message = format!("create {} {} '{}'", project_type, name, description);
-    let response = service.process_message(Message::new(init_message)).await?;
-    println!("{}", response.content);
-
+async fn handle_init_command(
+    reg: &mut AgentRegistry,
+    init_message: String,
+) -> Result<()> {
+    reg.set_current_agent("greeter".to_string());
+    let task = TodoTask {
+        id: Uuid::new_v4().to_string(),
+        description: init_message,
+        priority: TaskPriority::Medium,
+        source_agent: Some("swarm".to_string()),
+        target_agent: "greeter".to_string(),
+        status: TaskStatus::Pending,
+        created_at: Utc::now().timestamp(),
+        completed_at: None,
+    };
+    let agent = reg.get("greeter").ok_or_else(|| anyhow!("Greeter agent not found"))?;
+    agent.process_task(task).await.map_err(|e| anyhow!(e))?;
     Ok(())
 }
 
-async fn interactive_mode(service: &mut TransferService, registry: Arc<RwLock<agents::AgentRegistry>>) -> Result<(), Error> {
-    println!("🌟 Welcome to the Quantum Swarm CLI! 🌟");
-    println!("Available agents:");
+async fn handle_message(
+    reg: &mut AgentRegistry,
+    message: String,
+) -> Result<()> {
+    let current_agent_name = reg.get_current_agent().ok_or_else(|| anyhow!("No current agent set"))?;
+    let agent = reg.get(&current_agent_name).ok_or_else(|| anyhow!("Current agent not found"))?;
+    let task = TodoTask {
+        id: Uuid::new_v4().to_string(),
+        description: message,
+        priority: TaskPriority::Medium,
+        source_agent: Some("swarm".to_string()),
+        target_agent: current_agent_name.to_string(),
+        status: TaskStatus::Pending,
+        created_at: Utc::now().timestamp(),
+        completed_at: None,
+    };
+    agent.process_task(task).await.map_err(|e| anyhow!(e))?;
+    Ok(())
+}
 
-    let agents = registry.read().await;
-    for (name, _) in agents.iter() {
-        println!("- {}", name);
-    }
-
-    loop {
-        let current_agent_display = match service.get_current_agent() {
-            Some(agent) => agent,
-            None => "No current agent",
-        };
-        println!("\nCurrent agent: {}", current_agent_display);
-        print!("> ");
-        std::io::stdout().flush().unwrap();
-
-        let mut input = String::new();
+async fn interactive_mode(reg: &mut AgentRegistry) -> Result<()> {
+    println!("Enter your message (or 'quit' to exit):");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    
+    while input.trim() != "quit" {
+        handle_message(reg, input.trim().to_string()).await?;
+        
+        println!("Enter your message (or 'quit' to exit):");
+        input.clear();
         std::io::stdin().read_line(&mut input)?;
-
-        let message = Message::new(input.trim().to_string());
-        let response = service.process_message(message).await?;
-
-        println!("{}", response.content);
     }
+    Ok(())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-}
-
-async fn run() -> Result<(), Error> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
-
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize the agent registry.
-    initialize_registry().await?;
+    let mut reg = initialize_registry().await?;
 
-    // Create transfer service starting with greeter.
-    let mut service = TransferService::new(agents::GLOBAL_REGISTRY.clone());
-    service.set_current_agent("greeter".to_string());
-
-    match cli.command {
-        Some(Commands::Git { message, branch, merge }) => {
-            // TODO: Implement handle_git_command
-            println!("Git command not yet implemented");
+    if let Some(command) = cli.command {
+        match command {
+            Commands::Git { message, branch, merge } => {
+                let git_message = message.unwrap_or_else(|| "".to_string());
+                let branch_name = branch.unwrap_or_else(|| "".to_string());
+                let target_branch = merge.unwrap_or_else(|| "".to_string());
+                handle_git_command(&mut reg, git_message, branch_name, target_branch).await?;
+            }
+            Commands::Init { project_type, name, description } => {
+                let init_message = format!("Create {} project '{}' with description: {}", 
+                    project_type, name, description);
+                handle_init_command(&mut reg, init_message).await?;
+            }
+            Commands::Message { message } => {
+                handle_message(&mut reg, message).await?;
+            }
         }
-        Some(Commands::Init { project_type, name, description }) => {
-            // TODO: Implement handle_init_command
-            println!("Init command not yet implemented");
-        }
-        None => {
-            // TODO: Implement interactive_mode
-            println!("Interactive mode not yet implemented");
-        }
+    } else {
+        interactive_mode(&mut reg).await?;
     }
+
     Ok(())
 }
 
