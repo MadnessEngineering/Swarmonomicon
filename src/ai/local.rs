@@ -1,23 +1,19 @@
-use reqwest::Client;
-use serde_json::Value;
 use std::collections::HashMap;
+use serde_json::Value;
 use crate::types::Result;
 use super::AiProvider;
+use tokio::process::Command as TokioCommand;
+use anyhow::anyhow;
 
-const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:1234/v1/chat/completions";
-const DEFAULT_MODEL: &str = "michaelneale/deepseek-r1-goose"
+const DEFAULT_MODEL: &str = "michaelneale/deepseek-r1-goose";
 
 pub struct LocalAiClient {
-    client: Client,
-    endpoint: String,
     model: String,
 }
 
 impl Default for LocalAiClient {
     fn default() -> Self {
         Self {
-            client: Client::new(),
-            endpoint: DEFAULT_AI_ENDPOINT.to_string(),
             model: DEFAULT_MODEL.to_string(),
         }
     }
@@ -26,11 +22,6 @@ impl Default for LocalAiClient {
 impl LocalAiClient {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn with_endpoint(mut self, endpoint: String) -> Self {
-        self.endpoint = endpoint;
-        self
     }
 
     pub fn with_model(mut self, model: String) -> Self {
@@ -42,29 +33,33 @@ impl LocalAiClient {
 #[async_trait::async_trait]
 impl AiProvider for LocalAiClient {
     async fn chat(&self, system_prompt: &str, messages: Vec<HashMap<String, String>>) -> Result<String> {
-        let mut chat_messages = vec![
-            HashMap::from([
-                ("role".to_string(), "system".to_string()),
-                ("content".to_string(), system_prompt.to_string()),
+        // Format the messages into a single prompt
+        let mut prompt = format!("System: {}\n\n", system_prompt);
+        for message in messages {
+            if let Some(role) = message.get("role") {
+                if let Some(content) = message.get("content") {
+                    prompt.push_str(&format!("{}: {}\n", role, content));
+                }
+            }
+        }
+
+        // Execute ollama CLI command
+        let output = TokioCommand::new("ollama")
+            .args([
+                "run",
+                &self.model,
+                &prompt,
             ])
-        ];
-        chat_messages.extend(messages);
+            .output()
+            .await
+            .map_err(|e| anyhow!("Failed to execute ollama command: {}", e))?;
 
-        let response = self.client
-            .post(&self.endpoint)
-            .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "model": self.model,
-                "messages": chat_messages
-            }))
-            .send()
-            .await?;
-
-        let data: Value = response.json().await?;
-        Ok(data["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("I apologize, but I'm having trouble processing that request.")
-            .to_string())
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| anyhow!("Failed to parse ollama output: {}", e))?)
+        } else {
+            Err(anyhow!("Ollama command failed: {}", String::from_utf8_lossy(&output.stderr)).into())
+        }
     }
 }
 
@@ -75,10 +70,8 @@ mod tests {
     #[tokio::test]
     async fn test_local_ai_client_creation() {
         let client = LocalAiClient::new()
-            .with_endpoint("http://test.endpoint".to_string())
             .with_model("test-model".to_string());
 
-        assert_eq!(client.endpoint, "http://test.endpoint");
         assert_eq!(client.model, "test-model");
     }
 }

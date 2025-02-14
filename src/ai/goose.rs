@@ -31,34 +31,31 @@ impl GooseClient {
 #[async_trait::async_trait]
 impl AiProvider for GooseClient {
     async fn chat(&self, system_prompt: &str, messages: Vec<HashMap<String, String>>) -> Result<String> {
-        // Convert messages to JSON format expected by Goose
-        let mut chat_messages = vec![
-            HashMap::from([
-                ("role".to_string(), "system".to_string()),
-                ("content".to_string(), system_prompt.to_string()),
-            ])
-        ];
-        chat_messages.extend(messages);
+        // Format the messages into a single prompt
+        let mut prompt = format!("System: {}\n\n", system_prompt);
+        for message in messages {
+            if let Some(role) = message.get("role") {
+                if let Some(content) = message.get("content") {
+                    prompt.push_str(&format!("{}: {}\n", role, content));
+                }
+            }
+        }
 
-        let json_messages = serde_json::to_string(&chat_messages)?;
-
-        // Execute Goose CLI command
+        // Execute goose CLI command
         let output = TokioCommand::new("goose")
             .args([
-                "chat",
+                "run",
+                "--text",
                 "--model", &self.model,
-                "--messages", &json_messages,
+                &prompt,
             ])
             .output()
             .await
-            .map_err(|e| anyhow!("Failed to execute Goose command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to execute goose command: {}", e))?;
 
         if output.status.success() {
-            let response: Value = serde_json::from_slice(&output.stdout)?;
-            Ok(response["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("I apologize, but I'm having trouble processing that request.")
-                .to_string())
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| anyhow!("Failed to parse goose output: {}", e))?)
         } else {
             Err(anyhow!("Goose command failed: {}", String::from_utf8_lossy(&output.stderr)).into())
         }

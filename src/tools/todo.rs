@@ -16,10 +16,12 @@ use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
 use regex::Regex;
+use crate::ai::{AiProvider, DefaultAiClient};
 
 #[derive(Clone)]
 pub struct TodoTool {
     collection: Arc<Collection<TodoTask>>,
+    ai_client: Arc<Box<dyn AiProvider + Send + Sync>>,
 }
 
 impl TodoTool {
@@ -39,30 +41,34 @@ impl TodoTool {
             .await
             .map_err(|e| anyhow!("Failed to create index: {}", e))?;
 
-        Ok(Self { collection })
+        Ok(Self {
+            collection,
+            ai_client: Arc::new(Box::new(DefaultAiClient::new())),
+        })
+    }
+
+    pub fn with_ai_client<T: AiProvider + Send + Sync + 'static>(mut self, client: T) -> Self {
+        self.ai_client = Arc::new(Box::new(client));
+        self
     }
 
     async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority)> {
         tracing::debug!("Attempting to enhance description with AI: {}", description);
-        // Use ollama to enhance the todo description
-        // let output = Command::new("ollama")
-        //     .arg("run")
-        //     .arg("michaelneale/deepseek-r1-goose")
 
-        // Use goose CLI to enhance the todo description
-        let output = Command::new("goose")
-            .arg("run")
-            .arg("--text")
-            .arg(format!(
-                "I would like to get your assistance in improving a todo task description and assessing its priority. The current description is: '{}'. Please return a JSON object with an 'enhanced_description' field containing your suggested improvements to the wording, if any, and a 'priority' field with your recommendation of 'low', 'medium' or 'high'. No need to take any other action, just provide the JSON.",
-            description
-            ))
-            .output()
-            .map_err(|e| anyhow!("Failed to execute goose command: {}", e))?;
+        let system_prompt = "You are a helpful AI assistant that improves todo task descriptions and assigns priorities. \
+                           Your responses should be in JSON format with 'description' and 'priority' fields. \
+                           Priority should be one of: 'low', 'medium', or 'high'.";
 
-        let ai_response = String::from_utf8(output.stdout)
-            .map_err(|e| anyhow!("Failed to parse goose output: {}", e))?;
+        let messages = vec![HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), format!(
+                "Please improve this todo task description and assign a priority: '{}'. \
+                 Return only a JSON object with 'description' and 'priority' fields.",
+                description
+            )),
+        ])];
 
+        let ai_response = self.ai_client.chat(system_prompt, messages).await?;
         tracing::debug!("Received AI response: {}", ai_response);
 
         // Use regex to extract JSON substring
@@ -124,14 +130,6 @@ impl TodoTool {
                 Ok((enhanced_desc, priority))
             }
             Err(_) => {
-                // Attempt to extract just the description using regex
-                let desc_regex = Regex::new(r#""description"\s*:\s*"(.*?)""#).unwrap();
-                if let Some(desc_match) = desc_regex.captures(&json_content) {
-                    let desc = desc_match[1].to_string();
-                    tracing::debug!("Parsed description from JSON using regex: {}", desc);
-                    return Ok((desc, TaskPriority::Medium));
-                }
-
                 tracing::debug!("Falling back to original description with medium priority");
                 Ok((description.to_string(), TaskPriority::Medium))
             }
