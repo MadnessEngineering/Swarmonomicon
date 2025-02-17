@@ -1,4 +1,5 @@
-#[cfg(feature = "rl")]
+#![cfg(feature = "rl")]
+
 use clap::Parser;
 use swarmonomicon::agents::rl::{
     Environment,
@@ -8,7 +9,6 @@ use swarmonomicon::agents::rl::{
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 
-#[cfg(feature = "rl")]
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -37,7 +37,6 @@ struct Cli {
     visualize: bool,
 }
 
-#[cfg(feature = "rl")]
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
