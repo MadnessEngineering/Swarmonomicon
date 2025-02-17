@@ -48,12 +48,22 @@ Unintended Hilarity guaranteed[^2].
   - Intelligent task routing based on enhanced descriptions
 
 - Extensible Architecture:
-  - Easy to add new agents (This is a huge exaggeration lol. Agents NEVER get carried away.. xD)
-  - Configurable task processing intervals (WIP)
-  - Support for agent-specific state machines (experimental)
+  - Easy to add new agents
+  - Configurable task processing intervals
+  - Support for agent-specific state machines
   - Flexible message routing
   - AI-enhanced task processing capabilities
   - Fallback mechanisms for AI enhancement failures
+  - GPT-4 Batch Processing Tool:
+    - Efficient handling of multiple AI requests
+    - Automatic request batching with configurable window (1 second default)
+    - Rate limiting (3500 requests/minute for GPT-4)
+    - Exponential backoff retry mechanism (max 3 retries)
+    - Support for OpenAI function calling
+    - Built-in token usage tracking
+    - Automatic error handling and recovery
+    - Concurrent request processing with configurable batch size
+    - Request pooling for optimal API usage
 
 
 ## Inspiration and Credits

@@ -9,6 +9,7 @@ mod object_detection;
 mod screenshot_detection;
 pub mod todo;
 mod goose;
+mod gpt_batch;
 
 #[cfg(feature = "yolo")]
 pub mod yolo;
@@ -19,6 +20,7 @@ pub use object_detection::ObjectDetectionTool;
 pub use screenshot_detection::ScreenshotDetectionTool;
 pub use todo::TodoTool;
 pub use goose::GooseTool;
+pub use gpt_batch::GPTBatchTool;
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -98,6 +100,10 @@ impl ToolRegistry {
 
         // Register Goose tool
         registry.register("goose".to_string(), GooseTool::new());
+
+        // Register GPT Batch tool
+        let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "".to_string());
+        registry.register("gpt_batch".to_string(), GPTBatchTool::new(api_key));
 
         Ok(registry)
     }
