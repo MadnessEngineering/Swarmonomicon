@@ -24,15 +24,22 @@ impl TransferService {
     }
 
     pub async fn transfer(&self, from: &str, to: &str, message: Message) -> Result<Message> {
-        let registry = self.registry.read().await;
-        let source_agent = registry.get(from)
-            .ok_or_else(|| anyhow!("Source agent '{}' not found", from))?;
+        // First validate that both agents exist
+        {
+            let registry = self.registry.read().await;
+            if registry.get(from).is_none() {
+                return Err(anyhow!("Source agent '{}' not found", from));
+            }
+            if registry.get(to).is_none() {
+                return Err(anyhow!("Target agent '{}' not found", to));
+            }
+        } // registry read lock is dropped here
 
-        let target_agent = registry.get(to)
-            .ok_or_else(|| anyhow!("Target agent '{}' not found", to))?;
-
-        // Drop the read lock before modifying the registry
-        drop(registry);
+        // Get the source agent and perform the transfer
+        let source_agent = {
+            let registry = self.registry.read().await;
+            registry.get(from).unwrap().clone()
+        };
 
         // Perform the transfer
         let result = source_agent.transfer_to(to.to_string(), message).await?;
