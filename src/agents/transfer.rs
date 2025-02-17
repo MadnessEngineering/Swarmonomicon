@@ -31,7 +31,16 @@ impl TransferService {
         let target_agent = registry.get(to)
             .ok_or_else(|| anyhow!("Target agent '{}' not found", to))?;
 
-        source_agent.transfer_to(to.to_string(), message).await
+        // Drop the read lock before modifying the registry
+        drop(registry);
+
+        // Perform the transfer
+        let result = source_agent.transfer_to(to.to_string(), message).await?;
+
+        // Update the current agent
+        self.set_current_agent_name(to).await?;
+
+        Ok(result)
     }
 
     pub async fn get_agent(&self, name: &str) -> Result<Arc<Box<dyn Agent + Send + Sync>>> {
