@@ -310,7 +310,11 @@ mod tests {
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
 
-        let tool = TodoTool { collection };
+        let ai_client = DefaultAiClient::new();
+        let tool = TodoTool { 
+            collection,
+            ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
+        };
 
         // Test adding a todo
         let mut params = HashMap::new();

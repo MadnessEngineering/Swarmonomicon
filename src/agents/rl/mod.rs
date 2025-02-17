@@ -134,8 +134,8 @@ mod tests {
     struct TestState(i32);
 
     impl State for TestState {
-        fn to_string(&self) -> String {
-            self.0.to_string()
+        fn to_features(&self) -> Vec<f64> {
+            vec![self.0 as f64]
         }
     }
 
@@ -146,10 +146,18 @@ mod tests {
     }
 
     impl Action for TestAction {
-        fn to_string(&self) -> String {
+        fn to_index(&self) -> usize {
             match self {
-                TestAction::Up => "up".to_string(),
-                TestAction::Down => "down".to_string(),
+                TestAction::Up => 0,
+                TestAction::Down => 1,
+            }
+        }
+
+        fn from_index(index: usize) -> Option<Self> {
+            match index {
+                0 => Some(TestAction::Up),
+                1 => Some(TestAction::Down),
+                _ => None,
             }
         }
     }
@@ -169,13 +177,13 @@ mod tests {
 
         fn step(&mut self, action: &Self::A) -> (Self::S, f64, bool) {
             match action {
-                TestAction::Left => self.state -= 1,
-                TestAction::Right => self.state += 1,
+                TestAction::Up => self.state += 1,
+                TestAction::Down => self.state -= 1,
             }
-
+            
             let reward = if self.state == 5 { 1.0 } else { -0.1 };
             let done = self.state == 5 || self.state.abs() > 10;
-
+            
             (TestState(self.state), reward, done)
         }
 
@@ -184,7 +192,7 @@ mod tests {
         }
 
         fn valid_actions(&self, _state: &Self::S) -> Vec<Self::A> {
-            vec![TestAction::Left, TestAction::Right]
+            vec![TestAction::Up, TestAction::Down]
         }
     }
 

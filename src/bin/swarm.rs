@@ -222,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(all(feature = "haiku-agent", feature = "git-agent"))]
-    async fn test_haiku_git_integration() -> Result<(), Error> {
+    async fn test_haiku_git_integration() -> Result<()> {
         let temp_dir = tempdir()?;
         let repo_path = temp_dir.path().join("repo");
         std::fs::create_dir(&repo_path)?;
@@ -281,7 +281,7 @@ mod tests {
         let mut service = TransferService::new(registry.clone());
 
         // Test haiku generation and git commit
-        service.set_current_agent("haiku".to_string());
+        service.set_current_agent_name("haiku");
         let response = service.process_message(Message::new("generate haiku about coding".to_string())).await?;
 
         assert!(response.content.contains("Generated haiku:"));
@@ -296,7 +296,7 @@ mod tests {
         assert!(git_log.contains("[haiku]"));
 
         // Test project initialization
-        service.set_current_agent("project".to_string());
+        service.set_current_agent_name("project");
         let response = service.process_message(Message::new("create rust test-project 'A test project'".to_string())).await?;
 
         assert!(response.content.contains("Project created"));

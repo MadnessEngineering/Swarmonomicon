@@ -171,12 +171,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_registry() {
+    async fn test_agent_registry() -> Result<()> {
         let configs = create_test_configs();
         let mut registry = AgentRegistry::new();
 
-        let agent = create_agent(configs[0].clone()).await.unwrap();
-        registry.register(configs[0].name.clone(), agent).await.unwrap();
+        let agent = create_agent(configs[0].clone()).await?;
+        registry.register(configs[0].name.clone(), agent).await?;
 
         // Test immutable access
         assert!(registry.get("greeter").is_some());
@@ -184,19 +184,20 @@ mod tests {
 
         // Test mutable access
         if let Some(greeter) = registry.get_mut("greeter") {
-            let response = greeter.process_message(Message::new(String::from("hi"))).await.unwrap();
+            let response = greeter.process_message(Message::new(String::from("hi"))).await?;
             assert!(response.content.contains("Hello"));
         }
 
         // Test agent iteration
         let all_agents: Vec<_> = registry.iter().map(|(k, _)| k).collect();
         assert_eq!(all_agents.len(), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_agent_workflow() {
+    async fn test_agent_workflow() -> Result<()> {
         let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let mut service = TransferService::new(registry.clone());
+        let service = TransferService::new(registry.clone());
 
         // Register test agents
         {
@@ -209,8 +210,8 @@ mod tests {
                 downstream_agents: vec!["haiku".to_string()],
                 personality: None,
                 state_machine: None,
-            }).await.unwrap();
-            registry.register("greeter".to_string(), greeter).await.unwrap();
+            }).await?;
+            registry.register("greeter".to_string(), greeter).await?;
 
             let haiku = create_agent(AgentConfig {
                 name: "haiku".to_string(),
@@ -237,30 +238,31 @@ mod tests {
                     },
                     initial_state: "awaiting_topic".to_string(),
                 }),
-            }).await.unwrap();
-            registry.register("haiku".to_string(), haiku).await.unwrap();
+            }).await?;
+            registry.register("haiku".to_string(), haiku).await?;
         }
 
         // Set initial agent and test workflow
-        service.set_current_agent("greeter".to_string());
+        service.set_current_agent_name("greeter").await?;
 
         // Test initial greeting
-        let response = service.process_message(Message::new("hello".to_string())).await.unwrap();
+        let response = service.process_message(Message::new("hello".to_string())).await?;
         assert!(response.content.contains("Hello"), "Response should contain a greeting");
 
         // Test transfer to haiku agent
-        service.transfer("greeter", "haiku").await.unwrap();
-        assert_eq!(service.get_current_agent(), Some("haiku"));
+        service.transfer("greeter", "haiku", Message::new("test".to_string())).await?;
+        assert_eq!(service.get_current_agent_name().await?, "haiku");
 
         // Test haiku generation
-        let response = service.process_message(Message::new("nature".to_string())).await.unwrap();
+        let response = service.process_message(Message::new("nature".to_string())).await?;
         assert!(response.content.contains("haiku"), "Response should contain a haiku");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_agent_transfer() {
+    async fn test_agent_transfer() -> Result<()> {
         let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let mut service = TransferService::new(registry.clone());
+        let service = TransferService::new(registry.clone());
 
         // Set up test agents
         {
@@ -285,15 +287,16 @@ mod tests {
                 state_machine: None,
             });
 
-            reg.register("greeter".to_string(), Box::new(greeter)).await.unwrap();
-            reg.register("haiku".to_string(), Box::new(haiku)).await.unwrap();
+            reg.register("greeter".to_string(), Box::new(greeter)).await?;
+            reg.register("haiku".to_string(), Box::new(haiku)).await?;
         }
 
         // Test agent transfer
-        service.set_current_agent_name("greeter".to_string()).await.unwrap();
+        service.set_current_agent_name("greeter").await?;
         let message = Message::new("Hello, transfer me to haiku!".to_string());
-        service.transfer("greeter", "haiku", message).await.unwrap();
-        assert_eq!(service.get_current_agent_name().await.unwrap(), "haiku");
+        service.transfer("greeter", "haiku", message).await?;
+        assert_eq!(service.get_current_agent_name().await?, "haiku");
+        Ok(())
     }
 }
 
