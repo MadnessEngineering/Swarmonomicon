@@ -104,6 +104,10 @@ impl Agent for GreeterAgent {
     }
 
     async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+        // Check if target agent is in downstream_agents
+        if !self.config.downstream_agents.contains(&target_agent) {
+            return Err(anyhow!("Cannot transfer to unknown agent: {}", target_agent));
+        }
         Ok(Message::new(format!("Transferring to {} agent...", target_agent)))
     }
 
