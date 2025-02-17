@@ -5,6 +5,7 @@ use serde::Serialize;
 pub struct TaskResponse {
     pub id: String,
     pub description: String,
+    pub enhanced_description: Option<String>,
     pub priority: TaskPriority,
     pub source_agent: Option<String>,
     pub target_agent: String,
@@ -17,7 +18,8 @@ impl From<TodoTask> for TaskResponse {
     fn from(task: TodoTask) -> Self {
         Self {
             id: task.id,
-            description: task.description,
+            description: task.description.clone(),
+            enhanced_description: task.enhanced_description,
             priority: task.priority,
             source_agent: task.source_agent,
             target_agent: task.target_agent,

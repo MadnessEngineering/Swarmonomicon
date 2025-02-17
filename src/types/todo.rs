@@ -8,6 +8,10 @@ use mongodb::bson::{doc, DateTime};
 use mongodb::error::Error as MongoError;
 use futures_util::TryStreamExt;
 use std::env;
+use uuid::Uuid;
+use std::collections::HashMap;
+use chrono::{Utc};
+use crate::ai::AiProvider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoTask {
@@ -47,9 +51,11 @@ impl TodoList {
     pub async fn new() -> Result<Self, MongoError> {
         let uri = env::var("RTK_MONGO_URI")
             .expect("RTK_MONGO_URI must be set");
+        let db_name = env::var("RTK_MONGO_DB")
+            .unwrap_or_else(|_| "swarmonomicon".to_string());
 
         let client = Client::with_uri_str(&uri).await?;
-        let db = client.database("swarmonomicon");
+        let db = client.database(&db_name);
         let collection = db.collection("todos");
 
         Ok(Self { collection })
@@ -127,6 +133,51 @@ impl TodoList {
 
     pub async fn len(&self) -> Result<u64, MongoError> {
         Ok(self.collection.count_documents(None, None).await?)
+    }
+
+    pub async fn create_task_with_enhancement(
+        &self,
+        description: String,
+        priority: TaskPriority,
+        source_agent: Option<String>,
+        target_agent: String,
+        ai_client: Option<&dyn AiProvider>,
+    ) -> Result<TodoTask, MongoError> {
+        let mut task = TodoTask {
+            id: Uuid::new_v4().to_string(),
+            description: description.clone(),
+            enhanced_description: None,
+            priority,
+            source_agent,
+            target_agent,
+            status: TaskStatus::Pending,
+            created_at: Utc::now().timestamp(),
+            completed_at: None,
+        };
+
+        // Only attempt AI enhancement if a client is provided
+        if let Some(ai_client) = ai_client {
+            let system_prompt = r#"You are a task enhancement system. Enhance the given task description by:
+1. Adding specific technical details
+2. Explaining impact and scope
+3. Including relevant components/systems
+4. Making it more comprehensive
+5. Keeping it concise
+
+Output ONLY the enhanced description, no other text."#;
+
+            let messages = vec![HashMap::from([
+                ("role".to_string(), "user".to_string()),
+                ("content".to_string(), format!("Enhance this task: {}", description)),
+            ])];
+
+            if let Ok(enhanced) = ai_client.chat(system_prompt, messages).await {
+                task.enhanced_description = Some(enhanced);
+            }
+        }
+
+        self.add_task(task.clone()).await?;
+        Ok(task)
     }
 }
 

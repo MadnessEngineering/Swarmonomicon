@@ -199,16 +199,16 @@ pub async fn get_tasks(
     Path(agent_name): Path<String>,
 ) -> Result<Json<Vec<TaskResponse>>, StatusCode> {
     let registry = state.agents.read().await;
-    
+
     let agent = registry.get(&agent_name)
         .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     let todo_list = <dyn Agent>::get_todo_list(agent)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
+
     let tasks = todo_list.get_all_tasks().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(tasks.into_iter().map(TaskResponse::from).collect()))
 }
 
@@ -218,17 +218,17 @@ pub async fn get_task(
     Path((agent_name, task_id)): Path<(String, String)>,
 ) -> Result<Json<TaskResponse>, StatusCode> {
     let registry = state.agents.read().await;
-    
+
     let agent = registry.get(&agent_name)
         .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     let todo_list = <dyn Agent>::get_todo_list(agent)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
+
     let task = todo_list.get_task(&task_id).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     Ok(Json(TaskResponse::from(task)))
 }
 
@@ -239,28 +239,23 @@ pub async fn add_task(
     Json(request): Json<AddTaskRequest>,
 ) -> Result<Json<TaskResponse>, StatusCode> {
     let registry = state.agents.read().await;
-    
+
     let agent = registry.get(&agent_name)
         .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     let todo_list = <dyn Agent>::get_todo_list(agent)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
-    
-    let task = TodoTask {
-        id: uuid::Uuid::new_v4().to_string(),
-        description: request.description,
-        enhanced_description: None,  // No AI enhancement at this level
-        priority: request.priority,
-        source_agent: request.source_agent,
-        target_agent: agent_name,
-        status: TaskStatus::Pending,
-        created_at: chrono::Utc::now().timestamp(),
-        completed_at: None,
-    };
-    
-    todo_list.add_task(task.clone()).await
+
+    // Create task with optional AI enhancement
+    let task = todo_list.create_task_with_enhancement(
+        request.description,
+        request.priority,
+        request.source_agent,
+        agent_name,
+        None, // No AI enhancement at API level - this should be handled by the agent's todo processor
+    ).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(TaskResponse::from(task)))
 }
 
@@ -303,11 +298,11 @@ mod tests {
     impl TestAgent {
         async fn new_with_mocks(config: AgentConfig, client: Arc<Client>) -> Result<Self, anyhow::Error> {
             // Set up MongoDB connection for testing
-            std::env::set_var("RTK_MONGO_URI", "mongodb://localhost:27017/swarmonomicon_test");
-            
+            std::env::set_var("RTK_MONGO_URI", "mongodb://localhost:27017");
+
             // Create a new TodoList that will use the test database
             let todo_list = TodoList::new().await?;
-            
+
             Ok(Self {
                 config: config.clone(),
                 todo_list,
@@ -366,16 +361,16 @@ mod tests {
         async fn process_task(&self, task: TodoTask) -> Result<Message, anyhow::Error> {
             // Enhance the task description using AI
             let enhanced_description = self.enhance_task_description(task.description.clone()).await?;
-            
+
             // Create a new task with the enhanced description
             let enhanced_task = TodoTask {
                 description: enhanced_description,
                 ..task
             };
-            
+
             // Add the enhanced task to the todo list
             self.todo_list.add_task(enhanced_task.clone()).await.map_err(|e| anyhow!("Failed to add task: {}", e))?;
-            
+
             Ok(Message::new(format!("Processed task: {}", enhanced_task.description)))
         }
 
@@ -391,9 +386,12 @@ mod tests {
     #[tokio::test]
     async fn test_todo_list_endpoints() -> Result<(), anyhow::Error> {
         // Set up MongoDB connection for testing
+        std::env::set_var("RTK_MONGO_URI", "mongodb://localhost:27017");
+        std::env::set_var("RTK_MONGO_DB", "swarmonomicon_test");
+
         let client = Arc::new(Client::with_uri_str("mongodb://localhost:27017").await?);
         let db = client.database("swarmonomicon_test");
-        
+
         // Clean up any existing data in the test database
         db.collection::<TodoTask>("todos").drop(None).await?;
 
@@ -432,9 +430,11 @@ mod tests {
 
         let task_id = response.0.id.clone();
         let task_description = response.0.description.clone();
-        
+        let enhanced_description = response.0.enhanced_description.clone();
+
         assert_eq!(response.0.priority, TaskPriority::High);
-        assert!(task_description.contains("fibonacci"), "AI-enhanced description should maintain core meaning");
+        assert_eq!(task_description, "Write a function to calculate fibonacci numbers", "Original description should be preserved");
+        assert!(enhanced_description.is_none(), "Enhanced description should not be present at API level");
         assert_eq!(response.0.status, TaskStatus::Pending);
 
         // Test 2: Add multiple tasks and verify prioritization

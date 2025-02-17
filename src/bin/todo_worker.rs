@@ -56,20 +56,20 @@ async fn main() -> Result<()> {
                         let description = String::from_utf8_lossy(&publish.payload).to_string();
                         let todo_name = publish.topic.clone();
 
-                        // Create a new TodoTask and add it to the shared TodoList
-                        let task = TodoTask {
-                            id: uuid::Uuid::new_v4().to_string(),
+                        // Create a new TodoTask with optional AI enhancement
+                        match todo_list_clone.create_task_with_enhancement(
                             description,
-                            enhanced_description: None,  // No AI enhancement at worker level
-                            priority: TaskPriority::Medium,
-                            source_agent: Some("mqtt".to_string()),
-                            target_agent: "user".to_string(),
-                            status: TaskStatus::Pending,
-                            created_at: chrono::Utc::now().timestamp(),
-                            completed_at: None,
-                        };
-                        if let Err(e) = todo_list_clone.add_task(task).await {
-                            tracing::error!("Failed to add task: {}", e);
+                            TaskPriority::Medium,
+                            Some("mqtt".to_string()),
+                            "user".to_string(),
+                            None, // No AI enhancement at worker level
+                        ).await {
+                            Ok(task) => {
+                                tracing::info!("Successfully created task: {:?}", task);
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to create task: {}", e);
+                            }
                         }
                     }
                 }

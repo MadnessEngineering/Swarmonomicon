@@ -210,19 +210,21 @@ The Git assistant uses AI to generate meaningful commit messages based on the ch
 
 ## Task System
 
-### Task Priority Levels
+The system uses a sophisticated task management system with AI enhancement capabilities:
+
+#### Task Priority Levels
 - Critical: Highest priority tasks that need immediate attention
 - High: Important tasks that should be processed soon
 - Medium: Regular priority tasks
 - Low: Background tasks that can wait
 
-### Task Status Flow
+#### Task Status Flow
 1. Pending: Task has been added to the todo list
 2. InProgress: Task is currently being processed
 3. Completed: Task has been successfully completed
 4. Failed: Task processing failed
 
-### Task Structure
+#### Task Structure
 ```rust
 pub struct TodoTask {
     pub id: String,
@@ -237,21 +239,59 @@ pub struct TodoTask {
 }
 ```
 
-### AI Enhancement Features
-- Automatic task description enhancement using AI
-- Preservation of both original and enhanced descriptions
-- Context-aware priority assignment based on task content
-- Intelligent task routing based on enhanced descriptions
-- Fallback to original descriptions when AI enhancement fails
+#### AI Enhancement System
 
-The system uses AI to:
-1. Expand task descriptions with relevant technical details
-2. Identify task impact and scope
-3. Include related components and systems
-4. Assign appropriate priority levels
-5. Maintain concise but comprehensive descriptions
+The system implements a layered approach to AI task enhancement:
 
-This dual-description approach ensures compatibility with existing tools while providing richer context for task processing.
+1. Infrastructure Layer (API/Worker):
+   - Handles basic task creation and routing
+   - No AI enhancement at this level
+   - Preserves original task descriptions
+
+2. Agent Layer:
+   - Implements AI enhancement during task processing
+   - Adds technical details and context
+   - Maintains task integrity
+
+3. Storage Layer:
+   - MongoDB-based persistent storage
+   - Configurable database via RTK_MONGO_DB
+   - Stores both original and enhanced descriptions
+
+#### Task Creation
+
+Tasks can be created through multiple channels:
+1. API endpoints
+2. MQTT messages
+3. Agent-to-agent delegation
+
+Example API request:
+```bash
+curl -X POST http://localhost:3000/api/agents/greeter/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Welcome new user John",
+    "priority": "High",
+    "source_agent": null
+  }'
+```
+
+Response:
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "description": "Welcome new user John",
+  "enhanced_description": null,
+  "priority": "High",
+  "source_agent": null,
+  "target_agent": "greeter",
+  "status": "Pending",
+  "created_at": 1677721600,
+  "completed_at": null
+}
+```
+
+The task will be enhanced during processing by the target agent, adding technical details and context while preserving the original description.
 
 ## Usage
 

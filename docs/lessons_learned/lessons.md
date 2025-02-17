@@ -40,19 +40,36 @@
 
 ### Handling AI-Enhanced Descriptions
 
-When using AI to enhance todo descriptions, it's important to preserve both the original and enhanced versions:
+When using AI to enhance todo descriptions, it's important to follow these principles:
 
-1. Store both descriptions in the data model:
-   - Original description for user reference and exact matching
-   - Enhanced description for additional context and details
+1. Separation of Concerns:
+   - Infrastructure level (API/worker) - No AI enhancement, just task creation
+   - Agent level - Responsible for AI enhancement during task processing
+   - TodoList - Provides utilities for both enhanced and non-enhanced task creation
 
-2. Use the appropriate description based on context:
-   - Show original description in lists and basic views
-   - Use enhanced description for detailed views or AI processing
+2. Data Storage:
+   - Original description is always preserved
+   - Enhanced description is optional (Option<String>)
+   - Both versions are stored in MongoDB
+   - Database name is configurable via RTK_MONGO_DB env var
 
-3. Make AI enhancement optional:
-   - Allow tasks to be created without enhancement
-   - Store enhanced description as Option<String>
-   - Only enhance at appropriate system boundaries (e.g., TodoTool)
+3. Enhancement Flow:
+   - Tasks are initially created with no enhancement
+   - Agents can enhance tasks during processing
+   - Enhancement includes technical details, scope, and impact
+   - Failed enhancements gracefully fallback to original description
 
-This approach maintains compatibility with existing code while adding AI enhancement capabilities. 
+4. Testing Considerations:
+   - Use separate test database (swarmonomicon_test)
+   - Mock AI clients for predictable test behavior
+   - Verify both enhanced and non-enhanced paths
+   - Clean up test data after each test run
+
+5. Best Practices:
+   - Use create_task_with_enhancement for consistent task creation
+   - Handle AI enhancement failures gracefully
+   - Log enhancement attempts and results
+   - Keep original description for exact matching
+   - Use enhanced description for rich context
+
+This approach maintains system integrity while providing flexible AI enhancement capabilities. 
