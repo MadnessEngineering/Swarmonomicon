@@ -8,124 +8,139 @@ use swarmonomicon::agents::rl::{
 };
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
+use winit::event_loop::{EventLoop, ControlFlow};
+use winit::window::WindowBuilder;
+use winit::event::Event;
+use std::time::{Duration, Instant};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Cli {
+struct Args {
     /// Path to save/load the model
     #[arg(short, long)]
-    model: Option<PathBuf>,
-
-    /// Number of episodes to train
-    #[arg(short, long, default_value = "1000")]
-    episodes: i32,
-
-    /// Learning rate
-    #[arg(short, long, default_value = "0.1")]
-    learning_rate: f64,
-
-    /// Discount factor
-    #[arg(short, long, default_value = "0.95")]
-    discount_factor: f64,
-
-    /// Exploration rate (epsilon)
-    #[arg(short, long, default_value = "0.1")]
-    epsilon: f64,
+    model_path: Option<PathBuf>,
 
     /// Whether to visualize the training
     #[arg(short, long)]
     visualize: bool,
+
+    /// Number of episodes to train
+    #[arg(short, long, default_value = "1000")]
+    episodes: usize,
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    let args = Cli::parse();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+    let model_path = args.model_path.unwrap_or_else(|| PathBuf::from("flappy_model.json"));
 
-    // Initialize environment and agent
     let mut env = FlappyBirdEnv::default();
-    let mut agent = if let Some(ref model_path) = args.model {
-        if model_path.exists() {
-            println!("Loading model from {}", model_path.display());
-            let mut agent = QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon);
-            agent.load_model(model_path).await
-                .map_err(|e| anyhow!("Failed to load model: {}", e))?;
-            agent
-        } else {
-            println!("Creating new model that will be saved to {}", model_path.display());
-            QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon)
-        }
+    let mut agent = if model_path.exists() {
+        let mut agent = QLearningAgent::new(0.1, 0.95, 0.1);
+        agent.load_model(&model_path).await?;
+        agent
     } else {
-        QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon)
+        QLearningAgent::new(0.1, 0.95, 0.1)
     };
 
-    // Initialize visualization if requested
-    let mut viz = if args.visualize {
-        let (viz, event_loop) = FlappyViz::new()
-            .map_err(|e| anyhow!("Failed to initialize visualization: {}", e))?;
-        Some((viz, event_loop))
+    let (event_loop, window, mut viz) = if args.visualize {
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new()
+            .with_title("Flappy Bird Training")
+            .with_inner_size(winit::dpi::LogicalSize::new(288.0, 512.0))
+            .build(&event_loop)
+            .unwrap();
+        let viz = FlappyViz::new(&window);
+        (Some(event_loop), Some(window), Some(viz))
     } else {
-        None
+        (None, None, None)
     };
 
     let mut best_score = 0;
     let mut total_reward = 0.0;
+    let target_fps = 60.0;
+    let frame_time = Duration::from_secs_f64(1.0 / target_fps);
 
-    println!("Starting training for {} episodes...", args.episodes);
-    for episode in 0..args.episodes {
-        let mut state = env.reset();
-        let mut episode_reward = 0.0;
+    if let (Some(event_loop), Some(_window), Some(ref mut viz)) = (&event_loop, &window, &mut viz) {
+        event_loop.run(move |event, _, control_flow| {
+            *control_flow = ControlFlow::Poll;
 
-        loop {
-            let valid_actions = env.valid_actions(&state);
-            let action = agent.choose_action(&state, &valid_actions);
-            let (next_state, reward, done) = env.step(&action);
+            match event {
+                Event::MainEventsCleared => {
+                    let frame_start = Instant::now();
+                    
+                    // Training loop
+                    let state = env.reset();
+                    let mut done = false;
+                    let mut episode_reward = 0.0;
 
-            episode_reward += reward;
+                    while !done {
+                        let valid_actions = env.valid_actions(&state);
+                        let action = agent.choose_action(&state, &valid_actions);
+                        let (next_state, reward, is_done) = env.step(&action);
+                        
+                        agent.update(&state, &action, reward, &next_state);
+                        episode_reward += reward;
+                        done = is_done;
 
-            // Update the agent
-            let next_valid_actions = env.valid_actions(&next_state);
-            agent.learn(state.clone(), action, reward, &next_state, &next_valid_actions);
+                        // Update visualization
+                        viz.render(&next_state);
 
-            // Visualize if requested
-            if let Some((viz, _)) = &mut viz {
-                viz.render(&next_state)
-                    .map_err(|e| anyhow!("Visualization error: {}", e))?;
+                        // Maintain frame rate
+                        let elapsed = frame_start.elapsed();
+                        if elapsed < frame_time {
+                            std::thread::sleep(frame_time - elapsed);
+                        }
+                    }
+
+                    total_reward += episode_reward;
+                    let score = env.get_score();
+                    if score > best_score {
+                        best_score = score;
+                        println!("New best score: {}", best_score);
+                    }
+                }
+                Event::WindowEvent { event: winit::event::WindowEvent::CloseRequested, .. } => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                _ => (),
+            }
+        });
+    } else {
+        // Training without visualization
+        for episode in 0..args.episodes {
+            let state = env.reset();
+            let mut done = false;
+            let mut episode_reward = 0.0;
+
+            while !done {
+                let valid_actions = env.valid_actions(&state);
+                let action = agent.choose_action(&state, &valid_actions);
+                let (next_state, reward, is_done) = env.step(&action);
+                
+                agent.update(&state, &action, reward, &next_state);
+                episode_reward += reward;
+                done = is_done;
             }
 
-            if done {
-                break;
+            total_reward += episode_reward;
+            let score = env.get_score();
+            if score > best_score {
+                best_score = score;
+                println!("New best score: {}", best_score);
             }
-            state = next_state;
-        }
 
-        total_reward += episode_reward;
-        let score = env.get_score();
-        if score > best_score {
-            best_score = score;
-        }
-
-        if (episode + 1) % 100 == 0 {
-            println!(
-                "Episode {}/{}: Score = {}, Best = {}, Avg Reward = {:.2}",
-                episode + 1,
-                args.episodes,
-                score,
-                best_score,
-                total_reward / (episode + 1) as f64
-            );
-
-            // Save model if path was provided
-            if let Some(model_path) = &args.model {
-                agent.save_model(model_path).await
-                    .map_err(|e| anyhow!("Failed to save model: {}", e))?;
-                println!("Model saved to {}", model_path.display());
+            if (episode + 1) % 100 == 0 {
+                println!("Episode {}/{}, Average Reward: {:.2}, Best Score: {}", 
+                    episode + 1, args.episodes, total_reward / (episode + 1) as f64, best_score);
             }
         }
     }
 
-    println!("\nTraining completed!");
-    println!("Best score: {}", best_score);
-    println!("Average reward: {:.2}", total_reward / args.episodes as f64);
+    // Save the trained model
+    agent.save_model(&model_path).await?;
+    println!("Model saved to {:?}", model_path);
+    println!("Training completed. Best score: {}", best_score);
 
     Ok(())
 }

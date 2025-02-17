@@ -6,7 +6,7 @@ use std::hash::Hash;
 
 pub const MODEL_VERSION: &str = "1.0.0";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QModelMetadata {
     pub version: String,
     pub state_size: usize,
@@ -18,21 +18,16 @@ pub struct QModelMetadata {
     pub epsilon: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(bound = "S: Serialize + for<'de> Deserialize<'de>, A: Serialize + for<'de> Deserialize<'de>")]
-pub struct QModel<S, A>
-where
-    S: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
-    A: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
-{
+#[derive(Debug)]
+pub struct QModel<S, A> {
     pub metadata: QModelMetadata,
     pub q_table: HashMap<(S, A), f64>,
 }
 
 impl<S, A> QModel<S, A>
 where
-    S: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
-    A: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
+    S: Serialize + for<'de> Deserialize<'de> + Eq + Hash + Clone,
+    A: Serialize + for<'de> Deserialize<'de> + Eq + Hash + Clone,
 {
     pub fn new(
         state_size: usize,
@@ -56,16 +51,53 @@ where
         }
     }
 
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let json = serde_json::to_string_pretty(self)?;
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>>
+    where
+        S: Serialize,
+        A: Serialize,
+    {
+        let json = serde_json::to_string_pretty(&SerializableQModel::from(self))?;
         std::fs::write(path, json)?;
         Ok(())
     }
 
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self>
+    where
+        S: for<'de> Deserialize<'de>,
+        A: for<'de> Deserialize<'de>,
+    {
         let json = std::fs::read_to_string(path)?;
-        let model = serde_json::from_str(&json)?;
-        Ok(model)
+        let serializable: SerializableQModel<S, A> = serde_json::from_str(&json)?;
+        Ok(serializable.into())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "S: Serialize + for<'a> Deserialize<'a> + Eq + Hash, A: Serialize + for<'a> Deserialize<'a> + Eq + Hash")]
+struct SerializableQModel<S, A> {
+    metadata: QModelMetadata,
+    q_table: HashMap<(S, A), f64>,
+}
+
+impl<S, A> From<&QModel<S, A>> for SerializableQModel<S, A>
+where
+    S: Clone,
+    A: Clone,
+{
+    fn from(model: &QModel<S, A>) -> Self {
+        Self {
+            metadata: model.metadata.clone(),
+            q_table: model.q_table.clone(),
+        }
+    }
+}
+
+impl<S, A> From<SerializableQModel<S, A>> for QModel<S, A> {
+    fn from(serializable: SerializableQModel<S, A>) -> Self {
+        Self {
+            metadata: serializable.metadata,
+            q_table: serializable.q_table,
+        }
     }
 }
 
