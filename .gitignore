@@ -37,10 +37,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-todo.md
+
+# Specific todo files to ignore
+/todo.md
+/TODO.md
+!/docs/TODO.md  # Allow docs/TODO.md
 
 # Added by cargo
-
 /target
 todo_state.json
 /.idea
