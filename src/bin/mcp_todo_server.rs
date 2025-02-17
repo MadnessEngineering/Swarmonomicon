@@ -5,16 +5,22 @@ use swarmonomicon::tools::todo::TodoTool;
 use swarmonomicon::tools::ToolExecutor;
 use rumqttc::{MqttOptions, AsyncClient, QoS, Event};
 use serde::{Deserialize, Serialize};
-use tokio::{task, time};
+use tokio::{task, time, sync::Semaphore};
 use std::error::Error as StdError;
 use std::process::Command;
 use anyhow::{Result, anyhow};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct McpTodoRequest {
     description: String,
     priority: Option<TaskPriority>,
 }
+
+// Maximum number of concurrent task processing
+const MAX_CONCURRENT_TASKS: usize = 5;
+// Maximum number of concurrent AI enhancements
+const MAX_CONCURRENT_AI: usize = 2;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,7 +30,11 @@ async fn main() -> Result<()> {
         .init();
 
     // Initialize TodoTool
-    let todo_tool = TodoTool::new().await.map_err(|e| anyhow!("Failed to initialize TodoTool: {}", e))?;
+    let todo_tool = Arc::new(TodoTool::new().await.map_err(|e| anyhow!("Failed to initialize TodoTool: {}", e))?);
+
+    // Create semaphores for rate limiting
+    let task_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
+    let ai_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_AI));
 
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", &std::env::var("AWSIP").expect("AWSIP environment variable not set"), 3003);
@@ -55,7 +65,6 @@ async fn main() -> Result<()> {
 
     // Create a client clone for the task
     let client_clone = client.clone();
-    let todo_tool_clone = todo_tool.clone();
 
     // Handle incoming MCP todo requests
     let _handler = task::spawn(async move {
@@ -66,26 +75,55 @@ async fn main() -> Result<()> {
                         let payload = String::from_utf8_lossy(&publish.payload).to_string();
                         tracing::info!("Received payload: {}", payload);
 
-                        // Try to parse as McpTodoRequest, if fails treat as plain text
-                        let description = match serde_json::from_str::<McpTodoRequest>(&payload) {
-                            Ok(request) => request.description,
-                            Err(_) => payload,
-                        };
+                        // Clone necessary Arc's for the task
+                        let todo_tool = todo_tool.clone();
+                        let task_semaphore = task_semaphore.clone();
+                        let ai_semaphore = ai_semaphore.clone();
+                        let topic = publish.topic.clone();
 
-                        let topic = publish.topic;
-                        let target_agent = topic.split('/').nth(1).unwrap_or("user");
+                        // Spawn a new task to handle this request
+                        tokio::spawn(async move {
+                            // Acquire task processing permit
+                            let _task_permit = match task_semaphore.acquire().await {
+                                Ok(permit) => permit,
+                                Err(e) => {
+                                    tracing::error!("Failed to acquire task permit: {}", e);
+                                    return;
+                                }
+                            };
 
-                        // Add todo using TodoTool
-                        let mut params = HashMap::new();
-                        params.insert("command".to_string(), "add".to_string());
-                        params.insert("description".to_string(), description.clone());
-                        params.insert("context".to_string(), "mcp_server".to_string());
-                        params.insert("target_agent".to_string(), target_agent.to_string());
+                            // Try to parse as McpTodoRequest, if fails treat as plain text
+                            let description = match serde_json::from_str::<McpTodoRequest>(&payload) {
+                                Ok(request) => request.description,
+                                Err(_) => payload,
+                            };
 
-                        match todo_tool_clone.execute(params).await {
-                            Ok(_) => tracing::info!("Successfully added todo: {}", description),
-                            Err(e) => tracing::error!("Failed to add todo: {}", e),
-                        }
+                            let target_agent = topic.split('/').nth(1).unwrap_or("user");
+
+                            // Add todo using TodoTool
+                            let mut params = HashMap::new();
+                            params.insert("command".to_string(), "add".to_string());
+                            params.insert("description".to_string(), description.clone());
+                            params.insert("context".to_string(), "mcp_server".to_string());
+                            params.insert("target_agent".to_string(), target_agent.to_string());
+
+                            // Acquire AI enhancement permit before processing
+                            let _ai_permit = match ai_semaphore.acquire().await {
+                                Ok(permit) => permit,
+                                Err(e) => {
+                                    tracing::error!("Failed to acquire AI permit: {}", e);
+                                    return;
+                                }
+                            };
+
+                            match todo_tool.execute(params).await {
+                                Ok(_) => tracing::info!("Successfully added todo: {}", description),
+                                Err(e) => tracing::error!("Failed to add todo: {}", e),
+                            }
+
+                            // AI permit is automatically released here
+                            // Task permit is automatically released here
+                        });
                     }
                 }
                 Err(e) => {
