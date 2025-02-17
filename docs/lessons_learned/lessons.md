@@ -23,3 +23,15 @@
 - Test both happy path and error conditions
 - Consider resource constraints when selecting default models
 - Document model requirements and dependencies 
+
+## Concurrent Processing and Rate Limiting
+- Use semaphores to control concurrent task processing and prevent system overload
+- Implement separate rate limits for different resource types (e.g., tasks vs AI calls)
+- Process long-running operations in separate tokio tasks for better responsiveness
+- Use Arc for sharing resources safely between concurrent tasks
+- Leverage RAII for automatic cleanup of resources (e.g., semaphore permits)
+- Add proper error handling for permit acquisition failures
+- Monitor and log task processing status for debugging
+- Consider system resources and external service limits when setting concurrency limits
+- Use structured logging to track task lifecycle across concurrent operations
+- Implement graceful degradation when resource limits are reached 
