@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_state_transitions() -> Result<()> {
+    async fn test_state_transitions() -> Result<(), anyhow::Error> {
         let agent = HaikuAgent::new(AgentConfig {
             name: "haiku".to_string(),
             public_description: "Test haiku agent".to_string(),
@@ -267,7 +267,7 @@ mod tests {
                 },
                 initial_state: "awaiting_topic".to_string(),
             }),
-        })?;
+        });
 
         // Test 1: Initial state
         let state = agent.get_current_state().await?;
@@ -318,7 +318,10 @@ mod tests {
                             transitions.insert("error".to_string(), "error".to_string());
                             transitions
                         }),
-                        validation: Some("^[a-zA-Z]+$".to_string()), // Only letters allowed
+                        validation: Some(vec![
+                            "^[a-zA-Z]+$".to_string(),
+                            "Only letters are allowed".to_string(),
+                        ]),
                     });
                     states.insert("error".to_string(), State {
                         name: "error".to_string(),
@@ -335,7 +338,7 @@ mod tests {
                 },
                 initial_state: "awaiting_topic".to_string(),
             }),
-        })?;
+        });
 
         // Test invalid input handling
         let response = agent.process_message(Message::new("123".to_string())).await?;

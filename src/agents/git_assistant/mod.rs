@@ -538,16 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_git_commands() {
-        let config = AgentConfig {
-            name: "git".to_string(),
-            public_description: "Git assistant".to_string(),
-            instructions: "Help with git commands".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        };
-        let agent = GitAssistantAgent::new(config);
+        let (agent, _temp_dir) = setup_test_repo().await;
 
         let response = agent.process_message(Message::new("add test.txt".to_string())).await.unwrap();
         assert!(response.content.contains("preserve") || response.content.contains("artifact"),

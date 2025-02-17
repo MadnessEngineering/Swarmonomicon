@@ -8,15 +8,12 @@ description = "Madness Interactive - Agent Swarm and Eventbase"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["git-agent", "haiku-agent", "greeter-agent", "browser-agent", "project-init-agent"]
-git-agent = ["rand"]  # Git agent needs rand for some operations
-haiku-agent = []
+default = ["greeter-agent", "haiku-agent", "git-agent"]
+rl = ["rand", "pixels", "winit", "winit_input_helper"]
 greeter-agent = []
-browser-agent = []
-project-init-agent = []
-goose = []  # Feature flag for using Goose CLI as the AI provider
-yolo = ["opencv"] # Feature flag for YOLO tool and OpenCV dependency
-rl = ["rand", "pixels", "clap/derive"] # Feature flag for Reinforcement Learning capabilities with visualization
+haiku-agent = []
+git-agent = ["rand"]
+browser-agent = ["browser-agent-deps"]
 
 # Dependencies required by browser-agent
 browser-agent-deps = ["chromiumoxide", "chromiumoxide_cdp", "tokio-tungstenite"]
@@ -42,7 +39,7 @@ clap = { version = "4.0", features = ["derive"] }
 image = "0.24"
 screenshots = "0.8"
 lazy_static = "1.4"
-rand = { version = "0.8.5", optional = true }
+rand = { version = "0.8", optional = true }
 
 # Optional dependencies for browser-agent
 chromiumoxide = { version = "0.5", optional = true }
@@ -62,8 +59,8 @@ opencv = { version = "0.84", features = ["dnn"], default-features = false, optio
 
 # Optional dependencies for RL visualization
 pixels = { version = "0.13.0", optional = true }
-winit = { version = "0.28", features = ["x11"] }
-winit_input_helper = "0.14"
+winit = { version = "0.28", optional = true }
+winit_input_helper = { version = "0.14", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -93,6 +90,7 @@ path = "src/bin/test_mcp_todo_publish.rs"
 [[bin]]
 name = "train_flappy"
 path = "src/bin/train_flappy.rs"
+required-features = ["rl"]
 
 [build-dependencies]
 pkg-config = "0.3"
