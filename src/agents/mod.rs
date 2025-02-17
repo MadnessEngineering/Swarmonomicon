@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::any::Any;
 use tokio::sync::RwLock;
 use crate::types::{Agent, AgentConfig, Message, MessageMetadata, State, AgentStateManager, StateMachine, ValidationRule, ToolCall, Tool, TodoProcessor};
 use anyhow::Result;
 use lazy_static::lazy_static;
 use anyhow::anyhow;
+use async_trait::async_trait;
+use crate::ai::AiProvider;
 
 #[cfg(feature = "git-agent")]
 pub mod git_assistant;
@@ -146,6 +149,7 @@ pub async fn get_agent(name: &str) -> Option<Arc<Box<dyn Agent + Send + Sync>>> 
 mod tests {
     use super::*;
     use crate::types::{Message, State, StateMachine, AgentStateManager};
+    use crate::agents::greeter::GreeterAgent;
 
     fn create_test_configs() -> Vec<AgentConfig> {
         vec![
@@ -175,8 +179,18 @@ mod tests {
         let configs = create_test_configs();
         let mut registry = AgentRegistry::new();
 
-        let agent = create_agent(configs[0].clone()).await?;
-        registry.register(configs[0].name.clone(), agent).await?;
+        // Create a greeter agent directly with a mock AI client
+        struct MockAiClient;
+        #[async_trait]
+        impl AiProvider for MockAiClient {
+            async fn chat(&self, _system_prompt: &str, _messages: Vec<HashMap<String, String>>) -> Result<String> {
+                Ok("Hello!".to_string())
+            }
+        }
+
+        let mut greeter = GreeterAgent::new(configs[0].clone());
+        greeter = greeter.with_ai_client(MockAiClient);
+        registry.register(configs[0].name.clone(), Box::new(greeter)).await?;
 
         // Test immutable access
         assert!(registry.get("greeter").is_some());
@@ -195,6 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(all(feature = "greeter-agent", feature = "haiku-agent"))]
     async fn test_agent_workflow() -> Result<()> {
         let registry = Arc::new(RwLock::new(AgentRegistry::new()));
         let service = TransferService::new(registry.clone());
@@ -202,7 +217,7 @@ mod tests {
         // Register test agents
         {
             let mut registry = registry.write().await;
-            let greeter = create_agent(AgentConfig {
+            let greeter = GreeterAgent::new(AgentConfig {
                 name: "greeter".to_string(),
                 public_description: "Test greeter".to_string(),
                 instructions: "Test greetings".to_string(),
@@ -210,10 +225,10 @@ mod tests {
                 downstream_agents: vec!["haiku".to_string()],
                 personality: None,
                 state_machine: None,
-            }).await?;
-            registry.register("greeter".to_string(), greeter).await?;
+            });
+            registry.register("greeter".to_string(), Box::new(greeter)).await?;
 
-            let haiku = create_agent(AgentConfig {
+            let haiku = HaikuAgent::new(AgentConfig {
                 name: "haiku".to_string(),
                 public_description: "Test haiku".to_string(),
                 instructions: "Test haiku generation".to_string(),
@@ -238,8 +253,8 @@ mod tests {
                     },
                     initial_state: "awaiting_topic".to_string(),
                 }),
-            }).await?;
-            registry.register("haiku".to_string(), haiku).await?;
+            });
+            registry.register("haiku".to_string(), Box::new(haiku)).await?;
         }
 
         // Set initial agent and test workflow
@@ -260,6 +275,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(all(feature = "greeter-agent", feature = "haiku-agent"))]
     async fn test_agent_transfer() -> Result<()> {
         let registry = Arc::new(RwLock::new(AgentRegistry::new()));
         let service = TransferService::new(registry.clone());

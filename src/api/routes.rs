@@ -7,10 +7,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::collections::HashMap;
+use futures::executor::block_on;
+use async_trait::async_trait;
 
 use crate::{
     api::AppState,
-    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor},
+    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor, TodoList, StateMachine, AgentStateManager},
     agents::AgentRegistry,
 };
 
@@ -259,8 +262,62 @@ pub async fn add_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Message, State, StateMachine, AgentStateManager, TodoProcessor, TodoList, TodoTask};
+    use std::time::Duration;
+    use futures::executor::block_on;
     use crate::agents::{AgentRegistry, GreeterAgent, TransferService};
-    use crate::types::AgentConfig;
+
+    struct TestAgent {
+        config: AgentConfig,
+        todo_list: TodoList,
+    }
+
+    impl TestAgent {
+        fn new(config: AgentConfig) -> Self {
+            Self {
+                config,
+                todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Agent for TestAgent {
+        async fn process_message(&self, message: Message) -> Result<Message> {
+            Ok(Message::new("Test response".to_string()))
+        }
+
+        async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
+            Ok(Message::new(format!("Transferring to {}", target_agent)))
+        }
+
+        async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
+            Ok("Tool called".to_string())
+        }
+
+        async fn get_current_state(&self) -> Result<Option<State>> {
+            Ok(None)
+        }
+
+        async fn get_config(&self) -> Result<AgentConfig> {
+            Ok(self.config.clone())
+        }
+    }
+
+    #[async_trait]
+    impl TodoProcessor for TestAgent {
+        async fn process_task(&self, task: TodoTask) -> Result<Message> {
+            Ok(Message::new(format!("Processed task: {}", task.description)))
+        }
+
+        fn get_check_interval(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+
+        fn get_todo_list(&self) -> &TodoList {
+            &self.todo_list
+        }
+    }
 
     #[tokio::test]
     async fn test_list_agents() {
@@ -334,9 +391,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_todo_list_endpoints() {
-        // Create test state
         let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
+        let agent = TestAgent::new(AgentConfig {
             name: "test_agent".to_string(),
             public_description: "Test agent".to_string(),
             instructions: "Test instructions".to_string(),
@@ -348,7 +404,7 @@ mod tests {
 
         registry.register("test_agent".to_string(), Box::new(agent)).await.unwrap();
         let registry = Arc::new(RwLock::new(registry));
-        let transfer_service = Arc::new(RwLock::new(TransferService::new(registry.clone())));
+        let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
         let state = Arc::new(AppState {
             transfer_service,
             agents: registry,
