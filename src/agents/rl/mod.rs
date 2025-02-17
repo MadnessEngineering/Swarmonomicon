@@ -126,6 +126,7 @@ impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + Deserializ
 }
 
 #[cfg(test)]
+#[cfg(feature = "rl")]
 mod tests {
     use super::*;
     use rand::Rng;

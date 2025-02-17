@@ -199,6 +199,7 @@ impl Environment for FlappyBirdEnv {
 }
 
 #[cfg(test)]
+#[cfg(feature = "rl")]
 mod tests {
     use super::*;
     use crate::agents::rl::QLearningAgent;
