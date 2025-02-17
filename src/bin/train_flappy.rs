@@ -46,8 +46,10 @@ async fn main() -> Result<()> {
     let mut agent = if let Some(ref model_path) = args.model {
         if model_path.exists() {
             println!("Loading model from {}", model_path.display());
-            QLearningAgent::load_model(&model_path)
-                .map_err(|e| anyhow!("Failed to load model: {}", e))?
+            let mut agent = QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon);
+            agent.load_model(model_path).await
+                .map_err(|e| anyhow!("Failed to load model: {}", e))?;
+            agent
         } else {
             println!("Creating new model that will be saved to {}", model_path.display());
             QLearningAgent::new(args.learning_rate, args.discount_factor, args.epsilon)
@@ -114,7 +116,7 @@ async fn main() -> Result<()> {
 
             // Save model if path was provided
             if let Some(model_path) = &args.model {
-                agent.save_model(model_path)
+                agent.save_model(model_path).await
                     .map_err(|e| anyhow!("Failed to save model: {}", e))?;
                 println!("Model saved to {}", model_path.display());
             }

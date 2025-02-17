@@ -42,26 +42,34 @@ pub trait Environment {
 
 /// Q-Learning agent implementation
 #[cfg(feature = "rl")]
-pub struct QLearningAgent<S: State + Serialize + DeserializeOwned, A: Action + Serialize + DeserializeOwned> {
+pub struct QLearningAgent<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + for<'de> Deserialize<'de>> {
     q_table: HashMap<(S, A), f64>,
     learning_rate: f64,
     discount_factor: f64,
     epsilon: f64,
+    state_size: usize,
+    action_size: usize,
 }
 
 #[cfg(feature = "rl")]
-impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + DeserializeOwned> QLearningAgent<S, A> {
+impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + for<'de> Deserialize<'de>> QLearningAgent<S, A> {
     pub fn new(learning_rate: f64, discount_factor: f64, epsilon: f64) -> Self {
         Self {
             q_table: HashMap::new(),
             learning_rate,
             discount_factor,
             epsilon,
+            state_size: 0,  // Will be updated when first state is seen
+            action_size: 0,  // Will be updated when first action is seen
         }
     }
 
     /// Choose an action using epsilon-greedy policy
-    pub fn choose_action(&self, state: &S, valid_actions: &[A]) -> A {
+    pub fn choose_action(&mut self, state: &S, valid_actions: &[A]) -> A {
+        // Update state_size and action_size if needed
+        self.state_size = self.state_size.max(state.to_features().len());
+        self.action_size = self.action_size.max(valid_actions.len());
+
         let mut rng = rand::thread_rng();
 
         if rng.gen::<f64>() < self.epsilon {
@@ -106,6 +114,7 @@ impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + Deserializ
             self.discount_factor,
             self.epsilon,
         );
+        model.q_table = self.q_table.clone();
         model.save(path)
     }
 
@@ -116,6 +125,8 @@ impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + Deserializ
         self.learning_rate = model.metadata.learning_rate;
         self.discount_factor = model.metadata.discount_factor;
         self.epsilon = model.metadata.epsilon;
+        self.state_size = model.metadata.state_size;
+        self.action_size = model.metadata.action_size;
         Ok(())
     }
 }
