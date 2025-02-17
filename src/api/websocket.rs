@@ -209,8 +209,21 @@ mod tests {
             state_machine: None,
         };
 
+        let haiku_config = AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Test haiku agent".to_string(),
+            instructions: "Test instructions".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: None,
+        };
+
         let greeter_agent = GreeterAgent::new(greeter_config);
+        let haiku_agent = GreeterAgent::new(haiku_config); // Using GreeterAgent as a stand-in for testing
+
         registry.register("greeter".to_string(), Box::new(greeter_agent)).await.expect("Failed to register greeter agent");
+        registry.register("haiku".to_string(), Box::new(haiku_agent)).await.expect("Failed to register haiku agent");
 
         let registry = Arc::new(RwLock::new(registry));
         Arc::new(AppState {
@@ -264,18 +277,80 @@ mod tests {
     async fn test_handle_transfer() {
         let state = setup_test_state().await;
 
-        let msg = ClientMessage::Transfer {
+        // Test 1: Connect to greeter agent
+        let connect_msg = ClientMessage::Connect {
+            agent: "greeter".to_string(),
+        };
+        let response = handle_client_message(connect_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Connected { agent } if agent == "greeter"));
+
+        // Test 2: Send a message to establish context
+        let context_msg = ClientMessage::Message {
+            content: "I want to write a haiku about coding".to_string(),
+        };
+        let response = handle_client_message(context_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Message { .. }));
+
+        // Test 3: Transfer to haiku agent with context
+        let transfer_msg = ClientMessage::Transfer {
             from: "greeter".to_string(),
             to: "haiku".to_string(),
         };
+        let response = handle_client_message(transfer_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Transferred { from, to } if from == "greeter" && to == "haiku"));
 
-        let response = handle_client_message(msg, state).await;
+        // Test 4: Verify haiku agent received context
+        let verify_msg = ClientMessage::Message {
+            content: "What was I writing about?".to_string(),
+        };
+        let response = handle_client_message(verify_msg, state.clone()).await.unwrap();
         match response {
-            Ok(ServerMessage::Transferred { from, to }) => {
-                assert_eq!(from, "greeter");
-                assert_eq!(to, "haiku");
+            ServerMessage::Message { content } => {
+                assert!(content.contains("coding"), "Context should be preserved after transfer");
             }
-            _ => panic!("Expected Transferred message"),
+            _ => panic!("Expected message response"),
+        }
+
+        // Test 5: Test invalid transfer
+        let invalid_transfer = ClientMessage::Transfer {
+            from: "greeter".to_string(),
+            to: "nonexistent".to_string(),
+        };
+        let response = handle_client_message(invalid_transfer, state.clone()).await;
+        assert!(response.is_err(), "Transfer to nonexistent agent should fail");
+
+        // Test 6: Test transfer with state preservation
+        let connect_msg = ClientMessage::Connect {
+            agent: "haiku".to_string(),
+        };
+        let response = handle_client_message(connect_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Connected { agent } if agent == "haiku"));
+
+        // Set up state in haiku agent
+        let state_msg = ClientMessage::Message {
+            content: "nature".to_string(),
+        };
+        let response = handle_client_message(state_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Message { .. }));
+
+        // Transfer back to greeter
+        let transfer_msg = ClientMessage::Transfer {
+            from: "haiku".to_string(),
+            to: "greeter".to_string(),
+        };
+        let response = handle_client_message(transfer_msg, state.clone()).await.unwrap();
+        assert!(matches!(response, ServerMessage::Transferred { from, to } if from == "haiku" && to == "greeter"));
+
+        // Verify state was preserved
+        let verify_msg = ClientMessage::Message {
+            content: "What was my last topic?".to_string(),
+        };
+        let response = handle_client_message(verify_msg, state).await.unwrap();
+        match response {
+            ServerMessage::Message { content } => {
+                assert!(content.contains("nature"), "State should be preserved after transfer");
+            }
+            _ => panic!("Expected message response"),
         }
     }
 }

@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_state_transitions() {
+    async fn test_state_transitions() -> Result<()> {
         let agent = HaikuAgent::new(AgentConfig {
             name: "haiku".to_string(),
             public_description: "Test haiku agent".to_string(),
@@ -215,7 +215,19 @@ mod tests {
                         prompt: Some("What shall we write about?".to_string()),
                         transitions: Some({
                             let mut transitions = HashMap::new();
-                            transitions.insert("topic_received".to_string(), "complete".to_string());
+                            transitions.insert("topic_received".to_string(), "generating".to_string());
+                            transitions
+                        }),
+                        validation: None,
+                    });
+                    states.insert("generating".to_string(), State {
+                        name: "generating".to_string(),
+                        data: None,
+                        prompt: Some("Generating your haiku...".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("haiku_generated".to_string(), "complete".to_string());
+                            transitions.insert("error".to_string(), "error".to_string());
                             transitions
                         }),
                         validation: None,
@@ -232,10 +244,22 @@ mod tests {
                         }),
                         validation: None,
                     });
+                    states.insert("error".to_string(), State {
+                        name: "error".to_string(),
+                        data: None,
+                        prompt: Some("An error occurred. Would you like to try again?".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("yes".to_string(), "awaiting_topic".to_string());
+                            transitions.insert("no".to_string(), "goodbye".to_string());
+                            transitions
+                        }),
+                        validation: None,
+                    });
                     states.insert("goodbye".to_string(), State {
                         name: "goodbye".to_string(),
                         data: None,
-                        prompt: Some("Farewell!".to_string()),
+                        prompt: Some("Farewell, seeker of digital poetry.".to_string()),
                         transitions: None,
                         validation: None,
                     });
@@ -243,17 +267,88 @@ mod tests {
                 },
                 initial_state: "awaiting_topic".to_string(),
             }),
-        });
+        })?;
 
-        let state = agent.get_current_state().await.unwrap();
-        assert!(state.is_some());
-        assert_eq!(state.unwrap().name, "awaiting_topic");
+        // Test 1: Initial state
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "awaiting_topic");
 
-        let response = agent.process_message(Message::new("nature".to_string())).await.unwrap();
-        assert!(response.content.contains("haiku"));
+        // Test 2: Topic received transition
+        let response = agent.process_message(Message::new("nature".to_string())).await?;
+        assert!(response.content.contains("Generating"), "Should transition to generating state");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "generating");
 
-        let state = agent.get_current_state().await.unwrap();
-        assert!(state.is_some());
-        assert_eq!(state.unwrap().name, "complete");
+        // Test 3: Haiku generation and completion
+        let response = agent.process_message(Message::new("continue".to_string())).await?;
+        assert!(response.content.contains("Would you like another"), "Should transition to complete state");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "complete");
+
+        // Test 4: Request another haiku
+        let response = agent.process_message(Message::new("yes".to_string())).await?;
+        assert!(response.content.contains("What shall we"), "Should transition back to awaiting_topic");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "awaiting_topic");
+
+        // Test 5: End conversation
+        let response = agent.process_message(Message::new("space".to_string())).await?;
+        let response = agent.process_message(Message::new("no".to_string())).await?;
+        assert!(response.content.contains("Farewell"), "Should transition to goodbye state");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "goodbye");
+
+        // Test 6: Error handling
+        let agent = HaikuAgent::new(AgentConfig {
+            name: "haiku".to_string(),
+            public_description: "Test haiku agent".to_string(),
+            instructions: "Test haiku generation".to_string(),
+            tools: vec![],
+            downstream_agents: vec![],
+            personality: None,
+            state_machine: Some(StateMachine {
+                states: {
+                    let mut states = HashMap::new();
+                    states.insert("awaiting_topic".to_string(), State {
+                        name: "awaiting_topic".to_string(),
+                        data: None,
+                        prompt: Some("What shall we write about?".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("error".to_string(), "error".to_string());
+                            transitions
+                        }),
+                        validation: Some("^[a-zA-Z]+$".to_string()), // Only letters allowed
+                    });
+                    states.insert("error".to_string(), State {
+                        name: "error".to_string(),
+                        data: None,
+                        prompt: Some("An error occurred. Would you like to try again?".to_string()),
+                        transitions: Some({
+                            let mut transitions = HashMap::new();
+                            transitions.insert("yes".to_string(), "awaiting_topic".to_string());
+                            transitions
+                        }),
+                        validation: None,
+                    });
+                    states
+                },
+                initial_state: "awaiting_topic".to_string(),
+            }),
+        })?;
+
+        // Test invalid input handling
+        let response = agent.process_message(Message::new("123".to_string())).await?;
+        assert!(response.content.contains("error"), "Should transition to error state on invalid input");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "error");
+
+        // Test recovery from error
+        let response = agent.process_message(Message::new("yes".to_string())).await?;
+        assert!(response.content.contains("What shall we"), "Should recover to awaiting_topic state");
+        let state = agent.get_current_state().await?;
+        assert_eq!(state.as_ref().unwrap().name, "awaiting_topic");
+
+        Ok(())
     }
 }
