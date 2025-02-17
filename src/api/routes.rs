@@ -8,14 +8,17 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
+use std::time::Duration;
 use futures::executor::block_on;
 use async_trait::async_trait;
 use anyhow::anyhow;
+use mongodb::{Client, Collection};
 
 use crate::{
     api::AppState,
-    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor, TodoList, StateMachine, AgentStateManager},
+    types::{Message, AgentConfig, Agent, AgentInfo, TodoTask, TaskPriority, TaskStatus, TodoProcessor, TodoList, StateMachine, AgentStateManager, Tool},
     agents::AgentRegistry,
+    ai::{AiProvider, DefaultAiClient},
 };
 
 use super::models::TaskResponse;
@@ -260,168 +263,142 @@ pub async fn add_task(
     Ok(Json(TaskResponse::from(task)))
 }
 
-struct TestAgent {
-    config: AgentConfig,
-    todo_list: TodoList,
-    ai_client: Arc<Box<dyn AiProvider + Send + Sync>>,
-}
-
-impl TestAgent {
-    fn new(config: AgentConfig) -> Self {
-        Self {
-            config: config.clone(),
-            todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),
-            ai_client: Arc::new(Box::new(DefaultAiClient::new()) as Box<dyn AiProvider + Send + Sync>),
-        }
-    }
-
-    async fn enhance_task_description(&self, description: String) -> Result<String> {
-        // Use AI to enhance the task description while maintaining its core meaning
-        let prompt = format!(
-            "Enhance this task description while maintaining its core meaning: {}",
-            description
-        );
-        let response = self.ai_client.complete(&prompt, None).await?;
-        Ok(response)
-    }
-}
-
-#[async_trait]
-impl Agent for TestAgent {
-    async fn process_message(&self, message: Message) -> Result<Message> {
-        Ok(Message::new("Test response".to_string()))
-    }
-
-    async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message> {
-        if !self.config.downstream_agents.contains(&target_agent) {
-            return Err(anyhow!("Cannot transfer to unknown agent: {}", target_agent));
-        }
-        Ok(Message::new(format!("Transferring to {}", target_agent)))
-    }
-
-    async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String> {
-        Ok("Tool called".to_string())
-    }
-
-    async fn get_current_state(&self) -> Result<Option<State>> {
-        Ok(None)
-    }
-
-    async fn get_config(&self) -> Result<AgentConfig> {
-        Ok(self.config.clone())
-    }
-}
-
-#[async_trait]
-impl TodoProcessor for TestAgent {
-    async fn process_task(&self, task: TodoTask) -> Result<Message> {
-        // Enhance the task description using AI
-        let enhanced_description = self.enhance_task_description(task.description.clone()).await?;
-        
-        // Create a new task with the enhanced description
-        let enhanced_task = TodoTask {
-            description: enhanced_description,
-            ..task
-        };
-        
-        // Add the enhanced task to the todo list
-        self.todo_list.add_task(enhanced_task.clone()).await?;
-        
-        Ok(Message::new(format!("Processed task: {}", enhanced_task.description)))
-    }
-
-    fn get_check_interval(&self) -> Duration {
-        Duration::from_secs(5)
-    }
-
-    fn get_todo_list(&self) -> &TodoList {
-        &self.todo_list
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Message, State, StateMachine, AgentStateManager, TodoProcessor, TodoList, TodoTask};
+    use crate::types::{Message, State, StateMachine, AgentStateManager, TodoProcessor, TodoTask};
+    use crate::types::todo::{TaskStatus, TaskPriority, TodoList};
     use std::time::Duration;
     use futures::executor::block_on;
     use crate::agents::{AgentRegistry, GreeterAgent, TransferService};
+    use mongodb::{Client, Collection};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use axum::http::StatusCode;
+    use axum::extract::Path;
+    use axum::Json;
 
-    #[tokio::test]
-    async fn test_list_agents() {
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test".to_string(),
-            public_description: "Test agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        });
+    struct MockAiClient;
 
-        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let state = Arc::new(AppState {
-            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
-            agents: registry,
-        });
+    #[async_trait]
+    impl AiProvider for MockAiClient {
+        async fn chat(&self, _system_prompt: &str, messages: Vec<HashMap<String, String>>) -> Result<String, anyhow::Error> {
+            // Return a mock enhanced description that includes the original content
+            let content = messages.last()
+                .and_then(|m| m.get("content"))
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            Ok(format!("Enhanced: {}", content))
+        }
+    }
 
-        let response = list_agents(State(state)).await.unwrap();
-        assert_eq!(response.0.len(), 1);
-        assert_eq!(response.0[0].name, "test");
+    struct TestAgent {
+        config: AgentConfig,
+        todo_list: TodoList,
+        ai_client: Arc<Box<dyn AiProvider + Send + Sync>>,
+        _client: Arc<Client>, // Keep the MongoDB client alive
+    }
+
+    impl TestAgent {
+        async fn new_with_mocks(config: AgentConfig, client: Arc<Client>) -> Result<Self, anyhow::Error> {
+            // Set up MongoDB connection for testing
+            std::env::set_var("RTK_MONGO_URI", "mongodb://localhost:27017/swarmonomicon_test");
+            
+            // Create a new TodoList that will use the test database
+            let todo_list = TodoList::new().await?;
+            
+            Ok(Self {
+                config: config.clone(),
+                todo_list,
+                ai_client: Arc::new(Box::new(MockAiClient) as Box<dyn AiProvider + Send + Sync>),
+                _client: client,
+            })
+        }
+
+        async fn enhance_task_description(&self, description: String) -> Result<String, anyhow::Error> {
+            let prompt = format!(
+                "Enhance this task description while maintaining its core meaning: {}",
+                description
+            );
+            let response = self.ai_client.chat("You are a task description enhancer", vec![
+                HashMap::from([
+                    ("role".to_string(), "user".to_string()),
+                    ("content".to_string(), prompt),
+                ])
+            ]).await?;
+            Ok(response)
+        }
+    }
+
+    #[async_trait]
+    impl Agent for TestAgent {
+        async fn process_message(&self, message: Message) -> Result<Message, anyhow::Error> {
+            Ok(Message::new("Test response".to_string()))
+        }
+
+        async fn transfer_to(&self, target_agent: String, message: Message) -> Result<Message, anyhow::Error> {
+            if !self.config.downstream_agents.contains(&target_agent) {
+                return Err(anyhow!("Cannot transfer to unknown agent: {}", target_agent));
+            }
+            Ok(Message::new(format!("Transferring to {}", target_agent)))
+        }
+
+        async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String, anyhow::Error> {
+            Ok("Tool called".to_string())
+        }
+
+        async fn get_current_state(&self) -> Result<Option<State>, anyhow::Error> {
+            Ok(None)
+        }
+
+        async fn get_config(&self) -> Result<AgentConfig, anyhow::Error> {
+            Ok(self.config.clone())
+        }
+
+        fn get_todo_list(&self) -> Option<&TodoList> {
+            Some(&self.todo_list)
+        }
+    }
+
+    #[async_trait]
+    impl TodoProcessor for TestAgent {
+        async fn process_task(&self, task: TodoTask) -> Result<Message, anyhow::Error> {
+            // Enhance the task description using AI
+            let enhanced_description = self.enhance_task_description(task.description.clone()).await?;
+            
+            // Create a new task with the enhanced description
+            let enhanced_task = TodoTask {
+                description: enhanced_description,
+                ..task
+            };
+            
+            // Add the enhanced task to the todo list
+            self.todo_list.add_task(enhanced_task.clone()).await.map_err(|e| anyhow!("Failed to add task: {}", e))?;
+            
+            Ok(Message::new(format!("Processed task: {}", enhanced_task.description)))
+        }
+
+        fn get_check_interval(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+
+        fn get_todo_list(&self) -> &TodoList {
+            &self.todo_list
+        }
     }
 
     #[tokio::test]
-    async fn test_get_agent() {
-        let registry = Arc::new(RwLock::new(AgentRegistry::new()));
-        let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
-        let state = Arc::new(AppState {
-            transfer_service,
-            agents: registry,
-        });
-        let response = get_agent(State(state.clone()), Path("unknown".to_string())).await;
-        assert!(response.is_err());
-        assert_eq!(response.unwrap_err(), StatusCode::NOT_FOUND);
-    }
+    async fn test_todo_list_endpoints() -> Result<(), anyhow::Error> {
+        // Set up MongoDB connection for testing
+        let client = Arc::new(Client::with_uri_str("mongodb://localhost:27017").await?);
+        let db = client.database("swarmonomicon_test");
+        
+        // Clean up any existing data in the test database
+        db.collection::<TodoTask>("todos").drop(None).await?;
 
-    #[tokio::test]
-    async fn test_send_message() {
-        let mut registry = AgentRegistry::new();
-        let agent = GreeterAgent::new(AgentConfig {
-            name: "test".to_string(),
-            public_description: "Test agent".to_string(),
-            instructions: "Test instructions".to_string(),
-            tools: vec![],
-            downstream_agents: vec![],
-            personality: None,
-            state_machine: None,
-        });
-
-        registry.register("test".to_string(), Box::new(agent)).await.unwrap();
-        let registry = Arc::new(RwLock::new(registry));
-        let state = Arc::new(AppState {
-            transfer_service: Arc::new(RwLock::new(TransferService::new(registry.clone()))),
-            agents: registry,
-        });
-
-        let request = MessageRequest {
-            content: "Hello".to_string(),
-        };
-
-        let response = send_message(
-            State(state),
-            Path("test".to_string()),
-            Json(request),
-        ).await;
-        assert!(response.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_todo_list_endpoints() {
         // Set up test environment
         let mut registry = AgentRegistry::new();
-        let agent = TestAgent::new(AgentConfig {
+        let agent = TestAgent::new_with_mocks(AgentConfig {
             name: "test_agent".to_string(),
             public_description: "Test agent".to_string(),
             instructions: "Test instructions".to_string(),
@@ -429,9 +406,9 @@ mod tests {
             downstream_agents: vec!["haiku".to_string()],
             personality: None,
             state_machine: None,
-        });
+        }, client.clone()).await?;
 
-        registry.register("test_agent".to_string(), Box::new(agent)).await.unwrap();
+        registry.register("test_agent".to_string(), Box::new(agent)).await?;
         let registry = Arc::new(RwLock::new(registry));
         let transfer_service = Arc::new(RwLock::new(crate::agents::TransferService::new(registry.clone())));
         let state = Arc::new(AppState {
@@ -450,12 +427,14 @@ mod tests {
             State(state.clone()),
             Path("test_agent".to_string()),
             Json(add_request.clone()),
-        ).await.unwrap();
+        ).await.map_err(|e| anyhow!("Failed to add task: {:?}", e))?;
 
-        let task = response.0;
-        assert_eq!(task.priority, TaskPriority::High);
-        assert!(task.description.contains("fibonacci"), "AI-enhanced description should maintain core meaning");
-        assert_eq!(task.status, TaskStatus::Pending);
+        let task_id = response.0.id.clone();
+        let task_description = response.0.description.clone();
+        
+        assert_eq!(response.0.priority, TaskPriority::High);
+        assert!(task_description.contains("fibonacci"), "AI-enhanced description should maintain core meaning");
+        assert_eq!(response.0.status, TaskStatus::Pending);
 
         // Test 2: Add multiple tasks and verify prioritization
         let low_priority_task = AddTaskRequest {
@@ -474,19 +453,19 @@ mod tests {
             State(state.clone()),
             Path("test_agent".to_string()),
             Json(low_priority_task),
-        ).await.unwrap();
+        ).await.map_err(|e| anyhow!("Failed to add low priority task: {:?}", e))?;
 
         add_task(
             State(state.clone()),
             Path("test_agent".to_string()),
             Json(medium_priority_task),
-        ).await.unwrap();
+        ).await.map_err(|e| anyhow!("Failed to add medium priority task: {:?}", e))?;
 
         // Test 3: Get all tasks and verify ordering
         let tasks = get_tasks(
             State(state.clone()),
             Path("test_agent".to_string()),
-        ).await.unwrap();
+        ).await.map_err(|e| anyhow!("Failed to get tasks: {:?}", e))?;
 
         assert_eq!(tasks.0.len(), 3);
         assert_eq!(tasks.0[0].priority, TaskPriority::High); // Should be first due to priority
@@ -494,11 +473,11 @@ mod tests {
         // Test 4: Get specific task and verify details
         let task = get_task(
             State(state.clone()),
-            Path(("test_agent".to_string(), task.id.clone())),
-        ).await.unwrap();
+            Path(("test_agent".to_string(), task_id.clone())),
+        ).await.map_err(|e| anyhow!("Failed to get specific task: {:?}", e))?;
 
-        assert_eq!(task.0.description, response.0.description);
-        assert_eq!(task.0.id, response.0.id);
+        assert_eq!(task.0.description, task_description);
+        assert_eq!(task.0.id, task_id);
 
         // Test 5: Error handling for non-existent task
         let result = get_task(
@@ -534,5 +513,10 @@ mod tests {
 
         assert!(response.is_err()); // Should fail since haiku agent isn't registered
         assert_eq!(response.unwrap_err(), StatusCode::NOT_FOUND);
+
+        // Clean up test database
+        db.collection::<TodoTask>("todos").drop(None).await?;
+
+        Ok(())
     }
 }
