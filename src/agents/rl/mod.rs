@@ -98,30 +98,25 @@ impl<S: State + Serialize + DeserializeOwned, A: Action + Serialize + Deserializ
     }
 
     /// Save the model to a file
-    pub fn save_model<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let model = model::QModel {
-            metadata: model::QModelMetadata {
-                version: model::MODEL_VERSION.to_string(),
-                episodes_trained: 0,
-                best_score: 0.0,
-                learning_rate: self.learning_rate,
-                discount_factor: self.discount_factor,
-                epsilon: self.epsilon,
-            },
-            q_table: self.q_table.clone(),
-        };
+    pub async fn save_model<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let model = model::QModel::new(
+            self.state_size,
+            self.action_size,
+            self.learning_rate,
+            self.discount_factor,
+            self.epsilon,
+        );
         model.save(path)
     }
 
     /// Load the model from a file
-    pub fn load_model<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn load_model<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let model = model::QModel::<S, A>::load(path)?;
-        Ok(Self {
-            q_table: model.q_table,
-            learning_rate: model.metadata.learning_rate,
-            discount_factor: model.metadata.discount_factor,
-            epsilon: model.metadata.epsilon,
-        })
+        self.q_table = model.q_table;
+        self.learning_rate = model.metadata.learning_rate;
+        self.discount_factor = model.metadata.discount_factor;
+        self.epsilon = model.metadata.epsilon;
+        Ok(())
     }
 }
 

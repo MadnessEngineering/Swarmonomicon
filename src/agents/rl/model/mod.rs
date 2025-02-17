@@ -2,6 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use anyhow::Result;
 use std::path::Path;
+use std::hash::Hash;
 
 pub const MODEL_VERSION: &str = "1.0.0";
 
@@ -18,20 +19,24 @@ pub struct QModelMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct QModel<S, A> {
+pub struct QModel<S, A>
+where
+    S: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
+    A: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
+{
     pub metadata: QModelMetadata,
     pub q_table: HashMap<(S, A), f64>,
 }
 
-impl<S, A> QModel<S, A> 
-where 
-    S: Serialize + for<'de> Deserialize<'de> + Eq + std::hash::Hash,
-    A: Serialize + for<'de> Deserialize<'de> + Eq + std::hash::Hash,
+impl<S, A> QModel<S, A>
+where
+    S: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
+    A: Serialize + for<'de> Deserialize<'de> + Eq + Hash,
 {
     pub fn new(
-        state_size: usize, 
-        action_size: usize, 
-        learning_rate: f64, 
+        state_size: usize,
+        action_size: usize,
+        learning_rate: f64,
         discount_factor: f64,
         epsilon: f64,
     ) -> Self {
