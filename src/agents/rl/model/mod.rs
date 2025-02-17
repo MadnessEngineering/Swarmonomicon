@@ -19,6 +19,7 @@ pub struct QModelMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(bound = "S: Serialize + for<'de> Deserialize<'de>, A: Serialize + for<'de> Deserialize<'de>")]
 pub struct QModel<S, A>
 where
     S: Serialize + for<'de> Deserialize<'de> + Eq + Hash,

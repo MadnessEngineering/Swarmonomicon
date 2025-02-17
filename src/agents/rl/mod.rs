@@ -107,7 +107,7 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
 
     /// Save the model to a file
     pub async fn save_model<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let model = model::QModel::new(
+        let mut model = model::QModel::new(
             self.state_size,
             self.action_size,
             self.learning_rate,
