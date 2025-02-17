@@ -16,7 +16,7 @@ use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
 use regex::Regex;
-use crate::ai::{AiProvider, DefaultAiClient};
+use crate::ai::{AiProvider, DefaultAiClient, LocalAiClient};
 
 #[derive(Clone)]
 pub struct TodoTool {
@@ -55,65 +55,97 @@ impl TodoTool {
     async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority)> {
         tracing::debug!("Attempting to enhance description with AI: {}", description);
 
-        let system_prompt = "You are a helpful AI assistant that improves todo task descriptions and assigns priorities. \
-                           Your responses should be in JSON format with 'description' and 'priority' fields. \
-                           Priority should be one of: 'low', 'medium', or 'high'.";
+        // Step 1: Enhance the task description and attempt JSON formatting
+        let system_prompt = r#"You are a task enhancement system that ONLY outputs JSON.
+
+RULES:
+1. Output MUST be a single JSON object
+2. JSON MUST have exactly two fields: "description" and "priority"
+3. "priority" MUST be one of: "high", "medium", "low" (lowercase)
+4. NO other text before or after the JSON
+5. The description MUST be significantly enhanced:
+   - Add specific technical details
+   - Explain the impact and scope
+   - Include any relevant components or systems
+   - Make it at least 2x longer than the input
+   - Keep it concise but comprehensive
+
+STRICT PRIORITY RULES:
+"high" MUST be used if the task contains ANY of:
+- security/vulnerability/exploit
+- critical/severe/major
+- crash/data loss
+- blocking/broken/emergency
+- authentication/authorization issues
+
+"medium" MUST be used if the task contains ANY of:
+- feature/enhancement
+- documentation/readme
+- improvement/update
+- non-critical fix
+
+"low" MUST be used if the task contains ANY of:
+- style/formatting
+- minor/cosmetic
+- optional/nice-to-have
+- cleanup/refactor
+
+If multiple rules match, use the highest priority that matches.
+
+Example Input: "fix login bug"
+Example Output: {"description":"Investigate and resolve authentication system malfunction affecting user login process, verify session management, and ensure proper error handling","priority":"medium"}
+
+Example Input: "fix security vulnerability"
+Example Output: {"description":"Address critical security vulnerability in authentication system that could allow unauthorized access, implement proper input validation, and update encryption protocols","priority":"high"}"#;
 
         let messages = vec![HashMap::from([
             ("role".to_string(), "user".to_string()),
             ("content".to_string(), format!(
-                "Please improve this todo task description and assign a priority: '{}'. \
-                 Return only a JSON object with 'description' and 'priority' fields.",
+                "Task: '{}'\nOutput a JSON object with enhanced description and priority following the STRICT rules exactly.",
                 description
             )),
         ])];
 
-        let ai_response = self.ai_client.chat(system_prompt, messages).await?;
-        tracing::debug!("Received AI response: {}", ai_response);
+        let first_attempt = self.ai_client.chat(system_prompt, messages).await?;
+        println!("First AI attempt:\n{}", first_attempt);
 
-        // Use regex to extract JSON substring
-        let json_regex = Regex::new(r#"\{.*\}"#).unwrap();
-        let mut json_content = match json_regex.find(&ai_response) {
-            Some(json_match) => {
-                let json_str = json_match.as_str().to_string();
-                tracing::debug!("Found JSON substring: {}", json_str);
-                json_str
-            }
-            None => {
-                tracing::warn!("Could not find JSON substring in AI response");
-                ai_response.clone()
-            }
-        };
+        // Step 2: Clean and format the JSON properly
+        let json_cleaner_prompt = r#"You are a JSON cleaning system. Your ONLY job is to output a valid JSON object.
 
-        tracing::debug!("Attempting to parse JSON content: {}", json_content);
+STRICT RULES:
+1. Output MUST be ONLY the JSON object itself
+2. NO markdown formatting (no ```json or ``` markers)
+3. NO explanatory text before or after
+4. NO newlines before or after the JSON
+5. JSON MUST have exactly these fields:
+   - "description": string
+   - "priority": string (one of: "high", "medium", "low")
 
-        // Try to parse the JSON response, with a few rounds of cleanup if needed
-        let mut parse_attempts = 0;
-        let parsed_json = loop {
-            match serde_json::from_str::<Value>(&json_content) {
-                Ok(parsed) => break Ok(parsed),
-                Err(e) => {
-                    parse_attempts += 1;
-                    if parse_attempts == 1 {
-                        // First attempt failed, try removing trailing commas
-                        let cleaned_json = json_content.trim_end_matches(',');
-                        tracing::debug!("Attempting to parse cleaned JSON: {}", cleaned_json);
-                        json_content = cleaned_json.to_string();
-                    } else if parse_attempts == 2 {
-                        // Second attempt failed, try stripping non-ASCII
-                        let cleaned_json = json_content.replace(|c: char| !c.is_ascii(), "");
-                        tracing::debug!("Attempting to parse ASCII-only JSON: {}", cleaned_json);
-                        json_content = cleaned_json;
-                    } else {
-                        // Giving up after 2 failed cleanup attempts
-                        tracing::error!("Failed to parse JSON after cleanup attempts: {}", e);
-                        break Err(e);
-                    }
-                }
-            }
-        };
+If input contains JSON-like content:
+- Extract and fix it
+- Ensure it has the required fields
+- Return ONLY the fixed JSON
 
-        match parsed_json {
+If NO valid JSON found:
+Return this exact format:
+{"description":"INPUT_TEXT","priority":"medium"}
+
+Example input: "Here's my response: {'desc': 'fix bug', 'priority': 'high'}"
+Example output: {"description":"fix bug","priority":"high"}"#;
+
+        let cleaning_messages = vec![HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), format!(
+                "Clean and format this into proper JSON:\n{}",
+                first_attempt
+            )),
+        ])];
+
+        let cleaned_json = self.ai_client.chat(json_cleaner_prompt, cleaning_messages).await?;
+        println!("Cleaned JSON attempt:\n{}", cleaned_json);
+
+        // Parse the cleaned JSON
+        match serde_json::from_str::<Value>(&cleaned_json) {
             Ok(enhanced) => {
                 let enhanced_desc = enhanced["description"]
                     .as_str()
@@ -126,11 +158,14 @@ impl TodoTool {
                     _ => TaskPriority::Medium,
                 };
 
+                println!("Final enhanced description: {}", enhanced_desc);
+                println!("Final priority: {:?}", priority);
                 tracing::debug!("Successfully enhanced description: {} with priority: {:?}", enhanced_desc, priority);
                 Ok((enhanced_desc, priority))
             }
-            Err(_) => {
-                tracing::debug!("Falling back to original description with medium priority");
+            Err(e) => {
+                println!("Failed to parse cleaned JSON, falling back to defaults");
+                tracing::warn!("Failed to parse cleaned JSON: {}", e);
                 Ok((description.to_string(), TaskPriority::Medium))
             }
         }
@@ -300,6 +335,7 @@ impl ToolExecutor for TodoTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::LocalAiClient;
 
     #[tokio::test]
     async fn test_todo_operations() -> Result<()> {
@@ -330,6 +366,92 @@ mod tests {
 
         let result = tool.execute(params).await?;
         assert!(result.contains("Test todo"));
+
+        // Cleanup: Drop the test collection
+        Arc::try_unwrap(tool.collection)
+            .unwrap()
+            .drop(None)
+            .await
+            .map_err(|e| anyhow!("Failed to drop test collection: {}", e))?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_ai_enhancement() -> Result<()> {
+        // Set up a temporary collection
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
+        let db = client.database("swarmonomicon_test");
+        let collection = Arc::new(db.collection::<TodoTask>("todos"));
+
+        // Create tool with qwen2.5 model
+        let ai_client = LocalAiClient::new();
+        let tool = TodoTool { 
+            collection,
+            ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
+        };
+
+        // Test task enhancement
+        let test_cases = vec![
+            (
+                "fix critical security vulnerability in login", 
+                vec![TaskPriority::High], // Must be high
+                vec!["security", "vulnerability", "authentication", "unauthorized"],
+            ),
+            (
+                "update readme with new features", 
+                vec![TaskPriority::Low, TaskPriority::Medium], // Can be low or medium
+                vec!["documentation", "features", "instructions"],
+            ),
+            (
+                "optimize database queries", 
+                vec![TaskPriority::Medium, TaskPriority::High], // Can be medium or high
+                vec!["performance", "optimize", "database"],
+            ),
+        ];
+
+        for (description, valid_priorities, expected_keywords) in test_cases {
+            let (enhanced, priority) = tool.enhance_with_ai(description).await?;
+            
+            println!("\nTesting enhancement for: {}", description);
+            println!("Enhanced description: {}", enhanced);
+            println!("Assigned priority: {:?}", priority);
+            
+            // Verify priority assignment is within acceptable range
+            assert!(
+                valid_priorities.contains(&priority),
+                "Priority {:?} for '{}' not in acceptable range: {:?}",
+                priority,
+                description,
+                valid_priorities
+            );
+            
+            // Verify description enhancement
+            assert!(
+                enhanced.len() > description.len() * 2, 
+                "Enhanced description should be at least twice as long\nOriginal: {}\nEnhanced: {}", 
+                description, 
+                enhanced
+            );
+
+            // Count how many expected keywords are present
+            let enhanced_lower = enhanced.to_lowercase();
+            let found_keywords: Vec<_> = expected_keywords.iter()
+                .filter(|&&k| enhanced_lower.contains(k))
+                .collect();
+
+            // Require at least 50% of keywords to be present
+            assert!(
+                found_keywords.len() >= expected_keywords.len() / 2,
+                "Not enough keywords found in enhanced description.\nExpected at least {} of {:?}\nFound: {:?}\nEnhanced: {}",
+                expected_keywords.len() / 2,
+                expected_keywords,
+                found_keywords,
+                enhanced
+            );
+        }
 
         // Cleanup: Drop the test collection
         Arc::try_unwrap(tool.collection)
