@@ -70,7 +70,7 @@ pub struct MongoStateManager {
 impl MongoStateManager {
     pub async fn new(client: &Client) -> Result<Self> {
         let db = client.database("swarmonomicon");
-        
+
         // Get collections
         let states = db.collection("agent_states");
         let transitions = db.collection("state_transitions");
@@ -126,7 +126,7 @@ impl StatePersistence for MongoStateManager {
         let options = mongodb::options::FindOptions::builder()
             .sort(doc! { "timestamp": 1 })
             .build();
-        
+
         let mut transitions = Vec::new();
         let mut cursor = self.transitions.find(filter, options).await?;
         while let Some(transition) = cursor.try_next().await? {
@@ -178,59 +178,165 @@ impl StateRecovery for MongoStateManager {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use crate::state::persistence::MongoPersistence;
+    use crate::state::validation::{StateValidationConfig, StateValidatorImpl};
+    use crate::state::recovery::{RecoveryConfig, StateRecoveryManager};
 
-    #[tokio::test]
-    async fn test_state_persistence() -> Result<()> {
-        // Connect to test database
+    struct TestStateManager {
+        persistence: MongoPersistence,
+        validator: StateValidatorImpl,
+        recovery: StateRecoveryManager,
+    }
+
+    #[async_trait]
+    impl StatePersistence for TestStateManager {
+        async fn save_state(&self, state: PersistedState) -> Result<()> {
+            self.persistence.save_state(state).await
+        }
+
+        async fn load_state(&self, agent_id: &str) -> Result<Option<PersistedState>> {
+            self.persistence.load_state(agent_id).await
+        }
+
+        async fn record_transition(&self, transition: StateTransition) -> Result<()> {
+            self.persistence.record_transition(transition).await
+        }
+
+        async fn get_transitions(&self, agent_id: &str) -> Result<Vec<StateTransition>> {
+            self.persistence.get_transitions(agent_id).await
+        }
+    }
+
+    impl StateValidator for TestStateManager {
+        fn validate_state(&self, state: &PersistedState) -> Result<()> {
+            self.validator.validate_state(state)
+        }
+
+        fn validate_transition(&self, from: &str, to: &str) -> Result<()> {
+            self.validator.validate_transition(from, to)
+        }
+
+        fn validate_data(&self, state_data: &Value) -> Result<()> {
+            self.validator.validate_data(state_data)
+        }
+    }
+
+    #[async_trait]
+    impl StateRecovery for TestStateManager {
+        async fn create_checkpoint(&self, state: &PersistedState) -> Result<()> {
+            self.recovery.create_checkpoint(state).await
+        }
+
+        async fn rollback_to_checkpoint(&self, agent_id: &str) -> Result<Option<PersistedState>> {
+            self.recovery.rollback_to_checkpoint(agent_id).await
+        }
+
+        async fn replay_transitions(&self, agent_id: &str, from_version: i32) -> Result<PersistedState> {
+            self.recovery.replay_transitions(agent_id, from_version).await
+        }
+    }
+
+    async fn create_test_manager() -> Result<TestStateManager> {
         let client = Client::with_uri_str("mongodb://localhost:27017").await?;
         let db = client.database("swarmonomicon_test");
-        
+
         // Clear test collections
         db.collection::<PersistedState>("agent_states").drop(None).await?;
         db.collection::<StateTransition>("state_transitions").drop(None).await?;
         db.collection::<PersistedState>("state_checkpoints").drop(None).await?;
 
-        let manager = MongoStateManager::new(&client).await?;
+        // Create validation config
+        let mut validation_config = StateValidationConfig::new();
+        validation_config.add_state("initial");
+        validation_config.add_state("processing");
+        validation_config.add_state("completed");
+        validation_config.add_transition("initial", "processing");
+        validation_config.add_transition("processing", "completed");
 
-        // Test saving and loading state
-        let test_state = PersistedState {
+        Ok(TestStateManager {
+            persistence: MongoPersistence::new(&client).await?,
+            validator: StateValidatorImpl::new(validation_config),
+            recovery: StateRecoveryManager::new(&client, RecoveryConfig::default()).await?,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_state_management_integration() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Test 1: Create and validate initial state
+        let initial_state = PersistedState {
             agent_id: "test_agent".to_string(),
-            state_name: "test_state".to_string(),
+            state_name: "initial".to_string(),
             state_data: None,
             conversation_context: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            version: 1,
+            version: 0,
             metadata: HashMap::new(),
         };
 
-        manager.save_state(test_state.clone()).await?;
-        let loaded_state = manager.load_state("test_agent").await?;
-        assert!(loaded_state.is_some());
-        assert_eq!(loaded_state.unwrap().state_name, "test_state");
+        // Validate state
+        manager.validate_state(&initial_state)?;
 
-        // Test recording and retrieving transitions
-        let test_transition = StateTransition {
+        // Save state
+        manager.save_state(initial_state.clone()).await?;
+
+        // Create checkpoint
+        manager.create_checkpoint(&initial_state).await?;
+
+        // Test 2: Transition to processing state
+        manager.validate_transition("initial", "processing")?;
+
+        let transition = StateTransition {
             id: "test_transition".to_string(),
             agent_id: "test_agent".to_string(),
-            from_state: "state1".to_string(),
-            to_state: "state2".to_string(),
+            from_state: "initial".to_string(),
+            to_state: "processing".to_string(),
             trigger: "test".to_string(),
             timestamp: Utc::now(),
             success: true,
             error: None,
         };
 
-        manager.record_transition(test_transition.clone()).await?;
+        // Record transition
+        manager.record_transition(transition).await?;
+
+        // Test 3: Load and verify state
+        let loaded_state = manager.load_state("test_agent").await?;
+        assert!(loaded_state.is_some());
+        let state = loaded_state.unwrap();
+        assert_eq!(state.version, 1);
+        assert_eq!(state.state_name, "initial");
+
+        // Test 4: Replay transitions
+        let replayed_state = manager.replay_transitions("test_agent", 1).await?;
+        assert_eq!(replayed_state.state_name, "processing");
+        assert_eq!(replayed_state.version, 2);
+
+        // Test 5: Rollback to checkpoint
+        let rolled_back = manager.rollback_to_checkpoint("test_agent").await?;
+        assert!(rolled_back.is_some());
+        let state = rolled_back.unwrap();
+        assert_eq!(state.state_name, "initial");
+        assert_eq!(state.version, 1);
+
+        // Test 6: Verify transitions
         let transitions = manager.get_transitions("test_agent").await?;
         assert_eq!(transitions.len(), 1);
-        assert_eq!(transitions[0].from_state, "state1");
+        assert_eq!(transitions[0].from_state, "initial");
+        assert_eq!(transitions[0].to_state, "processing");
 
-        // Clean up
-        db.collection::<PersistedState>("agent_states").drop(None).await?;
-        db.collection::<StateTransition>("state_transitions").drop(None).await?;
-        db.collection::<PersistedState>("state_checkpoints").drop(None).await?;
+        // Test 7: Invalid transition
+        assert!(manager.validate_transition("initial", "completed").is_err());
+
+        // Test 8: Invalid state
+        let invalid_state = PersistedState {
+            state_name: "invalid".to_string(),
+            ..initial_state.clone()
+        };
+        assert!(manager.validate_state(&invalid_state).is_err());
 
         Ok(())
     }
-} 
+}
