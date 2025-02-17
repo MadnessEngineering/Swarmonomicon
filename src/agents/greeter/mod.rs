@@ -222,6 +222,7 @@ mod tests {
         let task = TodoTask {
             id: Uuid::new_v4().to_string(),
             description: "Hello, I need help with git".to_string(),
+            enhanced_description: None,  // No AI enhancement in test
             priority: crate::types::TaskPriority::Medium,
             source_agent: None,
             target_agent: "greeter".to_string(),

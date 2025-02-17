@@ -35,3 +35,24 @@
 - Consider system resources and external service limits when setting concurrency limits
 - Use structured logging to track task lifecycle across concurrent operations
 - Implement graceful degradation when resource limits are reached 
+
+## Todo System
+
+### Handling AI-Enhanced Descriptions
+
+When using AI to enhance todo descriptions, it's important to preserve both the original and enhanced versions:
+
+1. Store both descriptions in the data model:
+   - Original description for user reference and exact matching
+   - Enhanced description for additional context and details
+
+2. Use the appropriate description based on context:
+   - Show original description in lists and basic views
+   - Use enhanced description for detailed views or AI processing
+
+3. Make AI enhancement optional:
+   - Allow tasks to be created without enhancement
+   - Store enhanced description as Option<String>
+   - Only enhance at appropriate system boundaries (e.g., TodoTool)
+
+This approach maintains compatibility with existing code while adding AI enhancement capabilities. 

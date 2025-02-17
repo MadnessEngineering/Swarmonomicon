@@ -60,6 +60,7 @@ async fn main() -> Result<()> {
                         let task = TodoTask {
                             id: uuid::Uuid::new_v4().to_string(),
                             description,
+                            enhanced_description: None,  // No AI enhancement at worker level
                             priority: TaskPriority::Medium,
                             source_agent: Some("mqtt".to_string()),
                             target_agent: "user".to_string(),

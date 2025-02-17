@@ -118,6 +118,7 @@ async fn handle_git_command(
     let task = TodoTask {
         id: Uuid::new_v4().to_string(),
         description: input,
+        enhanced_description: None,
         priority: TaskPriority::Medium,
         source_agent: Some("swarm".to_string()),
         target_agent: "git".to_string(),
@@ -138,6 +139,7 @@ async fn handle_init_command(
     let task = TodoTask {
         id: Uuid::new_v4().to_string(),
         description: init_message,
+        enhanced_description: None,
         priority: TaskPriority::Medium,
         source_agent: Some("swarm".to_string()),
         target_agent: "greeter".to_string(),
@@ -159,6 +161,7 @@ async fn handle_message(
     let task = TodoTask {
         id: Uuid::new_v4().to_string(),
         description: message,
+        enhanced_description: None,
         priority: TaskPriority::Medium,
         source_agent: Some("swarm".to_string()),
         target_agent: current_agent_name.to_string(),

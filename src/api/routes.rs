@@ -249,6 +249,7 @@ pub async fn add_task(
     let task = TodoTask {
         id: uuid::Uuid::new_v4().to_string(),
         description: request.description,
+        enhanced_description: None,  // No AI enhancement at this level
         priority: request.priority,
         source_agent: request.source_agent,
         target_agent: agent_name,

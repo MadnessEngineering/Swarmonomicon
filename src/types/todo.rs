@@ -13,6 +13,7 @@ use std::env;
 pub struct TodoTask {
     pub id: String,
     pub description: String,
+    pub enhanced_description: Option<String>,
     pub priority: TaskPriority,
     pub source_agent: Option<String>,
     pub target_agent: String,

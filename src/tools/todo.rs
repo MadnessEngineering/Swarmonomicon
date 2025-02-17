@@ -192,7 +192,8 @@ Example output: {"description":"fix bug","priority":"high"}"#;
         tracing::debug!("Creating new TodoTask with description: {}", enhanced_description);
         let new_todo = TodoTask {
             id: Uuid::new_v4().to_string(),
-            description: enhanced_description.clone(),
+            description: description.to_string(),
+            enhanced_description: Some(enhanced_description.clone()),
             priority: priority.clone(),
             source_agent: Some("mcp_server".to_string()),
             target_agent: target_agent.to_string(),
@@ -205,7 +206,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
         match self.collection.insert_one(new_todo.clone(), None).await {
             Ok(_) => {
                 tracing::info!("Successfully inserted todo into database: {}", enhanced_description);
-                Ok(format!("Added new todo: {}", enhanced_description))
+                Ok(format!("Added new todo: {}", description))
             },
             Err(e) => {
                 tracing::warn!("Failed to insert todo: {}", e);
@@ -219,6 +220,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
                     let fallback_todo = TodoTask {
                         id: unique_id,
                         description: new_todo.description,
+                        enhanced_description: new_todo.enhanced_description,
                         priority: new_todo.priority,
                         source_agent: new_todo.source_agent,
                         target_agent: new_todo.target_agent,
@@ -230,7 +232,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
                     match self.collection.insert_one(fallback_todo.clone(), None).await {
                         Ok(_) => {
                             tracing::info!("Successfully inserted todo with unique ID into database: {}", enhanced_description);
-                            Ok(format!("Added new todo: {}", enhanced_description))
+                            Ok(format!("Added new todo: {}", description))
                         },
                         Err(e) => {
                             tracing::error!("Failed to insert todo even with unique ID: {}", e);
@@ -335,7 +337,7 @@ impl ToolExecutor for TodoTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::LocalAiClient;
+    use crate::ai::DefaultAiClient;
 
     #[tokio::test]
     async fn test_todo_operations() -> Result<()> {
@@ -387,7 +389,7 @@ mod tests {
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
 
         // Create tool with qwen2.5 model
-        let ai_client = LocalAiClient::new();
+        let ai_client = DefaultAiClient::new();
         let tool = TodoTool { 
             collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
