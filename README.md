@@ -38,17 +38,22 @@ Unintended Hilarity guaranteed[^2].
   - Agents can delegate tasks to other agents
   - Priority-based task scheduling
   - Task status tracking (Pending, InProgress, Completed, Failed)
+  - AI-powered task enhancement and prioritization
+  - Dual description system (original + enhanced)
 
 - Real-time Communication:
   - WebSocket support for live updates
   - Agent-to-agent communication
   - Task delegation between agents
+  - Intelligent task routing based on enhanced descriptions
 
 - Extensible Architecture:
   - Easy to add new agents (This is a huge exaggeration lol. Agents NEVER get carried away.. xD)
   - Configurable task processing intervals (WIP)
   - Support for agent-specific state machines (experimental)
   - Flexible message routing
+  - AI-enhanced task processing capabilities
+  - Fallback mechanisms for AI enhancement failures
 
 
 ## Inspiration and Credits
@@ -221,7 +226,8 @@ The Git assistant uses AI to generate meaningful commit messages based on the ch
 ```rust
 pub struct TodoTask {
     pub id: String,
-    pub description: String,
+    pub description: String,           // Original task description
+    pub enhanced_description: Option<String>,  // AI-enhanced version with additional context
     pub priority: TaskPriority,
     pub source_agent: Option<String>,
     pub target_agent: String,
@@ -230,6 +236,22 @@ pub struct TodoTask {
     pub completed_at: Option<i64>,
 }
 ```
+
+### AI Enhancement Features
+- Automatic task description enhancement using AI
+- Preservation of both original and enhanced descriptions
+- Context-aware priority assignment based on task content
+- Intelligent task routing based on enhanced descriptions
+- Fallback to original descriptions when AI enhancement fails
+
+The system uses AI to:
+1. Expand task descriptions with relevant technical details
+2. Identify task impact and scope
+3. Include related components and systems
+4. Assign appropriate priority levels
+5. Maintain concise but comprehensive descriptions
+
+This dual-description approach ensures compatibility with existing tools while providing richer context for task processing.
 
 ## Usage
 
@@ -247,6 +269,21 @@ curl -X POST http://localhost:3000/api/agents/greeter/tasks \
     "priority": "High",
     "source_agent": null
   }'
+```
+
+The response will include both the original and AI-enhanced descriptions:
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "description": "Welcome new user John",
+  "enhanced_description": "Initiate personalized welcome sequence for new user John, including system introduction and available agent overview. Ensure proper onboarding experience and gather initial user preferences for future interactions.",
+  "priority": "High",
+  "source_agent": null,
+  "target_agent": "greeter",
+  "status": "Pending",
+  "created_at": 1677721600,
+  "completed_at": null
+}
 ```
 
 ### Getting Tasks for an Agent
