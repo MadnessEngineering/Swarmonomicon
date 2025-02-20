@@ -7,6 +7,7 @@ use anyhow::Result;
 use crate::error::Error;
 use std::collections::HashMap;
 use async_trait::async_trait;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
@@ -27,104 +28,58 @@ pub enum TodoStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAgent {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub image_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub config: AgentConfig,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserAgentState {
+    pub config: AgentConfig,
+    pub state: String,
+    pub state_file: String,
     todos: Vec<TodoItem>,
     last_processed: Option<DateTime<Utc>>,
 }
 
-pub struct UserAgent {
-    config: AgentConfig,
-    state: UserAgentState,
-    state_file: Option<String>,
-}
-
 impl UserAgent {
     pub fn new(config: AgentConfig) -> Self {
-        Self {
-            config,
-            state: UserAgentState {
-                todos: Vec::new(),
-                last_processed: None,
-            },
-            state_file: None,
-        }
-    }
-
-    pub fn with_state_file(config: AgentConfig, state_file: impl Into<String>) -> Result<Self> {
-        let state_file = state_file.into();
+        let state_file = format!("{}.json", config.name);
         let state = if Path::new(&state_file).exists() {
-            let contents = fs::read_to_string(&state_file)?;
-            serde_json::from_str(&contents)?
+            serde_json::from_str(&fs::read_to_string(&state_file).unwrap()).unwrap()
         } else {
             UserAgentState {
+                config: config.clone(),
+                state: String::new(),
+                state_file: state_file.clone(),
                 todos: Vec::new(),
                 last_processed: None,
             }
         };
 
-        Ok(Self {
-            config,
-            state,
-            state_file: Some(state_file),
-        })
-    }
-
-    fn save_state(&self) -> Result<()> {
-        if let Some(state_file) = &self.state_file {
-            let contents = serde_json::to_string_pretty(&self.state)?;
-            fs::write(state_file, contents)?;
-        }
-        Ok(())
-    }
-
-    pub fn add_todo(&mut self, description: String, context: Option<String>) -> Result<()> {
-        let todo = TodoItem {
-            description,
-            status: TodoStatus::Pending,
-            assigned_agent: None,
-            context,
-            error: None,
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name: config.name.clone(),
+            description: config.public_description.clone(),
+            image_url: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-        };
-        self.state.todos.push(todo);
-        self.save_state()?;
-        Ok(())
-    }
-
-    pub fn get_next_pending_todo(&self) -> Option<(usize, &TodoItem)> {
-        self.state.todos.iter().enumerate()
-            .find(|(_, todo)| todo.status == TodoStatus::Pending)
-    }
-
-    pub fn mark_todo_completed(&mut self, index: usize) -> Result<()> {
-        if let Some(todo) = self.state.todos.get_mut(index) {
-            todo.status = TodoStatus::Completed;
-            todo.updated_at = Utc::now();
-            self.save_state()?;
+            config: config.clone(),
         }
-        Ok(())
     }
 
-    pub fn mark_todo_failed(&mut self, index: usize, error: Option<String>) -> Result<()> {
-        if let Some(todo) = self.state.todos.get_mut(index) {
-            todo.status = TodoStatus::Failed;
-            todo.error = error;
-            todo.updated_at = Utc::now();
-            self.save_state()?;
-        }
-        Ok(())
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        self.created_at
     }
 
-    pub fn get_last_processed(&self) -> Option<DateTime<Utc>> {
-        self.state.last_processed
-    }
-
-    pub fn update_last_processed(&mut self) -> Result<()> {
-        self.state.last_processed = Some(Utc::now());
-        self.save_state()?;
-        Ok(())
+    pub fn get_updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
     }
 
     pub async fn determine_next_agent(&self, todo: &TodoItem) -> Result<Option<String>> {
@@ -162,6 +117,28 @@ impl UserAgent {
         };
 
         Ok(agent)
+    }
+
+    pub async fn get_config(&self) -> Result<AgentConfig> {
+        Ok(self.config.clone())
+    }
+}
+
+impl UserAgentState {
+    pub fn get_last_processed(&self) -> Option<DateTime<Utc>> {
+        self.last_processed
+    }
+
+    pub fn update_last_processed(&mut self) -> Result<()> {
+        self.last_processed = Some(Utc::now());
+        self.save_state()?;
+        Ok(())
+    }
+
+    fn save_state(&self) -> Result<()> {
+        let contents = serde_json::to_string_pretty(&self)?;
+        fs::write(&self.state_file, contents)?;
+        Ok(())
     }
 }
 
