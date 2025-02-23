@@ -4,3 +4,6 @@
 [submodule "examples_to_delete/balena-cl-interactive"]
 	path = examples_to_delete/balena-cl-interactive
 	url = https://github.com/DanEdens/balena-cl-interactive.git
+[submodule "fastmcp-todo-server"]
+	path = fastmcp-todo-server
+	url = https://github.com/DanEdens/fastmcp-todo-server.git
