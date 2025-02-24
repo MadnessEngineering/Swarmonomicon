@@ -62,6 +62,9 @@ impl TodoList {
     }
 
     pub async fn add_task(&self, task: TodoTask) -> Result<(), MongoError> {
+        if let Some(enhanced) = &task.enhanced_description {
+            println!("Inserting enhanced description with length: {}", enhanced.len());
+        }
         self.collection.insert_one(task, None).await?;
         Ok(())
     }
