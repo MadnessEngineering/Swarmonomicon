@@ -47,3 +47,5 @@ next-env.d.ts
 /target
 todo_state.json
 /.idea
+.specstory/.what-is-this.md
+/.specstory
