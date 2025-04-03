@@ -26,7 +26,11 @@ pub struct TodoTool {
 
 impl TodoTool {
     pub async fn new() -> Result<Self> {
-        let client = Client::with_uri_str("mongodb://localhost:27017")
+        let mongo_uri = std::env::var("AWSIP")
+            .map(|ip| format!("mongodb://{}:27017", ip))
+            .unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+
+        let client = Client::with_uri_str(&mongo_uri)
             .await
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon");
@@ -349,7 +353,7 @@ mod tests {
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
 
         let ai_client = DefaultAiClient::new();
-        let tool = TodoTool { 
+        let tool = TodoTool {
             collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
@@ -390,7 +394,7 @@ mod tests {
 
         // Create tool with qwen2.5 model
         let ai_client = DefaultAiClient::new();
-        let tool = TodoTool { 
+        let tool = TodoTool {
             collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
@@ -398,17 +402,17 @@ mod tests {
         // Test task enhancement
         let test_cases = vec![
             (
-                "fix critical security vulnerability in login", 
+                "fix critical security vulnerability in login",
                 vec![TaskPriority::High], // Must be high
                 vec!["security", "vulnerability", "authentication", "unauthorized"],
             ),
             (
-                "update readme with new features", 
+                "update readme with new features",
                 vec![TaskPriority::Low, TaskPriority::Medium], // Can be low or medium
                 vec!["documentation", "features", "instructions"],
             ),
             (
-                "optimize database queries", 
+                "optimize database queries",
                 vec![TaskPriority::Medium, TaskPriority::High], // Can be medium or high
                 vec!["performance", "optimize", "database"],
             ),
@@ -416,11 +420,11 @@ mod tests {
 
         for (description, valid_priorities, expected_keywords) in test_cases {
             let (enhanced, priority) = tool.enhance_with_ai(description).await?;
-            
+
             println!("\nTesting enhancement for: {}", description);
             println!("Enhanced description: {}", enhanced);
             println!("Assigned priority: {:?}", priority);
-            
+
             // Verify priority assignment is within acceptable range
             assert!(
                 valid_priorities.contains(&priority),
@@ -429,12 +433,12 @@ mod tests {
                 description,
                 valid_priorities
             );
-            
+
             // Verify description enhancement
             assert!(
-                enhanced.len() > description.len() * 2, 
-                "Enhanced description should be at least twice as long\nOriginal: {}\nEnhanced: {}", 
-                description, 
+                enhanced.len() > description.len() * 2,
+                "Enhanced description should be at least twice as long\nOriginal: {}\nEnhanced: {}",
+                description,
                 enhanced
             );
 

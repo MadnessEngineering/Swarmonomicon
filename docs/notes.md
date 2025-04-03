@@ -8,3 +8,4 @@ git clone https://github.com/reorproject/reor.git
 
 git clone https://github.com/philschmid/gemini-samples.git
 
+https://github.com/langchain-ai/langchain-mcp-adapters/tree/main
