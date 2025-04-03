@@ -55,6 +55,21 @@ impl TodoTool {
         self.ai_client = Arc::new(Box::new(client));
         self
     }
+    // The enhance_with_ai method is quite long and could be split into smaller functions:
+    // async fn get_ai_enhancement(&self, description: &str) -> Result<String> {
+    //     // ... first AI call logic ...
+    //     Ok(String::new())
+    // }
+
+    // async fn clean_json_response(&self, raw_json: &str) -> Result<String> {
+    //     // ... JSON cleaning logic ...
+    //     Ok(String::new())
+    // }
+
+    // async fn parse_enhanced_response(&self, json_str: &str, original_desc: &str) -> Result<(String, TaskPriority)> {
+    //     // ... JSON parsing and validation logic ...
+    //     Ok((String::new(), TaskPriority::Medium))
+    // }
 
     async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority)> {
         tracing::debug!("Attempting to enhance description with AI: {}", description);
