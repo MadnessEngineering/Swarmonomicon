@@ -17,6 +17,7 @@ use serde_json::Value;
 use uuid::Uuid;
 use regex::Regex;
 use crate::ai::{AiProvider, DefaultAiClient, LocalAiClient};
+// use langgraph::{Graph, Node};
 
 #[derive(Clone)]
 pub struct TodoTool {
@@ -484,3 +485,23 @@ mod tests {
         Ok(())
     }
 }
+
+// // Example structure (actual implementation would depend on the Rust LangGraph API)
+// pub struct TodoWorkflow {
+//     graph: Graph,
+// }
+
+// impl TodoWorkflow {
+//     pub fn new() -> Self {
+//         let graph = Graph::new()
+//             .add_node("parse_input", parse_task_input)
+//             .add_node("enhance_description", enhance_with_ai)
+//             .add_node("determine_priority", determine_priority)
+//             .add_node("store_task", store_in_mongodb)
+//             .connect("parse_input", "enhance_description")
+//             .connect("enhance_description", "determine_priority")
+//             .connect("determine_priority", "store_task");
+
+//         Self { graph }
+//     }
+// }
