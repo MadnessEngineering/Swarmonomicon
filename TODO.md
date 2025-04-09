@@ -315,3 +315,4 @@
 - A3C/A2C implementations
 - Multi-agent scenarios
 - Transfer learning capabilities
+TODO: Test Spindlewrit tool with the Gemma function calling integration
