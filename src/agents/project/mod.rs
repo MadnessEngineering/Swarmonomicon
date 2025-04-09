@@ -23,6 +23,12 @@ impl ProjectAgent {
     }
 
     fn init_python_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
+        // Use the Spindlewrit CLI if available
+        if self.is_spindlewrit_available() {
+            return self.use_spindlewrit_cli(name, description, "python", path);
+        }
+
+        // Fallback to direct implementation
         // Create project structure
         let src_dir = path.join("src");
         fs::create_dir_all(&src_dir)?;
@@ -57,6 +63,12 @@ setup(
     }
 
     fn init_rust_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
+        // Use the Spindlewrit CLI if available
+        if self.is_spindlewrit_available() {
+            return self.use_spindlewrit_cli(name, description, "rust", path);
+        }
+
+        // Fallback to direct implementation
         Command::new("cargo")
             .args(["init", "--name", name])
             .current_dir(path)
@@ -67,11 +79,86 @@ setup(
     }
 
     fn init_common_project(&self, name: &str, description: &str, path: &Path) -> Result<()> {
+        // Use the Spindlewrit CLI if available
+        if self.is_spindlewrit_available() {
+            return self.use_spindlewrit_cli(name, description, "common", path);
+        }
+
+        // Fallback to direct implementation
         fs::create_dir_all(path.join("src"))?;
         fs::create_dir_all(path.join("docs"))?;
         fs::create_dir_all(path.join("examples"))?;
 
         self.create_readme(name, description, "common", path)?;
+        Ok(())
+    }
+
+    fn init_project_from_todo(&self, todo_id: &str, output_path: &Path) -> Result<()> {
+        // Check if Spindlewrit is available
+        if !self.is_spindlewrit_available() {
+            return Err(crate::error::Error::Generic(
+                "Spindlewrit CLI not available. Please install it first.".to_string()
+            ));
+        }
+
+        // Get the GEMMA_API_KEY from environment
+        let api_key = std::env::var("GEMMA_API_KEY").ok();
+        let api_key_arg = api_key.map(|key| format!("--api-key={}", key)).unwrap_or_default();
+
+        // Run the spindlewrit command
+        let output = Command::new("spindlewrit")
+            .args([
+                "from-todo",
+                "--todo-id",
+                todo_id,
+                "--output-dir",
+                output_path.to_str().unwrap(),
+            ])
+            .arg(api_key_arg)
+            .output()?;
+
+        if !output.status.success() {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::Error::Generic(
+                format!("Failed to generate project from todo: {}", error_message)
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Check if the Spindlewrit CLI is available in the system
+    fn is_spindlewrit_available(&self) -> bool {
+        Command::new("spindlewrit")
+            .arg("--help")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    // Use the Spindlewrit CLI to create a project
+    fn use_spindlewrit_cli(&self, name: &str, description: &str, project_type: &str, path: &Path) -> Result<()> {
+        let output = Command::new("spindlewrit")
+            .args([
+                "create",
+                "--name",
+                name,
+                "--description",
+                description,
+                "--type",
+                project_type,
+                "--path",
+                path.to_str().unwrap(),
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::Error::Generic(
+                format!("Failed to generate project: {}", error_message)
+            ));
+        }
+
         Ok(())
     }
 
