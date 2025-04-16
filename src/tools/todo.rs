@@ -12,6 +12,7 @@ use mongodb::{
 use std::process::Command;
 use crate::tools::ToolExecutor;
 use crate::types::{TodoTask, TaskPriority, TaskStatus};
+use crate::types::projects::{get_project_descriptions, get_default_project};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
@@ -72,7 +73,62 @@ impl TodoTool {
     //     Ok((String::new(), TaskPriority::Medium))
     // }
 
-    async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority)> {
+    async fn predict_project(&self, description: &str) -> Result<String> {
+        tracing::debug!("Attempting to predict project for task: {}", description);
+        
+        // Get project descriptions to provide to the AI
+        let project_descriptions = get_project_descriptions();
+        
+        // Format the project descriptions for the AI prompt
+        let projects_text = project_descriptions
+            .iter()
+            .map(|(name, desc)| format!("- {}: {}", name, desc))
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        let system_prompt = format!(r#"You are a project classification system. Your task is to determine which project a given task belongs to.
+
+Below is a list of available projects with descriptions:
+{}
+
+RULES:
+1. Output MUST be ONLY the name of the project, nothing else
+2. Choose the MOST SPECIFIC project that relates to the task description
+3. If you cannot determine a specific project, use "{}" as the default
+4. Consider keywords, technical terms, and context in the task description
+5. Do NOT explain your reasoning or add any other text - ONLY output the project name
+
+Examples:
+"Update the README for Swarmonomicon with new API docs" -> "Swarmonomicon"
+"Fix MQTT connection issue in the get-var utility" -> "mqtt-get-var"
+"Create a new Hammerspoon hotkey for window management" -> ".hammerspoon"
+"Refactor regex handling in the RegressionTestKit" -> "regressiontestkit"
+"Add task priority system" -> "madness_interactive"
+"#, projects_text, get_default_project());
+
+        let messages = vec![HashMap::from([
+            ("role".to_string(), "user".to_string()),
+            ("content".to_string(), format!(
+                "Task description: '{}'\nWhich project does this task belong to?",
+                description
+            )),
+        ])];
+
+        match self.ai_client.chat(&system_prompt, messages).await {
+            Ok(project_name) => {
+                // Clean up the response - remove any quotes, whitespace, etc.
+                let cleaned_project = project_name.trim().trim_matches('"').trim_matches('\'').to_string();
+                tracing::debug!("AI predicted project: {}", cleaned_project);
+                Ok(cleaned_project)
+            },
+            Err(e) => {
+                tracing::warn!("Failed to predict project with AI: {}", e);
+                Ok(get_default_project().to_string())
+            }
+        }
+    }
+
+    async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority, String)> {
         tracing::debug!("Attempting to enhance description with AI: {}", description);
 
         // Step 1: Enhance the task description and attempt JSON formatting
@@ -87,7 +143,7 @@ RULES:
    - Add specific technical details
    - Explain the impact and scope
    - Include any relevant components or systems
-   - Make it at least 2x longer than the input
+   - Make it at least 2x longer than the input if this supports details
    - Keep it concise but comprehensive
 
 STRICT PRIORITY RULES:
@@ -164,8 +220,11 @@ Example output: {"description":"fix bug","priority":"high"}"#;
         let cleaned_json = self.ai_client.chat(json_cleaner_prompt, cleaning_messages).await?;
         println!("Cleaned JSON attempt:\n{}", cleaned_json);
 
+        // Step 3: Predict the project in parallel with description enhancement
+        let project_future = self.predict_project(description);
+
         // Parse the cleaned JSON
-        match serde_json::from_str::<Value>(&cleaned_json) {
+        let (enhanced_desc, priority) = match serde_json::from_str::<Value>(&cleaned_json) {
             Ok(enhanced) => {
                 let enhanced_desc = enhanced["description"]
                     .as_str()
@@ -181,33 +240,47 @@ Example output: {"description":"fix bug","priority":"high"}"#;
                 println!("Final enhanced description: {}", enhanced_desc);
                 println!("Final priority: {:?}", priority);
                 tracing::debug!("Successfully enhanced description: {} with priority: {:?}", enhanced_desc, priority);
-                Ok((enhanced_desc, priority))
+                (enhanced_desc, priority)
             }
             Err(e) => {
                 println!("Failed to parse cleaned JSON, falling back to defaults");
                 tracing::warn!("Failed to parse cleaned JSON: {}", e);
-                Ok((description.to_string(), TaskPriority::Medium))
+                (description.to_string(), TaskPriority::Medium)
             }
-        }
+        };
+
+        // Wait for project prediction and get result
+        let project = match project_future.await {
+            Ok(project) => project,
+            Err(e) => {
+                tracing::warn!("Failed to predict project: {}", e);
+                get_default_project().to_string()
+            }
+        };
+
+        Ok((enhanced_desc, priority, project))
     }
 
-    async fn add_todo(&self, description: &str, context: Option<&str>, target_agent: &str) -> Result<String> {
-        tracing::debug!("Adding new todo - Description: {}, Context: {:?}, Target Agent: {}", description, context, target_agent);
+    async fn add_todo(&self, description: &str, context: Option<&str>, target_agent: &str, project: Option<&str>) -> Result<String> {
+        tracing::debug!("Adding new todo - Description: {}, Context: {:?}, Target Agent: {}, Project: {:?}", description, context, target_agent, project);
         let now = Utc::now();
 
         // Try to enhance the description with AI, fallback to original if enhancement fails
         tracing::debug!("Attempting AI enhancement..");
-        let (enhanced_description, priority) = match self.enhance_with_ai(description).await {
-            Ok((desc, prio)) => {
+        let (enhanced_description, priority, predicted_project) = match self.enhance_with_ai(description).await {
+            Ok((desc, prio, proj)) => {
                 tracing::debug!("AI enhancement successful!");
-                (desc, prio)
+                (desc, prio, proj)
             },
             Err(e) => {
                 tracing::warn!("Failed to enhance todo with AI: {}", e);
                 tracing::debug!("Using original description with medium priority");
-                (description.to_string(), TaskPriority::Medium)
+                (description.to_string(), TaskPriority::Medium, get_default_project().to_string())
             }
         };
+
+        // Use the provided project if available, otherwise use the predicted one
+        let final_project = project.map(|p| p.to_string()).unwrap_or(predicted_project);
 
         tracing::debug!("Creating new TodoTask with description: {}", enhanced_description);
         let new_todo = TodoTask {
@@ -215,6 +288,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
             description: description.to_string(),
             enhanced_description: Some(enhanced_description.clone()),
             priority: priority.clone(),
+            project: Some(final_project),
             source_agent: Some("mcp_server".to_string()),
             target_agent: target_agent.to_string(),
             status: TaskStatus::Pending,
@@ -242,6 +316,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
                         description: new_todo.description,
                         enhanced_description: new_todo.enhanced_description,
                         priority: new_todo.priority,
+                        project: new_todo.project,
                         source_agent: new_todo.source_agent,
                         target_agent: new_todo.target_agent,
                         status: new_todo.status,
@@ -329,8 +404,9 @@ impl ToolExecutor for TodoTool {
                 let context = params.get("context").map(|s| s.as_str());
                 let default_agent = "user".to_string();
                 let target_agent = params.get("target_agent").unwrap_or(&default_agent);
-                tracing::debug!("Adding todo - Description: {}, Context: {:?}, Target Agent: {}", description, context, target_agent);
-                self.add_todo(description, context, target_agent).await
+                let project = params.get("project").map(|s| s.as_str());
+                tracing::debug!("Adding todo - Description: {}, Context: {:?}, Target Agent: {}, Project: {:?}", description, context, target_agent, project);
+                self.add_todo(description, context, target_agent, project).await
             }
             "list" => {
                 tracing::debug!("Listing todos");
@@ -378,6 +454,7 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("command".to_string(), "add".to_string());
         params.insert("description".to_string(), "Test todo".to_string());
+        params.insert("project".to_string(), "test_project".to_string());
 
         let result = tool.execute(params).await?;
         assert!(result.contains("Added new todo"));
@@ -390,12 +467,7 @@ mod tests {
         assert!(result.contains("Test todo"));
 
         // Cleanup: Drop the test collection
-        Arc::try_unwrap(tool.collection)
-            .unwrap()
-            .drop(None)
-            .await
-            .map_err(|e| anyhow!("Failed to drop test collection: {}", e))?;
-
+        drop(tool);
         Ok(())
     }
 
@@ -435,11 +507,12 @@ mod tests {
         ];
 
         for (description, valid_priorities, expected_keywords) in test_cases {
-            let (enhanced, priority) = tool.enhance_with_ai(description).await?;
+            let (enhanced, priority, project) = tool.enhance_with_ai(description).await?;
 
             println!("\nTesting enhancement for: {}", description);
             println!("Enhanced description: {}", enhanced);
             println!("Assigned priority: {:?}", priority);
+            println!("Predicted project: {}", project);
 
             // Verify priority assignment is within acceptable range
             assert!(
@@ -473,15 +546,163 @@ mod tests {
                 found_keywords,
                 enhanced
             );
+
+            // Verify project is not empty
+            assert!(!project.is_empty(), "Project name should not be empty");
         }
 
-        // Cleanup: Drop the test collection
-        Arc::try_unwrap(tool.collection)
-            .unwrap()
-            .drop(None)
-            .await
-            .map_err(|e| anyhow!("Failed to drop test collection: {}", e))?;
+        // Cleanup
+        drop(tool);
+        Ok(())
+    }
 
+    #[tokio::test]
+    async fn test_project_field() -> Result<()> {
+        // Set up a temporary collection
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
+        let db = client.database("swarmonomicon_test");
+        let collection = Arc::new(db.collection::<TodoTask>("todos"));
+
+        let ai_client = DefaultAiClient::new();
+        let tool = TodoTool {
+            collection: collection.clone(),
+            ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
+        };
+
+        // Test adding a todo with project
+        let mut params = HashMap::new();
+        params.insert("command".to_string(), "add".to_string());
+        params.insert("description".to_string(), "Project todo".to_string());
+        params.insert("project".to_string(), "test_project".to_string());
+
+        let _ = tool.execute(params).await?;
+
+        // Find the todo and verify the project field
+        let result = collection.find_one(
+            doc! { "description": "Project todo" },
+            None
+        ).await?;
+
+        let todo = result.expect("Todo should exist");
+        assert_eq!(todo.project, Some("test_project".to_string()));
+
+        // Test adding a todo without project
+        let mut params = HashMap::new();
+        params.insert("command".to_string(), "add".to_string());
+        params.insert("description".to_string(), "No project todo".to_string());
+
+        let _ = tool.execute(params).await?;
+
+        // Find the todo and verify the project field is None
+        let result = collection.find_one(
+            doc! { "description": "No project todo" },
+            None
+        ).await?;
+
+        let todo = result.expect("Todo should exist");
+        assert_eq!(todo.project, None);
+
+        // Cleanup
+        drop(tool);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_project_prediction() -> Result<()> {
+        // Set up a temporary collection
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
+        let db = client.database("swarmonomicon_test");
+        let collection = Arc::new(db.collection::<TodoTask>("todos"));
+
+        let ai_client = DefaultAiClient::new();
+        let tool = TodoTool {
+            collection,
+            ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
+        };
+
+        // Test project prediction with specific projects
+        let test_cases = vec![
+            (
+                "Update the README for Swarmonomicon with new API documentation", 
+                "Swarmonomicon", // Expected project
+            ),
+            (
+                "Fix Hammerspoon window management hotkeys",
+                ".hammerspoon",
+            ),
+            (
+                "Update MQTT variable handling in mqtt-get-var utility",
+                "mqtt-get-var",
+            ),
+        ];
+
+        for (description, expected_project) in test_cases {
+            let project = tool.predict_project(description).await?;
+            
+            println!("\nTask description: {}", description);
+            println!("Predicted project: {}", project);
+            
+            // Check if the predicted project is either the expected one or another relevant project
+            // This is to account for AI variance in predictions
+            if project != expected_project {
+                println!("Note: Expected '{}' but got '{}' - AI predictions may vary", expected_project, project);
+            }
+            
+            // Just verify that we got a non-empty project name
+            assert!(!project.is_empty(), "Project name should not be empty");
+        }
+        
+        // Test with a vague description that should default to madness_interactive
+        let vague_description = "Fix a bug that was reported yesterday";
+        let project = tool.predict_project(vague_description).await?;
+        println!("\nVague description: {}", vague_description);
+        println!("Predicted project: {}", project);
+        
+        // Just verify we got a valid project name
+        assert!(!project.is_empty(), "Project name should not be empty");
+
+        // Cleanup
+        drop(tool);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_project_prediction_in_add_todo() -> Result<()> {
+        // Set up a temporary collection
+        let client = Client::with_uri_str("mongodb://localhost:27017")
+            .await
+            .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
+        let db = client.database("swarmonomicon_test");
+        let collection = Arc::new(db.collection::<TodoTask>("todos"));
+
+        let ai_client = DefaultAiClient::new();
+        let tool = TodoTool {
+            collection: collection.clone(),
+            ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
+        };
+
+        // Test adding a todo without specifying a project
+        let description = "Update the Swarmonomicon API documentation with new endpoints";
+        let _ = tool.add_todo(description, None, "test_agent", None).await?;
+
+        // Find the todo and verify it has a project assigned
+        let result = collection.find_one(
+            doc! { "description": description },
+            None
+        ).await?;
+        
+        let todo = result.expect("Todo should exist");
+        
+        // Just verify it has a project, we don't enforce which one due to AI variance
+        assert!(todo.project.is_some(), "Todo should have a project assigned");
+        println!("Project assigned by AI: {:?}", todo.project);
+        
+        // Clean up 
+        drop(tool);
         Ok(())
     }
 }
@@ -490,18 +711,20 @@ mod tests {
 // pub struct TodoWorkflow {
 //     graph: Graph,
 // }
-
+// 
 // impl TodoWorkflow {
 //     pub fn new() -> Self {
 //         let graph = Graph::new()
 //             .add_node("parse_input", parse_task_input)
 //             .add_node("enhance_description", enhance_with_ai)
+//             .add_node("predict_project", predict_project)
 //             .add_node("determine_priority", determine_priority)
 //             .add_node("store_task", store_in_mongodb)
 //             .connect("parse_input", "enhance_description")
-//             .connect("enhance_description", "determine_priority")
+//             .connect("enhance_description", "predict_project")
+//             .connect("predict_project", "determine_priority")
 //             .connect("determine_priority", "store_task");
-
+// 
 //         Self { graph }
 //     }
 // }

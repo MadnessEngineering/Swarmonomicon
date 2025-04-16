@@ -191,6 +191,7 @@ pub struct AddTaskRequest {
     pub description: String,
     pub priority: TaskPriority,
     pub source_agent: Option<String>,
+    pub project: Option<String>,
 }
 
 // Get all tasks for an agent
@@ -252,6 +253,7 @@ pub async fn add_task(
         request.priority,
         request.source_agent,
         agent_name,
+        request.project,
         None, // No AI enhancement at API level - this should be handled by the agent's todo processor
     ).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -365,6 +367,7 @@ mod tests {
             // Create a new task with the enhanced description
             let enhanced_task = TodoTask {
                 description: enhanced_description,
+                project: task.project,
                 ..task
             };
 
@@ -420,6 +423,7 @@ mod tests {
             description: "Write a function to calculate fibonacci numbers".to_string(),
             priority: TaskPriority::High,
             source_agent: Some("user".to_string()),
+            project: None,
         };
 
         let response = add_task(
@@ -442,12 +446,14 @@ mod tests {
             description: "Update documentation".to_string(),
             priority: TaskPriority::Low,
             source_agent: None,
+            project: None,
         };
 
         let medium_priority_task = AddTaskRequest {
             description: "Add error handling".to_string(),
             priority: TaskPriority::Medium,
             source_agent: None,
+            project: None,
         };
 
         add_task(
@@ -504,6 +510,7 @@ mod tests {
             description: "Create a haiku about coding".to_string(),
             priority: TaskPriority::Medium,
             source_agent: Some("test_agent".to_string()),
+            project: None,
         };
 
         let response = add_task(

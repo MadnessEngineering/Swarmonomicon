@@ -62,6 +62,7 @@ async fn main() -> Result<()> {
                             TaskPriority::Medium,
                             Some("mqtt".to_string()),
                             "user".to_string(),
+                            None, // Project field
                             None, // No AI enhancement at worker level
                         ).await {
                             Ok(task) => {

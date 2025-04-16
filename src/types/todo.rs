@@ -12,6 +12,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use chrono::{Utc};
 use crate::ai::AiProvider;
+use crate::types::projects::{get_default_project};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoTask {
@@ -19,6 +20,7 @@ pub struct TodoTask {
     pub description: String,
     pub enhanced_description: Option<String>,
     pub priority: TaskPriority,
+    pub project: Option<String>,
     pub source_agent: Option<String>,
     pub target_agent: String,
     pub status: TaskStatus,
@@ -144,6 +146,7 @@ impl TodoList {
         priority: TaskPriority,
         source_agent: Option<String>,
         target_agent: String,
+        project: Option<String>,
         ai_client: Option<&dyn AiProvider>,
     ) -> Result<TodoTask, MongoError> {
         let mut task = TodoTask {
@@ -151,6 +154,7 @@ impl TodoList {
             description: description.clone(),
             enhanced_description: None,
             priority,
+            project,
             source_agent,
             target_agent,
             status: TaskStatus::Pending,
@@ -176,6 +180,34 @@ Output ONLY the enhanced description, no other text."#;
 
             if let Ok(enhanced) = ai_client.chat(system_prompt, messages).await {
                 task.enhanced_description = Some(enhanced);
+            }
+            
+            // If no project was provided, try to predict one using AI
+            if task.project.is_none() {
+                // Only attempt project prediction if description enhancement worked
+                if task.enhanced_description.is_some() {
+                    let project_prompt = r#"You are a project classifier. Your task is to determine which project a given task belongs to.
+Your output should be ONLY the project name, nothing else.
+If you're unsure, respond with "madness_interactive"."#;
+
+                    let project_messages = vec![HashMap::from([
+                        ("role".to_string(), "user".to_string()),
+                        ("content".to_string(), format!("Which project does this task belong to? {}", description)),
+                    ])];
+
+                    if let Ok(project_name) = ai_client.chat(project_prompt, project_messages).await {
+                        // Clean up project name
+                        let project = project_name.trim().trim_matches('"').trim_matches('\'');
+                        if !project.is_empty() {
+                            task.project = Some(project.to_string());
+                        }
+                    }
+                }
+                
+                // Set default project if prediction failed or wasn't attempted
+                if task.project.is_none() {
+                    task.project = Some("madness_interactive".to_string());
+                }
             }
         }
 

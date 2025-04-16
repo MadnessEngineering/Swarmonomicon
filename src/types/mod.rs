@@ -10,8 +10,18 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use std::error::Error as StdError;
 
+pub mod ai;
+pub mod agent;
+pub mod message;
+pub mod state;
 pub mod todo;
-pub use todo::{TodoList, TodoProcessor, TodoTask, TaskPriority, TaskStatus};
+pub mod projects;
+
+pub use ai::*;
+pub use agent::*;
+pub use message::*;
+pub use state::*;
+pub use todo::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameter {
@@ -75,8 +85,8 @@ impl Message {
         }
     }
 
-    pub fn with_metadata(mut self, metadata: Option<MessageMetadata>) -> Self {
-        self.metadata = metadata;
+    pub fn with_metadata(mut self, metadata: MessageMetadata) -> Self {
+        self.metadata = Some(metadata);
         self
     }
 
@@ -104,6 +114,7 @@ pub struct MessageMetadata {
     pub personality_traits: Option<Vec<String>>,
     pub transfer_target: Option<String>,
     pub context: Option<HashMap<String, String>>,
+    pub tool_results: Option<HashMap<String, String>>,
 }
 
 impl MessageMetadata {
@@ -114,6 +125,7 @@ impl MessageMetadata {
             personality_traits: None,
             transfer_target: None,
             context: None,
+            tool_results: None,
         }
     }
 
@@ -127,13 +139,18 @@ impl MessageMetadata {
         self
     }
 
-    pub fn with_transfer(mut self, target: String) -> Self {
+    pub fn with_transfer_target(mut self, target: String) -> Self {
         self.transfer_target = Some(target);
         self
     }
 
     pub fn with_context(mut self, context: HashMap<String, String>) -> Self {
         self.context = Some(context);
+        self
+    }
+
+    pub fn with_tool_results(mut self, results: HashMap<String, String>) -> Self {
+        self.tool_results = Some(results);
         self
     }
 }
@@ -187,11 +204,11 @@ pub trait Agent: Send + Sync {
     async fn call_tool(&self, tool: &Tool, params: HashMap<String, String>) -> Result<String>;
     async fn get_current_state(&self) -> Result<Option<State>>;
     async fn get_config(&self) -> Result<AgentConfig>;
-    
+
     fn get_todo_list(&self) -> Option<&TodoList> {
         None
     }
-    
+
     async fn delegate_task(&self, task: TodoTask, registry: &AgentRegistry) -> Result<()> {
         if let Some(target_agent) = registry.get(&task.target_agent) {
             let todo_list = <AgentWrapper as TodoProcessor>::get_todo_list(target_agent);
@@ -251,6 +268,11 @@ pub struct Unimplemented;
 pub struct AgentInfo {
     pub name: String,
     pub description: String,
-    pub tools: Vec<Tool>,
+    pub instructions: String,
     pub downstream_agents: Vec<String>,
 }
+
+pub use crate::ai::AiProvider;
+pub use crate::agents::Agent;
+pub use crate::agents::AgentConfig;
+pub use crate::state::State;

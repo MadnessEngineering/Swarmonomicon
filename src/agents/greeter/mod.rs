@@ -217,13 +217,14 @@ mod tests {
     #[tokio::test]
     async fn test_todo_processing() {
         let agent = GreeterAgent::new(create_test_config());
-        
+
         // Create a test task
         let task = TodoTask {
             id: Uuid::new_v4().to_string(),
             description: "Hello, I need help with git".to_string(),
             enhanced_description: None,  // No AI enhancement in test
             priority: crate::types::TaskPriority::Medium,
+            project: None,
             source_agent: None,
             target_agent: "greeter".to_string(),
             status: crate::types::TaskStatus::Pending,
