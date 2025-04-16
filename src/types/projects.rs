@@ -353,4 +353,32 @@ pub fn get_project(name: &str) -> Option<&'static Project> {
 /// Get the default project name
 pub fn get_default_project() -> &'static str {
     "madness_interactive"
+}
+
+/// Get a brief description of a project by name
+pub fn get_project_description(project_name: &str) -> Option<&'static str> {
+    match project_name {
+        "madness_interactive" => Some("Parent project for personal productivity tools and experiments"),
+        "Swarmonomicon" => Some("Swarm-based agent system for task automation"),
+        "Omnispindle" => Some("Python automation tool for task management"),
+        "regressiontestkit" => Some("Framework for regression testing and hardware integration"),
+        ".hammerspoon" => Some("Hammerspoon automation scripts for macOS"),
+        "mqtt-get-var" => Some("MQTT variable getter utility"),
+        "EventGhost-Rust" => Some("Rust implementation of EventGhost"),
+        _ => None,
+    }
+}
+
+/// Get a formatted list of projects and descriptions for use in AI prompts
+pub fn get_project_descriptions_text() -> String {
+    r#"- madness_interactive: Parent project for personal productivity tools and experiments
+- Swarmonomicon: Swarm-based agent system for task automation
+- Omnispindle: Python automation tool for task management
+- regressiontestkit: Framework for regression testing and hardware integration
+- .hammerspoon: Hammerspoon automation scripts for macOS
+- mqtt-get-var: MQTT variable getter utility
+- EventGhost-Rust: Rust implementation of EventGhost
+- rust_ingest: Rust-based data ingestion for regression testing
+- phoenix: Regression test dashboard and control system
+- Tinker: Rust-based tinkering and experimental project"#.to_string()
 } 
