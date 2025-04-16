@@ -12,7 +12,7 @@ use mongodb::{
 use std::process::Command;
 use crate::tools::ToolExecutor;
 use crate::types::{TodoTask, TaskPriority, TaskStatus};
-use crate::types::projects::{get_project_descriptions, get_default_project};
+use crate::types::projects::{get_default_project, get_project_descriptions_text};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
@@ -77,14 +77,7 @@ impl TodoTool {
         tracing::debug!("Attempting to predict project for task: {}", description);
         
         // Get project descriptions to provide to the AI
-        let project_descriptions = get_project_descriptions();
-        
-        // Format the project descriptions for the AI prompt
-        let projects_text = project_descriptions
-            .iter()
-            .map(|(name, desc)| format!("- {}: {}", name, desc))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let project_descriptions = get_project_descriptions_text();
         
         let system_prompt = format!(r#"You are a project classification system. Your task is to determine which project a given task belongs to.
 
@@ -104,7 +97,7 @@ Examples:
 "Create a new Hammerspoon hotkey for window management" -> ".hammerspoon"
 "Refactor regex handling in the RegressionTestKit" -> "regressiontestkit"
 "Add task priority system" -> "madness_interactive"
-"#, projects_text, get_default_project());
+"#, project_descriptions, get_default_project());
 
         let messages = vec![HashMap::from([
             ("role".to_string(), "user".to_string()),
