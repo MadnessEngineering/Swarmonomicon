@@ -11,8 +11,7 @@ use mongodb::{
 };
 use std::process::Command;
 use crate::tools::ToolExecutor;
-use crate::types::{TodoTask, TaskPriority, TaskStatus};
-use crate::types::projects::{get_default_project, get_project_descriptions_text};
+use crate::types::{TodoTask, TaskPriority, TaskStatus, projects};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
@@ -77,7 +76,7 @@ impl TodoTool {
         tracing::debug!("Attempting to predict project for task: {}", description);
         
         // Get project descriptions to provide to the AI
-        let project_descriptions = get_project_descriptions_text();
+        let project_descriptions = projects::get_project_descriptions_text();
         
         let system_prompt = format!(r#"You are a project classification system. Your task is to determine which project a given task belongs to.
 
@@ -97,7 +96,7 @@ Examples:
 "Create a new Hammerspoon hotkey for window management" -> ".hammerspoon"
 "Refactor regex handling in the RegressionTestKit" -> "regressiontestkit"
 "Add task priority system" -> "madness_interactive"
-"#, project_descriptions, get_default_project());
+"#, project_descriptions, projects::get_default_project());
 
         let messages = vec![HashMap::from([
             ("role".to_string(), "user".to_string()),
@@ -116,7 +115,7 @@ Examples:
             },
             Err(e) => {
                 tracing::warn!("Failed to predict project with AI: {}", e);
-                Ok(get_default_project().to_string())
+                Ok(projects::get_default_project().to_string())
             }
         }
     }
@@ -247,7 +246,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
             Ok(project) => project,
             Err(e) => {
                 tracing::warn!("Failed to predict project: {}", e);
-                get_default_project().to_string()
+                projects::get_default_project().to_string()
             }
         };
 
@@ -268,7 +267,7 @@ Example output: {"description":"fix bug","priority":"high"}"#;
             Err(e) => {
                 tracing::warn!("Failed to enhance todo with AI: {}", e);
                 tracing::debug!("Using original description with medium priority");
-                (description.to_string(), TaskPriority::Medium, get_default_project().to_string())
+                (description.to_string(), TaskPriority::Medium, projects::get_default_project().to_string())
             }
         };
 
