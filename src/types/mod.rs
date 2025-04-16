@@ -10,18 +10,15 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use std::error::Error as StdError;
 
-pub mod ai;
-pub mod agent;
-pub mod message;
-pub mod state;
+// Declare the modules that actually exist in the src/types directory
 pub mod todo;
 pub mod projects;
 
-pub use ai::*;
-pub use agent::*;
-pub use message::*;
-pub use state::*;
-pub use todo::*;
+// Re-export the types from the todo module that are used elsewhere
+pub use todo::{TodoList, TodoProcessor, TodoTask, TaskPriority, TaskStatus};
+
+// The rest of the file remains the same to avoid breaking other dependencies
+// (All the existing type definitions)
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameter {
@@ -269,10 +266,6 @@ pub struct AgentInfo {
     pub name: String,
     pub description: String,
     pub instructions: String,
+    pub tools: Vec<Tool>,
     pub downstream_agents: Vec<String>,
 }
-
-pub use crate::ai::AiProvider;
-pub use crate::agents::Agent;
-pub use crate::agents::AgentConfig;
-pub use crate::state::State;

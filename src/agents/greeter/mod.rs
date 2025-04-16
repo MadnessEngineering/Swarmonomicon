@@ -83,7 +83,7 @@ impl GreeterAgent {
         if let Some(agent) = transfer_agent {
             let mut response = Message::new(format!("Let me transfer you to our {} specialist...", agent));
             response.metadata = Some(MessageMetadata::new("greeter".to_string())
-                .with_transfer(agent.to_string()));
+                .with_transfer_target(agent.to_string()));
             return Ok(response);
         }
 

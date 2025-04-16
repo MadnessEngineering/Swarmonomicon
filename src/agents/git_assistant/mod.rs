@@ -184,9 +184,9 @@ impl GitAssistantAgent {
             .unwrap_or_else(|| "archival".to_string());
 
         Message::new(content)
-            .with_metadata(Some(MessageMetadata::new("git_assistant".to_string())
+            .with_metadata(MessageMetadata::new("git_assistant".to_string())
                 .with_personality(traits)
-                .with_state(state)))
+                .with_state(state))
     }
 
     fn format_git_response(&self, content: String) -> Message {

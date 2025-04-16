@@ -49,8 +49,9 @@ pub async fn list_agents(
             Ok(config) => agents.push(AgentInfo {
                 name: name.clone(),
                 description: config.public_description,
-                tools: config.tools,
-                downstream_agents: config.downstream_agents,
+                instructions: config.instructions.clone(),
+                tools: config.tools.clone(),
+                downstream_agents: config.downstream_agents.clone(),
             }),
             Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
@@ -70,8 +71,9 @@ pub async fn get_agent(
             Ok(config) => Ok(Json(AgentInfo {
                 name: config.name,
                 description: config.public_description,
-                tools: config.tools,
-                downstream_agents: config.downstream_agents,
+                instructions: config.instructions.clone(),
+                tools: config.tools.clone(),
+                downstream_agents: config.downstream_agents.clone(),
             })),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
