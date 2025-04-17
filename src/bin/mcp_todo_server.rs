@@ -36,13 +36,14 @@ async fn main() -> Result<()> {
     let task_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
     let ai_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_AI));
 
+    let aws_ip = std::env::var("AWSIP").expect("AWSIP environment variable not set");
+    let aws_port = std::env::var("AWSPORT").expect("AWSPORT environment variable not set");
     // Connect to MQTT broker
-    let mut mqtt_options = MqttOptions::new("mcp_todo_server", &std::env::var("AWSIP").expect("AWSIP environment variable not set"), 3003);
+    let mut mqtt_options = MqttOptions::new("mcp_todo_server", &aws_ip, &aws_port);
     mqtt_options.set_keep_alive(Duration::from_secs(30));
     mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
-
-    tracing::info!("Connecting to MQTT broker...");
+    tracing::info!("Connecting to MQTT broker at {}:{}", aws_ip, aws_port);
 
     // Subscribe to "mcp/*" topic with retry logic
     for attempt in 1..=3 {
