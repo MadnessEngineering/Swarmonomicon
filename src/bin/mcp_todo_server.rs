@@ -37,9 +37,9 @@ async fn main() -> Result<()> {
     let ai_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_AI));
 
     let aws_ip = std::env::var("AWSIP").expect("AWSIP environment variable not set");
-    let aws_port = std::env::var("AWSPORT").expect("AWSPORT environment variable not set");
+    let aws_port = std::env::var("AWSPORT").expect("AWSPORT environment variable not set").parse::<u16>().expect("AWSPORT must be a number");
     // Connect to MQTT broker
-    let mut mqtt_options = MqttOptions::new("mcp_todo_server", &aws_ip, &aws_port);
+    let mut mqtt_options = MqttOptions::new("mcp_todo_server", &aws_ip, aws_port);
     mqtt_options.set_keep_alive(Duration::from_secs(30));
     mqtt_options.set_clean_session(true);
     let (client, mut event_loop) = AsyncClient::new(mqtt_options, 10);
