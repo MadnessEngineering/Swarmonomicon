@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # Main Swarmonomicon service
+  swarm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+    networks:
+      - swarm_network
+    depends_on:
+      - mqtt
+      - mongodb
+    command: "/app/swarm"
+
+  # Todo worker service
+  todo_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    volumes:
+      - ./data:/app/data
+    environment:
+      - RUST_LOG=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+    networks:
+      - swarm_network
+    depends_on:
+      - mqtt
+      - mongodb
+    command: "/app/todo_worker"
+
+  # MCP Todo server service
+  mcp_todo_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - RUST_LOG=info
+      - MONGODB_URI=mongodb://mongodb:27017
+    restart: unless-stopped
+    networks:
+      - swarm_network
+    depends_on:
+      - mongodb
+    command: "/app/mcp_todo_server"
+
+  # MongoDB for data storage
+  mongodb:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    networks:
+      - swarm_network
+
+  # MQTT broker for messaging
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+    networks:
+      - swarm_network
+
+  # Optional: RL Training service (only activated when needed)
+  train_flappy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    volumes:
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+    networks:
+      - swarm_network
+    profiles:
+      - rl
+    command: "/app/train_flappy --episodes 1000 --model-path /app/models --metrics-path /app/models/metrics"
+
+  # macOS-specific services (activate with --profile macos)
+  swarm-macos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: macos
+    profiles:
+      - macos
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - swarm_network
+    depends_on:
+      - mqtt
+      - mongodb
+    command: "/app/swarm"
+
+  # Windows-specific services (activate with --profile windows)
+  swarm-windows:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: windows
+    profiles:
+      - windows
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - swarm_network
+    depends_on:
+      - mqtt
+      - mongodb
+    command: "/app/swarm"
+
+networks:
+  swarm_network:
+    driver: bridge
+
+volumes:
+  mongodb_data: 
