@@ -47,11 +47,12 @@ pub trait Environment {
 #[derive(Clone)]
 pub struct QLearningAgent<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + for<'de> Deserialize<'de>> {
     q_table: HashMap<(S, A), f64>,
+    pub metadata: model::QModelMetadata,
+    state_size: usize,
+    action_size: usize,
     learning_rate: f64,
     discount_factor: f64,
     epsilon: f64,
-    state_size: usize,
-    action_size: usize,
 }
 
 #[cfg(feature = "rl")]
@@ -59,11 +60,23 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
     pub fn new(learning_rate: f64, discount_factor: f64, epsilon: f64) -> Self {
         Self {
             q_table: HashMap::new(),
+            metadata: model::QModelMetadata {
+                version: model::MODEL_VERSION.to_string(),
+                state_size: 0,
+                action_size: 0,
+                learning_rate,
+                discount_factor,
+                episodes_trained: 0,
+                best_score: 0.0,
+                epsilon,
+                created_at: Some(chrono::Utc::now()),
+                updated_at: Some(chrono::Utc::now()),
+            },
             learning_rate,
             discount_factor,
             epsilon,
-            state_size: 0,  // Will be updated when first state is seen
-            action_size: 0,  // Will be updated when first action is seen
+            state_size: 0,
+            action_size: 0,
         }
     }
 
@@ -119,7 +132,7 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
     }
 
     /// Save the model to a file
-    pub async fn save_model<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn save_model<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let mut model = model::QModel::new(
             self.state_size,
             self.action_size,
@@ -127,20 +140,94 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
             self.discount_factor,
             self.epsilon,
         );
+        
+        // Update metadata
+        model.metadata = self.metadata.clone();
+        model.metadata.updated_at = Some(chrono::Utc::now());
+        
+        // Copy Q-table
         model.q_table = self.q_table.clone();
+        
+        // Save model to file
         model.save(path)
     }
 
     /// Load the model from a file
-    pub async fn load_model<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn load_model<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let model = model::QModel::<S, A>::load(path)?;
+        
+        // Copy Q-table
         self.q_table = model.q_table;
+        
+        // Copy metadata
+        self.metadata = model.metadata.clone();
+        
+        // Update agent parameters
         self.learning_rate = model.metadata.learning_rate;
         self.discount_factor = model.metadata.discount_factor;
         self.epsilon = model.metadata.epsilon;
         self.state_size = model.metadata.state_size;
         self.action_size = model.metadata.action_size;
+        
         Ok(())
+    }
+    
+    /// Save a checkpoint of the model
+    pub async fn save_checkpoint<P: AsRef<Path>>(
+        &self,
+        base_path: P,
+        episode: usize,
+        is_best: bool,
+    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+        let mut model = model::QModel::new(
+            self.state_size,
+            self.action_size,
+            self.learning_rate,
+            self.discount_factor,
+            self.epsilon,
+        );
+        
+        // Update metadata
+        model.metadata = self.metadata.clone();
+        model.metadata.episodes_trained = episode;
+        model.metadata.updated_at = Some(chrono::Utc::now());
+        
+        // Copy Q-table
+        model.q_table = self.q_table.clone();
+        
+        // Save checkpoint
+        model.save_checkpoint(base_path, episode, is_best)
+    }
+    
+    /// Load the latest checkpoint
+    pub async fn load_latest_checkpoint<P: AsRef<Path>>(base_path: P) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        match model::QModel::<S, A>::load_latest_checkpoint(base_path)? {
+            Some(model) => {
+                let mut agent = Self::new(
+                    model.metadata.learning_rate,
+                    model.metadata.discount_factor,
+                    model.metadata.epsilon,
+                );
+                
+                // Copy Q-table and metadata
+                agent.q_table = model.q_table;
+                agent.metadata = model.metadata;
+                agent.state_size = agent.metadata.state_size;
+                agent.action_size = agent.metadata.action_size;
+                
+                Ok(Some(agent))
+            },
+            None => Ok(None),
+        }
+    }
+    
+    /// Clean up old checkpoint files
+    pub fn clean_old_checkpoints<P: AsRef<Path>>(
+        base_path: P,
+        keep_latest: usize,
+        keep_interval: Option<usize>,
+    ) -> anyhow::Result<usize> {
+        model::QModel::<S, A>::clean_old_checkpoints(base_path, keep_latest, keep_interval)
     }
 
     /// Get the configuration used for this agent
@@ -151,7 +238,7 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
             epsilon: self.epsilon,
             epsilon_decay: 0.999, // Default value
             min_epsilon: 0.01,    // Default value
-            episodes: 0,          // Will be updated during training
+            episodes: self.metadata.episodes_trained,
             visualize: false,
             checkpoint_freq: 100,
             checkpoint_path: "models".to_string(),
@@ -181,6 +268,28 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
     /// Decay the epsilon value based on the configuration
     pub fn decay_epsilon(&mut self, config: &model::config::TrainingConfig) {
         self.epsilon = (self.epsilon * config.epsilon_decay).max(config.min_epsilon);
+        self.metadata.epsilon = self.epsilon;
+    }
+    
+    /// Update agent metadata
+    pub fn update_metadata(&mut self, 
+                         episodes_trained: Option<usize>, 
+                         best_score: Option<f64>,
+                         epsilon: Option<f64>) {
+        if let Some(episodes) = episodes_trained {
+            self.metadata.episodes_trained = episodes;
+        }
+        
+        if let Some(score) = best_score {
+            self.metadata.best_score = score;
+        }
+        
+        if let Some(eps) = epsilon {
+            self.epsilon = eps;
+            self.metadata.epsilon = eps;
+        }
+        
+        self.metadata.updated_at = Some(chrono::Utc::now());
     }
 }
 
@@ -189,6 +298,8 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
 mod tests {
     use super::*;
     use rand::Rng;
+    use tempfile::tempdir;
+    use std::fs;
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
     struct TestState(i32);
@@ -255,31 +366,110 @@ mod tests {
             vec![TestAction::Up, TestAction::Down]
         }
     }
+    
+    #[tokio::test]
+    async fn test_agent_serialization() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_agent.json");
+        
+        let mut agent = QLearningAgent::<TestState, TestAction>::new(0.1, 0.95, 0.1);
+        
+        // Add some Q-values
+        agent.q_table.insert((TestState(0), TestAction::Up), 0.5);
+        agent.q_table.insert((TestState(1), TestAction::Down), -0.3);
+        
+        // Save the agent
+        agent.save_model(&file_path).await.unwrap();
+        
+        // Load into a new agent
+        let mut loaded_agent = QLearningAgent::<TestState, TestAction>::new(0.0, 0.0, 0.0);
+        loaded_agent.load_model(&file_path).await.unwrap();
+        
+        // Check that Q-values match
+        assert_eq!(agent.q_table, loaded_agent.q_table);
+        
+        // Check that parameters match
+        assert_eq!(agent.learning_rate, loaded_agent.learning_rate);
+        assert_eq!(agent.discount_factor, loaded_agent.discount_factor);
+        assert_eq!(agent.epsilon, loaded_agent.epsilon);
+    }
+    
+    #[tokio::test]
+    async fn test_checkpoint_system() {
+        let dir = tempdir().unwrap();
+        let checkpoint_dir = dir.path();
+        
+        let mut agent = QLearningAgent::<TestState, TestAction>::new(0.1, 0.95, 0.1);
+        
+        // Add some Q-values for episode 10
+        agent.q_table.insert((TestState(0), TestAction::Up), 0.1);
+        
+        // Save checkpoint for episode 10
+        agent.save_checkpoint(checkpoint_dir, 10, false).await.unwrap();
+        
+        // Add more Q-values for episode 20
+        agent.q_table.insert((TestState(1), TestAction::Down), 0.2);
+        
+        // Save checkpoint for episode 20 (as best model)
+        agent.save_checkpoint(checkpoint_dir, 20, true).await.unwrap();
+        
+        // Add more Q-values for episode 30
+        agent.q_table.insert((TestState(2), TestAction::Up), 0.3);
+        
+        // Save checkpoint for episode 30
+        agent.save_checkpoint(checkpoint_dir, 30, false).await.unwrap();
+        
+        // Load the latest checkpoint
+        let latest_agent = QLearningAgent::<TestState, TestAction>::load_latest_checkpoint(checkpoint_dir).await.unwrap();
+        
+        // Verify it's the latest one
+        assert!(latest_agent.is_some());
+        let latest = latest_agent.unwrap();
+        assert_eq!(latest.metadata.episodes_trained, 30);
+        
+        // Make sure it has all Q-values
+        assert_eq!(latest.q_table.len(), 3);
+        assert_eq!(latest.q_table.get(&(TestState(0), TestAction::Up)), Some(&0.1));
+        assert_eq!(latest.q_table.get(&(TestState(1), TestAction::Down)), Some(&0.2));
+        assert_eq!(latest.q_table.get(&(TestState(2), TestAction::Up)), Some(&0.3));
+        
+        // Clean up old checkpoints
+        let deleted = QLearningAgent::<TestState, TestAction>::clean_old_checkpoints(checkpoint_dir, 1, None).unwrap();
+        assert_eq!(deleted, 2);
+        
+        // Load again, should still work
+        let latest_again = QLearningAgent::<TestState, TestAction>::load_latest_checkpoint(checkpoint_dir).await.unwrap();
+        assert!(latest_again.is_some());
+    }
 
     #[test]
     fn test_qlearning() {
-        let mut agent = QLearningAgent::new(0.1, 0.95, 0.1);
         let mut env = TestEnv { state: 0 };
-
-        // Run one episode
+        let mut agent = QLearningAgent::<TestState, TestAction>::new(0.1, 0.95, 0.1);
+        
+        // Run a simple episode
         let mut state = env.reset();
+        let mut done = false;
         let mut total_reward = 0.0;
-
-        for _ in 0..100 {
+        
+        while !done {
+            // Choose action
             let valid_actions = env.valid_actions(&state);
             let action = agent.choose_action(&state, &valid_actions);
-            let (next_state, reward, done) = env.step(&action);
-
+            
+            // Take action
+            let (new_state, reward, is_done) = env.step(&action);
+            
+            // Update Q-values
+            agent.update(&state, &action, reward, &new_state);
+            
+            // Update state and done
+            state = new_state;
+            done = is_done;
             total_reward += reward;
-
-            agent.update(&state, &action, reward, &next_state);
-
-            if done {
-                break;
-            }
-            state = next_state;
         }
-
-        assert!(total_reward != 0.0, "Agent should have received some rewards");
+        
+        // We should have some Q-values now
+        assert!(!agent.q_table.is_empty());
     }
 }

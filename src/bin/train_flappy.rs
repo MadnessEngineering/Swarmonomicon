@@ -9,13 +9,14 @@ use swarmonomicon::agents::rl::{
     QLearningAgent,
 };
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use winit::event_loop::{EventLoop, ControlFlow};
 use winit::window::WindowBuilder;
 use winit::event::Event;
 use std::time::{Duration, Instant};
 use std::fs;
 use std::sync::{Arc, Mutex};
+use std::io::{self, Write};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +40,18 @@ struct Args {
     /// Path to save metrics and visualizations
     #[arg(short = 'm', long)]
     metrics_path: Option<PathBuf>,
+    
+    /// Resume training from the latest checkpoint
+    #[arg(short, long)]
+    resume: bool,
+    
+    /// Number of latest checkpoints to keep
+    #[arg(long, default_value = "5")]
+    keep_checkpoints: usize,
+    
+    /// Keep checkpoints at this episode interval
+    #[arg(long, default_value = "100")]
+    checkpoint_interval: usize,
 }
 
 #[tokio::main]
@@ -75,33 +88,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&config.metrics_path).unwrap_or_default();
     }
 
-    // Setup model path
-    let model_path = PathBuf::from(&config.checkpoint_path).join("flappy_model.json");
-
+    // Setup model paths
+    let checkpoint_dir = PathBuf::from(&config.checkpoint_path);
+    let model_path = checkpoint_dir.join("flappy_model.json");
+    
+    // Training history and tracking variables
+    let mut starting_episode = 0;
+    let mut history = TrainingHistory::new(config.clone());
+    let mut best_score = 0;
+    
     // Initialize environment and agent
     let env = Arc::new(Mutex::new(FlappyBirdEnv::default()));
-    let agent = Arc::new(Mutex::new(if model_path.exists() {
-        let mut agent = QLearningAgent::new(
-            config.learning_rate,
-            config.discount_factor,
-            config.epsilon,
-        );
-        agent.load_model(&model_path).await?;
-        agent
-    } else {
-        QLearningAgent::new(
-            config.learning_rate,
-            config.discount_factor,
-            config.epsilon,
-        )
+    let agent = Arc::new(Mutex::new({
+        if args.resume {
+            // Try to load the latest checkpoint
+            println!("Attempting to resume from latest checkpoint...");
+            match QLearningAgent::<FlappyBirdState, FlappyBirdAction>::load_latest_checkpoint(&checkpoint_dir).await {
+                Ok(Some(mut agent)) => {
+                    // Extract training progress from the loaded model
+                    starting_episode = agent.metadata.episodes_trained;
+                    best_score = agent.metadata.best_score as i32;
+                    println!("Resuming from episode {}, best score: {}", starting_episode, best_score);
+                    
+                    // Also try to load the training history
+                    let history_path = PathBuf::from(&config.metrics_path).join("training_history.json");
+                    if history_path.exists() {
+                        match TrainingHistory::load(&history_path) {
+                            Ok(loaded_history) => {
+                                history = loaded_history;
+                                println!("Loaded training history with {} metrics entries", history.metrics.len());
+                            },
+                            Err(e) => println!("Failed to load training history: {}", e),
+                        }
+                    }
+                    
+                    agent
+                }
+                Ok(None) => {
+                    println!("No checkpoint found. Starting new training.");
+                    QLearningAgent::new(
+                        config.learning_rate,
+                        config.discount_factor,
+                        config.epsilon,
+                    )
+                }
+                Err(e) => {
+                    println!("Error loading checkpoint: {}. Starting new training.", e);
+                    QLearningAgent::new(
+                        config.learning_rate,
+                        config.discount_factor,
+                        config.epsilon,
+                    )
+                }
+            }
+        } else if model_path.exists() {
+            // Load from specific model path
+            println!("Loading model from: {:?}", model_path);
+            let mut agent = QLearningAgent::new(
+                config.learning_rate,
+                config.discount_factor,
+                config.epsilon,
+            );
+            match agent.load_model(&model_path).await {
+                Ok(_) => {
+                    println!("Model loaded successfully");
+                    agent
+                }
+                Err(e) => {
+                    println!("Error loading model: {}. Starting new training.", e);
+                    QLearningAgent::new(
+                        config.learning_rate,
+                        config.discount_factor,
+                        config.epsilon,
+                    )
+                }
+            }
+        } else {
+            // Create new agent
+            println!("Starting new training.");
+            QLearningAgent::new(
+                config.learning_rate,
+                config.discount_factor,
+                config.epsilon,
+            )
+        }
     }));
-
-    // Setup training history
-    let history = Arc::new(Mutex::new(TrainingHistory::new(config.clone())));
-    let mut best_score = 0;
-    let mut total_reward = 0.0;
-    let target_fps = 60.0;
-    let frame_time = Duration::from_secs_f64(1.0 / target_fps);
 
     // Create visualization tools if metrics are enabled
     let viz_tools = if config.save_metrics {
@@ -109,6 +180,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+
+    // Setup graceful shutdown handling
+    let running = Arc::new(Mutex::new(true));
+    let r = running.clone();
+    
+    ctrlc::set_handler(move || {
+        println!("\nReceived Ctrl+C, saving checkpoint before exiting...");
+        let mut running = r.lock().unwrap();
+        *running = false;
+    }).expect("Error setting Ctrl+C handler");
 
     if config.visualize {
         // Training with visualization
@@ -122,14 +203,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         let agent_clone = agent.clone();
         let env_clone = env.clone();
-        let history_clone = history.clone();
+        let history_clone = Arc::new(Mutex::new(history));
         let config_clone = config.clone();
-        let model_path_clone = model_path.clone();
+        let checkpoint_dir_clone = checkpoint_dir.clone();
         let viz_tools_clone = viz_tools.clone();
+        let running_clone = running.clone();
         
-        let mut current_episode = 0;
+        let mut current_episode = starting_episode;
         
         event_loop.run(move |event, _, control_flow| {
+            // Check for shutdown signal
+            if !*running_clone.lock().unwrap() {
+                // Save final checkpoint
+                let final_checkpoint_path = checkpoint_dir_clone.join("final_checkpoint.json");
+                futures::executor::block_on(async {
+                    let agent = agent_clone.lock().unwrap();
+                    if let Err(e) = agent.save_model(&final_checkpoint_path).await {
+                        eprintln!("Error saving final checkpoint: {}", e);
+                    } else {
+                        println!("Final checkpoint saved at {:?}", final_checkpoint_path);
+                    }
+                });
+                
+                // Save training history
+                let history_path = PathBuf::from(&config_clone.metrics_path).join("training_history.json");
+                let history = history_clone.lock().unwrap();
+                if let Err(e) = history.save(&history_path) {
+                    eprintln!("Error saving training history: {}", e);
+                } else {
+                    println!("Training history saved at {:?}", history_path);
+                }
+                
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
+        
             *control_flow = ControlFlow::Poll;
 
             match event {
@@ -178,9 +286,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     let score = env.get_score();
-                    if score > best_score {
+                    let is_best = score > best_score;
+                    if is_best {
                         best_score = score;
-                        println!("New best score: {}", best_score);
+                        println!("Episode {}: New best score: {}", current_episode, best_score);
+                    } else if current_episode % 10 == 0 {
+                        print!("\rEpisode: {}/{}, Score: {}, Best: {}", 
+                              current_episode, config_clone.episodes, score, best_score);
+                        io::stdout().flush().unwrap();
                     }
                     
                     total_reward += episode_reward;
@@ -218,24 +331,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     
-                    current_episode += 1;
-                    
                     // Checkpoint if needed
-                    if current_episode % config_clone.checkpoint_freq == 0 {
+                    if current_episode % config_clone.checkpoint_freq == 0 || is_best {
                         // Clone what we need for the checkpoint
                         let agent_for_save = agent_clone.clone();
-                        let model_path_for_save = model_path_clone.clone();
+                        let checkpoint_dir_for_save = checkpoint_dir_clone.clone();
                         let history_for_report = history_clone.clone();
                         let viz_tools_for_report = viz_tools_clone.clone();
                         
                         // Use a blocking thread to avoid disrupting the event loop
                         std::thread::spawn(move || {
-                            // Save the model
+                            // Update agent metadata
+                            let mut agent = agent_for_save.lock().unwrap();
+                            agent.update_metadata(
+                                Some(current_episode),
+                                Some(best_score as f64),
+                                None
+                            );
+                            
+                            // Save the checkpoint
                             futures::executor::block_on(async {
-                                let agent = agent_for_save.lock().unwrap();
-                                agent.save_model(&model_path_for_save).await.unwrap();
-                                println!("Checkpoint saved at episode {}", current_episode);
+                                match agent.save_checkpoint(&checkpoint_dir_for_save, current_episode, is_best).await {
+                                    Ok(path) => println!("\nCheckpoint saved at {:?}", path),
+                                    Err(e) => eprintln!("\nError saving checkpoint: {}", e),
+                                }
                             });
+                            
+                            // Clean up old checkpoints
+                            match QLearningAgent::<FlappyBirdState, FlappyBirdAction>::clean_old_checkpoints(
+                                &checkpoint_dir_for_save, 
+                                args.keep_checkpoints, 
+                                Some(args.checkpoint_interval)
+                            ) {
+                                Ok(deleted) => {
+                                    if deleted > 0 {
+                                        println!("Cleaned up {} old checkpoints", deleted);
+                                    }
+                                },
+                                Err(e) => eprintln!("Error cleaning old checkpoints: {}", e),
+                            }
                             
                             // Generate a report if metrics are enabled
                             if let Some(viz_tools) = viz_tools_for_report {
@@ -243,33 +377,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(report_path) = viz_tools.generate_report(&history) {
                                     println!("Training report generated at {:?}", report_path);
                                 }
+                                
+                                // Save the training history
+                                let history_path = PathBuf::from(&config_clone.metrics_path).join("training_history.json");
+                                if let Err(e) = history.save(&history_path) {
+                                    eprintln!("Error saving training history: {}", e);
+                                }
                             }
                         });
                     }
                     
-                    if current_episode % 10 == 0 {
-                        let epsilon = {
-                            let agent = agent_clone.lock().unwrap();
-                            agent.get_config().epsilon
-                        };
-                        
-                        println!("Episode {}/{}, Reward: {:.2}, Score: {}, Epsilon: {:.4}", 
-                            current_episode, config_clone.episodes, episode_reward, score, epsilon);
-                    }
-                }
-                Event::WindowEvent { event: winit::event::WindowEvent::CloseRequested, .. } => {
+                    current_episode += 1;
+                },
+                Event::WindowEvent { 
+                    event: winit::event::WindowEvent::CloseRequested, .. 
+                } => {
                     *control_flow = ControlFlow::Exit;
-                }
-                _ => (),
+                },
+                _ => {}
             }
         });
     } else {
-        // Training without visualization
-        let mut env = env.lock().unwrap();
-        let mut agent = agent.lock().unwrap();
-        let mut history = history.lock().unwrap();
+        // Command-line training without visualization
+        let target_fps = 60.0;
+        let frame_time = Duration::from_secs_f64(1.0 / target_fps);
+        let mut total_reward = 0.0;
         
-        for episode in 0..config.episodes {
+        let episodes_range = starting_episode..config.episodes;
+        let progress_step = config.episodes / 100;
+        let progress_step = if progress_step == 0 { 1 } else { progress_step };
+        
+        println!("Starting training for {} episodes (from episode {})", config.episodes - starting_episode, starting_episode);
+        
+        for current_episode in episodes_range {
+            // Check for shutdown signal
+            if !*running.lock().unwrap() {
+                break;
+            }
+            
+            // Training loop for one episode
+            let mut env = env.lock().unwrap();
             let state = env.reset();
             let mut current_state = state;
             let mut done = false;
@@ -278,78 +425,139 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             while !done {
                 let valid_actions = env.valid_actions(&current_state);
-                let action = agent.choose_action(&current_state, &valid_actions);
+                let action = {
+                    let mut agent = agent.lock().unwrap();
+                    agent.choose_action(&current_state, &valid_actions)
+                };
                 let (next_state, reward, is_done) = env.step(&action);
                 
-                agent.update(&current_state, &action, reward, &next_state);
+                {
+                    let mut agent = agent.lock().unwrap();
+                    agent.update(&current_state, &action, reward, &next_state);
+                }
+                
                 episode_reward += reward;
                 done = is_done;
-                current_state = next_state;
+                current_state = next_state.clone();
                 steps += 1;
+
+                // Sleep to prevent CPU overuse
+                std::thread::sleep(Duration::from_millis(1));
             }
 
-            total_reward += episode_reward;
             let score = env.get_score();
-            if score > best_score {
+            let is_best = score > best_score;
+            if is_best {
                 best_score = score;
-                println!("New best score: {}", best_score);
+                println!("\nEpisode {}: New best score: {}", current_episode, best_score);
+            } else if current_episode % progress_step == 0 || current_episode % 10 == 0 {
+                let progress = (current_episode as f64 / config.episodes as f64) * 100.0;
+                print!("\rProgress: {:.1}% - Episode: {}/{}, Score: {}, Best: {}", 
+                      progress, current_episode, config.episodes, score, best_score);
+                io::stdout().flush().unwrap();
             }
             
+            total_reward += episode_reward;
+            
             // Decay epsilon
-            agent.decay_epsilon(&config);
+            {
+                let mut agent = agent.lock().unwrap();
+                agent.decay_epsilon(&config);
+            }
             
             // Record metrics
             if config.save_metrics {
-                let avg_q = agent.calculate_avg_q_value(&current_state);
+                let avg_q = {
+                    let agent = agent.lock().unwrap();
+                    agent.calculate_avg_q_value(&current_state)
+                };
+                
+                let epsilon = {
+                    let agent = agent.lock().unwrap();
+                    agent.get_config().epsilon
+                };
+                
                 let metrics = TrainingMetrics {
-                    episode,
+                    episode: current_episode,
                     reward: episode_reward,
                     score,
                     steps,
-                    epsilon: agent.get_config().epsilon,
+                    epsilon,
                     avg_q_value: avg_q,
                 };
+                
                 history.add_metrics(metrics);
             }
-
-            if (episode + 1) % config.checkpoint_freq == 0 {
-                agent.save_model(&model_path).await?;
-                println!("Checkpoint saved at episode {}", episode + 1);
+            
+            // Checkpoint if needed
+            if current_episode % config.checkpoint_freq == 0 || is_best {
+                // Update agent metadata
+                {
+                    let mut agent_lock = agent.lock().unwrap();
+                    agent_lock.update_metadata(
+                        Some(current_episode),
+                        Some(best_score as f64),
+                        None
+                    );
+                    
+                    // Save the checkpoint
+                    match agent_lock.save_checkpoint(&checkpoint_dir, current_episode, is_best).await {
+                        Ok(path) => println!("\nCheckpoint saved at {:?}", path),
+                        Err(e) => eprintln!("\nError saving checkpoint: {}", e),
+                    }
+                }
                 
-                // Generate visualization if metrics are enabled
+                // Clean up old checkpoints
+                match QLearningAgent::<FlappyBirdState, FlappyBirdAction>::clean_old_checkpoints(
+                    &checkpoint_dir, 
+                    args.keep_checkpoints, 
+                    Some(args.checkpoint_interval)
+                ) {
+                    Ok(deleted) => {
+                        if deleted > 0 {
+                            println!("Cleaned up {} old checkpoints", deleted);
+                        }
+                    },
+                    Err(e) => eprintln!("Error cleaning old checkpoints: {}", e),
+                }
+                
+                // Generate a report if metrics are enabled
                 if let Some(viz_tools) = &viz_tools {
-                    viz_tools.generate_report(&history)?;
-                    println!("Training report generated");
+                    if let Ok(report_path) = viz_tools.generate_report(&history) {
+                        println!("Training report generated at {:?}", report_path);
+                    }
+                    
+                    // Save the training history
+                    let history_path = PathBuf::from(&config.metrics_path).join("training_history.json");
+                    if let Err(e) = history.save(&history_path) {
+                        eprintln!("Error saving training history: {}", e);
+                    }
                 }
             }
-
-            if (episode + 1) % 10 == 0 {
-                println!("Episode {}/{}, Reward: {:.2}, Score: {}, Epsilon: {:.4}", 
-                    episode + 1, config.episodes, episode_reward, score, agent.get_config().epsilon);
+        }
+        
+        // Save final model
+        let final_model_path = checkpoint_dir.join("final_model.json");
+        {
+            let agent_lock = agent.lock().unwrap();
+            match agent_lock.save_model(&final_model_path).await {
+                Ok(_) => println!("\nFinal model saved at {:?}", final_model_path),
+                Err(e) => eprintln!("\nError saving final model: {}", e),
             }
         }
-    }
-
-    // Save the final model
-    let agent = agent.lock().unwrap();
-    agent.save_model(&model_path).await?;
-    println!("Final model saved to {:?}", model_path);
-    
-    // Save the final metrics and generate report
-    if config.save_metrics {
-        if let Some(viz_tools) = &viz_tools {
-            let history = history.lock().unwrap();
-            let report_path = viz_tools.generate_report(&history)?;
-            println!("Final training report saved to {:?}", report_path);
-            
+        
+        // Save final training history
+        if config.save_metrics {
             let history_path = PathBuf::from(&config.metrics_path).join("training_history.json");
-            history.save(&history_path)?;
-            println!("Training history saved to {:?}", history_path);
+            if let Err(e) = history.save(&history_path) {
+                eprintln!("Error saving training history: {}", e);
+            } else {
+                println!("Training history saved at {:?}", history_path);
+            }
         }
+        
+        println!("\nTraining complete. Total episodes: {}, Best score: {}", config.episodes, best_score);
     }
-    
-    println!("Training completed. Best score: {}", best_score);
-    println!("Average reward: {:.2}", total_reward / config.episodes as f64);
 
     Ok(())
 }
