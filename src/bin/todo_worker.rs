@@ -19,6 +19,7 @@ use tracing_subscriber::{self, fmt::format::FmtSpan};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::timeout;
 use std::time::SystemTime;
+use tokio::sync::oneshot;
 
 // Constants for configuration
 const DEFAULT_MQTT_HOST: &str = "localhost";
@@ -315,55 +316,111 @@ async fn setup_and_run_mqtt_loop(
         })
     };
 
-    // Main event loop
+    // Main event loop with graceful shutdown support
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    
+    // Set up graceful shutdown on ctrl-c
+    let shutdown_tx_clone = shutdown_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Failed to listen for ctrl-c: {}", e);
+            return;
+        }
+        info!("Received shutdown signal, initiating graceful shutdown...");
+        let _ = shutdown_tx_clone.send(());
+    });
+    
     loop {
-        match eventloop.poll().await {
-            Ok(event) => {
-                match event {
-                    Event::Incoming(Packet::Publish(publish)) => {
-                        let topic = publish.topic.clone();
-                        let payload = match std::str::from_utf8(&publish.payload) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                error!("Failed to parse payload as UTF-8: {}", e);
-                                continue;
-                            }
-                        };
-                        
-                        debug!("Received message on topic {}: {}", topic, payload);
-                        
-                        if topic.starts_with("agent/") && topic.ends_with("/todo/process") {
-                            // Extract the agent name from the topic
-                            if let Some(agent_name) = topic.split('/').nth(1) {
-                                info!("Processing todo for agent: {}", agent_name);
+        tokio::select! {
+            // Check for shutdown signal
+            _ = &mut shutdown_rx => {
+                info!("Shutdown signal received, closing MQTT connection...");
+                
+                // Report final metrics
+                if let Err(e) = report_metrics(&metrics, &client).await {
+                    error!("Failed to report final metrics: {}", e);
+                }
+                
+                // Publish shutdown status
+                let shutdown_payload = json!({
+                    "status": "shutdown",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "final_metrics": metrics.get_metrics_json().await
+                }).to_string();
+                
+                if let Err(e) = client.publish(
+                    "todo_worker/status", 
+                    QoS::AtLeastOnce, 
+                    false, 
+                    shutdown_payload
+                ).await {
+                    error!("Failed to publish shutdown status: {}", e);
+                }
+                
+                // Disconnect from MQTT
+                if let Err(e) = client.disconnect().await {
+                    error!("Error disconnecting from MQTT: {}", e);
+                }
+                
+                // Allow time for final messages to be sent
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                info!("Graceful shutdown complete");
+                break;
+            }
+            
+            // Handle MQTT events
+            mqtt_event = eventloop.poll() => {
+                match mqtt_event {
+                    Ok(event) => {
+                        match event {
+                            Event::Incoming(Packet::Publish(publish)) => {
+                                let topic = publish.topic.clone();
+                                let payload = match std::str::from_utf8(&publish.payload) {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        error!("Failed to parse payload as UTF-8: {}", e);
+                                        continue;
+                                    }
+                                };
                                 
-                                process_agent_message(
-                                    &agent_registry,
-                                    agent_name,
-                                    payload,
-                                    &client,
-                                    &metrics
-                                ).await;
-                            }
-                        } else if topic == "todo_worker/control" {
-                            handle_control_message(payload, &client, &metrics).await?;
+                                debug!("Received message on topic {}: {}", topic, payload);
+                                
+                                if topic.starts_with("agent/") && topic.ends_with("/todo/process") {
+                                    // Extract the agent name from the topic
+                                    if let Some(agent_name) = topic.split('/').nth(1) {
+                                        info!("Processing todo for agent: {}", agent_name);
+                                        
+                                        process_agent_message(
+                                            &agent_registry,
+                                            agent_name,
+                                            payload,
+                                            &client,
+                                            &metrics
+                                        ).await;
+                                    }
+                                } else if topic == "todo_worker/control" {
+                                    if let Err(e) = handle_control_message(payload, &client, &metrics).await {
+                                        error!("Error handling control message: {}", e);
+                                    }
+                                }
+                            },
+                            Event::Outgoing(packet) => {
+                                debug!("Sent packet: {:?}", packet);
+                            },
+                            _ => {}
                         }
                     },
-                    Event::Outgoing(packet) => {
-                        debug!("Sent packet: {:?}", packet);
-                    },
-                    _ => {}
-                }
-            },
-            Err(e) => {
-                error!("Error from MQTT eventloop: {}", e);
-                // Short delay to avoid tight loop on errors
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                
-                // Check if the error is fatal
-                if e.to_string().contains("Connection reset by peer") 
-                   || e.to_string().contains("Connection refused") {
-                    return Err(anyhow!("Fatal MQTT connection error: {}", e));
+                    Err(e) => {
+                        error!("Error from MQTT eventloop: {}", e);
+                        // Short delay to avoid tight loop on errors
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        
+                        // Check if the error is fatal
+                        if e.to_string().contains("Connection reset by peer") 
+                           || e.to_string().contains("Connection refused") {
+                            return Err(anyhow!("Fatal MQTT connection error: {}", e));
+                        }
+                    }
                 }
             }
         }
@@ -465,6 +522,13 @@ async fn process_agent_message(
     client: &Arc<AsyncClient>,
     metrics: &Arc<Metrics>
 ) {
+    // First, check if this is a task that's already been processed by our background task system
+    // This avoids double-processing due to check_agent_tasks also publishing to the same topic
+    if payload.contains("\"_processed_by_background\": true") {
+        debug!("Skipping already processed task for agent {}", agent_name);
+        return;
+    }
+    
     let task_count = metrics.increment_processed();
     
     // Parse task from payload
@@ -622,27 +686,84 @@ async fn check_agent_tasks(
 ) -> Result<()> {
     debug!("Checking for pending agent tasks");
     
+    // Use a semaphore to limit concurrent task processing
+    // This prevents overwhelming the system and reduces race conditions
+    static TASK_SEMAPHORE: tokio::sync::Semaphore = 
+        tokio::sync::Semaphore::const_new(5); // Allow up to 5 concurrent tasks
+    
     let registry = agent_registry.read().await;
     let agent_names: Vec<String> = registry.iter().map(|(name, _)| name.clone()).collect();
     
     for agent_name in agent_names {
         if let Some(agent) = registry.get(&agent_name) {
-            let check_interval = agent.get_check_interval();
             let todo_list = TodoProcessor::get_todo_list(agent);
             
             match todo_list.get_next_task().await {
                 Ok(Some(task)) => {
                     info!("Found task {} for agent {}", task.id, agent_name);
                     
-                    // Process the task, converting it to a JSON payload
+                    // Acquire permit from semaphore
+                    let permit = match TASK_SEMAPHORE.try_acquire() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            debug!("Too many concurrent tasks, skipping task {} until next check", task.id);
+                            continue;
+                        }
+                    };
+                    
+                    // Clone necessary values for task processing
+                    let agent_registry_clone = agent_registry.clone();
+                    let mqtt_client_clone = mqtt_client.clone();
+                    let metrics_clone = metrics.clone();
+                    let agent_name_clone = agent_name.clone();
+                    let task_clone = task.clone();
+                    
+                    // Convert task to JSON for MQTT processing
                     let task_json = serde_json::to_string(&task)?;
                     let topic = format!("agent/{}/todo/process", agent_name);
+                    
+                    // Add a processed flag to the JSON to avoid double-processing
+                    let mut task_json_value: serde_json::Value = serde_json::from_str(&task_json)?;
+                    if let serde_json::Value::Object(ref mut obj) = task_json_value {
+                        obj.insert("_processed_by_background".to_string(), serde_json::Value::Bool(true));
+                    }
+                    let task_json = serde_json::to_string(&task_json_value)?;
                     
                     // Publish the task to the appropriate topic
                     mqtt_client.publish(topic, QoS::AtLeastOnce, false, task_json).await?;
                     
-                    // Short sleep to avoid hammering the system
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    // Spawn a background task to handle the permit release after processing
+                    tokio::spawn(async move {
+                        // Create a timeout for task processing
+                        let processing_result = tokio::time::timeout(
+                            Duration::from_secs(TASK_PROCESSING_TIMEOUT),
+                            process_todo_for_agent(
+                                &agent_registry_clone, 
+                                &agent_name_clone, 
+                                &task_clone, 
+                                &mqtt_client_clone
+                            )
+                        ).await;
+                        
+                        match processing_result {
+                            Ok(Ok(_)) => {
+                                metrics_clone.increment_succeeded();
+                                info!("Task {} processed successfully", task_clone.id);
+                            },
+                            Ok(Err(e)) => {
+                                metrics_clone.increment_failed();
+                                error!("Failed to process task {}: {}", task_clone.id, e);
+                            },
+                            Err(_) => {
+                                metrics_clone.increment_timeout();
+                                metrics_clone.increment_failed();
+                                error!("Task {} processing timed out", task_clone.id);
+                            }
+                        }
+                        
+                        // The permit is automatically dropped here, releasing the semaphore
+                        drop(permit);
+                    });
                 },
                 Ok(None) => {
                     // No tasks to process, continue checking other agents
