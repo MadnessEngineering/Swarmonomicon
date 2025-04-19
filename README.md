@@ -33,12 +33,24 @@ Unintended Hilarity guaranteed[^2].
   - Browser Agent: Handles browser automation tasks
   - Reinforcement Learning Agent: Learns to play Flappy Bird using Q-learning
 
+- Todo Task System:
+  - Advanced task management with MongoDB backend
+  - AI-powered task enhancement and prioritization
+  - Priority-based processing (Critical, High, Medium, Low)
+  - Task status tracking (Pending, InProgress, Completed, Failed)
+  - Project-specific task organization
+  - Agent-specific task queues
+  - Graceful shutdown and reconnection handling
+  - Concurrent task processing with semaphore limiting
+  - Real-time metrics reporting via MQTT
+  - Health monitoring based on task success rates
+  - Command-line testing tools for task publishing
+
 - Independent Task Processing:
   - Each agent has its own todo list
   - Tasks are processed asynchronously in the background
   - Agents can delegate tasks to other agents
   - Priority-based task scheduling
-  - Task status tracking (Pending, InProgress, Completed, Failed)
   - AI-powered task enhancement and prioritization
   - Dual description system (original + enhanced)
 
@@ -100,14 +112,20 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 - Centralized AI client with LM Studio integration
 - Intelligent conversation handling with history
 - Git operations with AI-powered commit messages
+- Advanced Todo System with MongoDB integration and AI enhancements
+- Real-time metrics reporting for task processing
+- Graceful shutdown handling for all services
+- Concurrent task processing with resource limiting
+- Command-line tools for task publishing and status monitoring
 
 #### In Progress 🚧
 - Adding entry point for greeter
-- Update todo_worker to keep a record of tasks and to log more items
-- Add mqtt logging for log agent to watch and react to
 - Enhance conversation context preservation
 - Improve error handling for AI communication
 - Add more sophisticated state machine transitions
+- Add additional agent types for specialized tasks
+- Implement task caching for better performance
+- Add support for distributed task processing
 
 ## Setup
 
