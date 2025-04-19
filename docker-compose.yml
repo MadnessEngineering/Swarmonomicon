@@ -1,157 +1,132 @@
 version: '3.8'
 
 services:
-  # Main Swarmonomicon service
-  swarm:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-    environment:
-      - RUST_LOG=info
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    restart: unless-stopped
-    networks:
-      - swarm_network
-    depends_on:
-      - mqtt
-      - mongodb
-    command: "/app/swarm"
-
-  # Todo worker service
-  todo_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    volumes:
-      - ./data:/app/data
-    environment:
-      - RUST_LOG=info
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    restart: unless-stopped
-    networks:
-      - swarm_network
-    depends_on:
-      - mqtt
-      - mongodb
-    command: "/app/todo_worker"
-
-  # MCP Todo server service
-  mcp_todo_server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - RUST_LOG=info
-      - MONGODB_URI=mongodb://mongodb:27017
-    restart: unless-stopped
-    networks:
-      - swarm_network
-    depends_on:
-      - mongodb
-    command: "/app/mcp_todo_server"
-
-  # MongoDB for data storage
+  # MongoDB for task storage
   mongodb:
-    image: mongo:5.0
+    image: mongo:6
+    restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-    restart: unless-stopped
-    networks:
-      - swarm_network
+    environment:
+      - MONGO_INITDB_DATABASE=swarmonomicon
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
-  # MQTT broker for messaging
-  mqtt:
-    image: eclipse-mosquitto:2.0
+  # Mosquitto MQTT broker for messaging
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
     ports:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -p 1883 -t '$$SYS/#' -C 1 | grep -v Error || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Ollama for local AI processing
+  ollama:
+    image: ollama/ollama:latest
     restart: unless-stopped
-    networks:
-      - swarm_network
-
-  # Optional: RL Training service (only activated when needed)
-  train_flappy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    volumes:
-      - ./models:/app/models
-    environment:
-      - RUST_LOG=info
-    networks:
-      - swarm_network
-    profiles:
-      - rl
-    command: "/app/train_flappy --episodes 1000 --model-path /app/models --metrics-path /app/models/metrics"
-
-  # macOS-specific services (activate with --profile macos)
-  swarm-macos:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: macos
-    profiles:
-      - macos
     ports:
-      - "8080:8080"
+      - "11434:11434"
     volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-    environment:
-      - RUST_LOG=info
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    networks:
-      - swarm_network
-    depends_on:
-      - mqtt
-      - mongodb
-    command: "/app/swarm"
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              driver: nvidia
+              count: all
+              device_ids: ["0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
-  # Windows-specific services (activate with --profile windows)
-  swarm-windows:
+  # Main Swarmonomicon application
+  swarm:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: windows
-    profiles:
-      - windows
+    restart: unless-stopped
     ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
+      - "3000:3000"
     environment:
       - RUST_LOG=info
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    networks:
-      - swarm_network
+      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_MODEL=qwen2.5-7b-instruct
+      - RTK_MONGO_URI=mongodb://mongodb:27017
+      - RTK_MONGO_DB=swarmonomicon
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
     depends_on:
-      - mqtt
-      - mongodb
-    command: "/app/swarm"
+      mongodb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
 
-networks:
-  swarm_network:
-    driver: bridge
+  # Todo Worker service
+  todo_worker:
+    build:
+      context: .
+    restart: unless-stopped
+    command: /app/todo_worker
+    environment:
+      - RUST_LOG=info
+      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_MODEL=qwen2.5-7b-instruct
+      - RTK_MONGO_URI=mongodb://mongodb:27017
+      - RTK_MONGO_DB=swarmonomicon
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - TODO_CHECK_INTERVAL_SECS=30
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  # MCP Todo Server service
+  mcp_todo_server:
+    build:
+      context: .
+    restart: unless-stopped
+    command: /app/mcp_todo_server
+    environment:
+      - RUST_LOG=info
+      - AWSIP=mongodb
+      - AWSPORT=27017
+      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_MODEL=qwen2.5-7b-instruct
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
 
 volumes:
-  mongodb_data: 
+  mongodb_data:
+  mosquitto_data:
+  mosquitto_log:
+  ollama_models:

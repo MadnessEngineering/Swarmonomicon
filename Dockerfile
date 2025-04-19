@@ -2,71 +2,73 @@
 # Multi-platform build for macOS and Windows
 
 # Build stage
-FROM rust:1.75-slim-bullseye as builder
+FROM rust:1.72-slim as builder
 
-# Install system dependencies for both platforms
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    libclang-dev \
     cmake \
+    gcc \
     g++ \
-    curl \
-    libopencv-dev \
-    libfreetype6-dev \
+    libc6-dev \
+    libssl-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a new empty project
 WORKDIR /app
 RUN cargo init
 
-# Copy over manifests first (for better layer caching)
+# Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Cache dependencies by building an empty project with the manifests
-RUN mkdir src && \
-    echo "fn main() {println!(\"Placeholder\")}" > src/main.rs && \
+# Build dependencies only (this will be cached unless dependencies change)
+RUN mkdir -p src && \
+    echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
     rm -rf src
 
-# Copy the full source code
+# Copy the actual source code
 COPY . .
 
-# Build the project with default features
+# Build the application
 RUN cargo build --release
 
-# Also build with RL features for those who need them
-RUN cargo build --release --features rl
-
-# Runtime stage
-FROM debian:bullseye-slim as runtime
+# Create runtime image
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libssl1.1 \
     ca-certificates \
-    libopencv-dev \
-    libfreetype6 \
+    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy the binary from the builder
 WORKDIR /app
-
-# Copy the binaries from the builder stage
-COPY --from=builder /app/target/release/swarm /app/
-COPY --from=builder /app/target/release/todo_worker /app/
-COPY --from=builder /app/target/release/mcp_todo_server /app/
-
-# Create a directory for models and data
-RUN mkdir -p /app/models /app/data
+COPY --from=builder /app/target/release/swarm /app/swarm
+COPY --from=builder /app/target/release/todo_worker /app/todo_worker
+COPY --from=builder /app/target/release/mcp_todo_server /app/mcp_todo_server
 
 # Set environment variables
 ENV RUST_LOG=info
+ENV AI_ENDPOINT=http://ollama:11434/api/generate
+ENV AI_MODEL=qwen2.5-7b-instruct
+ENV RTK_MONGO_URI=mongodb://mongodb:27017
+ENV RTK_MONGO_DB=swarmonomicon
+ENV MQTT_HOST=mosquitto
+ENV MQTT_PORT=1883
 
-# Expose common ports
-EXPOSE 8080 1883
+# Create a non-root user to run the application
+RUN useradd -m swarmuser
+RUN chown -R swarmuser:swarmuser /app
+USER swarmuser
 
-# Default command (can be overridden)
-CMD ["/app/swarm"]
+# Expose the API port
+EXPOSE 3000
+
+# Command to run the application
+CMD ["./swarm"]
 
 # Additional Dockerfiles for specific platforms
 # These use the main Dockerfile as a base but add platform-specific optimizations

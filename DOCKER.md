@@ -1,199 +1,154 @@
-# Swarmonomicon Docker Guide
+# Docker Deployment Guide for Swarmonomicon
 
-This guide explains how to run Swarmonomicon using Docker, which provides a consistent environment across different operating systems including macOS and Windows.
+This guide provides instructions for deploying the Swarmonomicon project using Docker on macOS and Windows platforms.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) installed on your system
-- [Docker Compose](https://docs.docker.com/compose/install/) installed on your system
-- Basic understanding of Docker and command line usage
+- Docker Desktop installed (latest version recommended)
+- At least 8GB of RAM allocated to Docker
+- 20GB of free disk space (for Docker images and volumes)
+- For GPU acceleration (optional): 
+  - On Windows: NVIDIA GPU with [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
+  - On macOS: Apple Silicon M1/M2/M3 chips for experimental GPU acceleration
 
 ## Quick Start
 
-We provide setup scripts for easy initialization:
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/DanEdens/Swarmonomicon.git
+   cd Swarmonomicon
+   ```
 
-### macOS/Linux
+2. Start the services:
+   ```bash
+   docker-compose up -d
+   ```
 
-```bash
-# Make the script executable
-chmod +x docker-setup.sh
+3. Access the services:
+   - Web interface: http://localhost:3000
+   - MQTT: localhost:1883 (or ws://localhost:9001 for WebSockets)
+   - MongoDB: localhost:27017
+   - Ollama API: http://localhost:11434/api
 
-# Run the setup script
-./docker-setup.sh
-```
+4. Pull the required AI model:
+   ```bash
+   docker-compose exec ollama ollama pull qwen2.5-7b-instruct
+   ```
+
+## Configuration
+
+### Environment Variables
+
+You can customize the deployment by modifying these environment variables in the `docker-compose.yml` file:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RUST_LOG` | Log level (info, debug, trace) | info |
+| `AI_ENDPOINT` | LLM API endpoint | http://ollama:11434/api/generate |
+| `AI_MODEL` | Name of the LLM model | qwen2.5-7b-instruct |
+| `RTK_MONGO_URI` | MongoDB connection URI | mongodb://mongodb:27017 |
+| `RTK_MONGO_DB` | MongoDB database name | swarmonomicon |
+| `MQTT_HOST` | MQTT broker hostname | mosquitto |
+| `MQTT_PORT` | MQTT broker port | 1883 |
+| `TODO_CHECK_INTERVAL_SECS` | Todo checking interval | 30 |
+
+### Volumes
+
+The Docker setup uses these persistent volumes:
+
+- `mongodb_data`: MongoDB data
+- `mosquitto_data`: MQTT broker persistent messages
+- `mosquitto_log`: MQTT broker logs
+- `ollama_models`: AI models for Ollama
+
+## Platform-Specific Notes
+
+### macOS
+
+- The Docker image runs natively on both Intel and Apple Silicon (M1/M2/M3) Macs
+- For Apple Silicon, GPU acceleration is available through Metal
+- Performance may vary based on machine specifications
 
 ### Windows
 
-Open PowerShell and run:
-
-```powershell
-# You may need to set execution policy
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# Run the setup script
-.\docker-setup.ps1
-```
-
-The setup scripts will create necessary directories, configure the environment, and start the Docker containers.
-
-## Manual Setup
-
-If you prefer to set up manually or the scripts don't work for your environment:
-
-1. Create necessary directories:
-   ```bash
-   mkdir -p data models mosquitto/config mosquitto/data mosquitto/log
-   ```
-
-2. Create Mosquitto MQTT config:
-   ```bash
-   echo "listener 1883" > mosquitto/config/mosquitto.conf
-   echo "allow_anonymous true" >> mosquitto/config/mosquitto.conf
-   echo "persistence true" >> mosquitto/config/mosquitto.conf
-   echo "persistence_location /mosquitto/data/" >> mosquitto/config/mosquitto.conf
-   echo "log_dest file /mosquitto/log/mosquitto.log" >> mosquitto/config/mosquitto.conf
-   ```
-
-3. Create `.env` file with your OpenAI API key:
-   ```bash
-   echo "OPENAI_API_KEY=your_api_key_here" > .env
-   ```
-
-4. Start the containers:
-   ```bash
-   # For macOS
-   docker-compose --profile macos up -d
-
-   # For Windows
-   docker-compose --profile windows up -d
-   
-   # To include RL capabilities, add the rl profile
-   docker-compose --profile macos --profile rl up -d
-   ```
-
-## Service Architecture
-
-The Docker setup includes several interconnected services:
-
-- **swarm**: Main Swarmonomicon service
-- **todo_worker**: Worker service for processing tasks
-- **mcp_todo_server**: MCP Todo server for task management
-- **mongodb**: Database for storing agent data
-- **mqtt**: MQTT broker for inter-agent communication
-- **train_flappy**: Optional service for reinforcement learning (RL) training
-
-## Accessing Services
-
-- **Main Web Interface**: [http://localhost:8080](http://localhost:8080)
-- **MCP Todo Server**: [http://localhost:8081](http://localhost:8081)
-- **MQTT Broker**: localhost:1883
-
-## Common Commands
-
-```bash
-# Start all services
-docker-compose up -d
-
-# Start with platform-specific optimizations
-docker-compose --profile macos up -d  # For macOS
-docker-compose --profile windows up -d  # For Windows
-
-# Enable RL features
-docker-compose --profile rl up -d
-
-# View logs
-docker-compose logs -f
-
-# View logs for a specific service
-docker-compose logs -f swarm
-
-# Stop all services
-docker-compose down
-
-# Rebuild containers (after code changes)
-docker-compose build
-```
-
-## Data Persistence
-
-The following directories are mounted for data persistence:
-
-- `./data:/app/data`: Application data
-- `./models:/app/models`: ML/RL models and training data
-- `./mosquitto/data:/mosquitto/data`: MQTT broker data
-- `./mosquitto/log:/mosquitto/log`: MQTT logs
+- Make sure WSL2 is properly configured for best performance
+- For NVIDIA GPU support, update to the latest NVIDIA drivers and install NVIDIA Container Toolkit
+- The Docker bridge network requires allowing connections through Windows Firewall
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Port conflicts**: If services fail to start due to port conflicts, modify the port mappings in `docker-compose.yml`.
-
-2. **Docker memory issues**: For resource-intensive operations like RL training, you may need to allocate more memory to Docker:
-   - On Docker Desktop, go to Settings > Resources > Advanced > Memory
-
-3. **Volume permission issues**: If you encounter permission problems with mounted volumes:
+1. **Ollama model download issues**:
    ```bash
-   # Fix permissions
-   chmod -R 777 data models mosquitto
+   docker-compose logs ollama
+   ```
+   If you see disk space or network errors, try downloading directly:
+   ```bash
+   docker-compose exec ollama ollama pull qwen2.5-7b-instruct
    ```
 
-4. **OpenAI API errors**: Ensure your API key is correctly set in the `.env` file.
+2. **MongoDB connection failures**:
+   Check if MongoDB is healthy:
+   ```bash
+   docker-compose ps mongodb
+   ```
+   Verify the container is "healthy" in the status column.
 
-## Building Your Own Image
+3. **MQTT connectivity problems**:
+   Test the MQTT broker connectivity:
+   ```bash
+   docker run --rm -it eclipse-mosquitto mosquitto_sub -h mosquitto -t test
+   ```
+   In another terminal:
+   ```bash
+   docker run --rm -it eclipse-mosquitto mosquitto_pub -h mosquitto -t test -m "hello"
+   ```
 
-To build a custom image with your modifications:
+4. **Container resource limits**:
+   If containers are crashing due to insufficient resources, increase the memory allocation in Docker Desktop settings.
+
+## Production Deployment
+
+For production environments:
+
+1. Enable authentication for Mosquitto (modify `mosquitto.conf`)
+2. Configure MongoDB authentication
+3. Set up TLS for secure connections
+4. Consider using Docker Swarm or Kubernetes for high availability
+5. Add monitoring with Prometheus and Grafana
+6. Implement proper backup strategies for all persistent volumes
+
+## Updating the Application
+
+To update to a new version:
+
+1. Pull the latest code:
+   ```bash
+   git pull
+   ```
+
+2. Rebuild and restart the containers:
+   ```bash
+   docker-compose down
+   docker-compose build
+   docker-compose up -d
+   ```
+
+## Health Checks
+
+The Docker setup includes health checks for all services. To view the current health status:
 
 ```bash
-# Build all services
-docker-compose build
-
-# Build a specific service
-docker-compose build swarm
+docker-compose ps
 ```
 
-## Advanced Configuration
-
-The `docker-compose.yml` file contains various configuration options. Common changes include:
-
-- Modifying port mappings
-- Changing volume mounts
-- Adjusting environment variables
-- Modifying resource constraints
-
-## For Developers
-
-When developing and making code changes:
-
-1. Edit the source code as normal
-2. Rebuild the Docker image: `docker-compose build`
-3. Restart the services: `docker-compose up -d`
-
-For faster development iterations, you can mount your source code directly:
-
-```yaml
-volumes:
-  - ./src:/app/src
-```
-
-Add this to the service definition in `docker-compose.yml` for services you're actively developing.
-
-## RL Training
-
-For reinforcement learning training:
+For detailed health check logs:
 
 ```bash
-# Start the training service
-docker-compose --profile rl up -d train_flappy
-
-# Monitor the training logs
-docker-compose logs -f train_flappy
+docker inspect --format "{{json .State.Health }}" swarmonomicon_mongodb_1 | jq
 ```
-
-Training data and models are saved to the `./models` directory.
-
----
 
 ## License
 
-This Docker setup is part of the Swarmonomicon project and follows the same licensing terms. See the main LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details. 

@@ -1,137 +1,112 @@
-# Swarmonomicon Docker Setup Script for Windows
-# This script helps set up the Docker environment for Swarmonomicon on Windows systems
+# Swarmonomicon Docker Setup for Windows
+# This script will set up the Docker environment for Swarmonomicon on Windows
 
-# Print banner
-Write-Host "=================================================="
-Write-Host "🧙 Swarmonomicon Docker Setup (Windows)" -ForegroundColor Cyan
-Write-Host "=================================================="
-Write-Host "This script will set up your Docker environment for Swarmonomicon."
+Write-Host "=== Swarmonomicon Docker Setup for Windows ===" -ForegroundColor Cyan
+Write-Host "This script will set up the Docker environment for Swarmonomicon." -ForegroundColor Cyan
 Write-Host ""
 
-# Check if Docker is installed
+# Check if Docker is installed and running
 try {
-    $dockerVersion = docker --version
-    Write-Host "✅ Docker detected: $dockerVersion" -ForegroundColor Green
+    docker info | Out-Null
+    Write-Host "Docker is running." -ForegroundColor Green
 } catch {
-    Write-Host "❌ Docker is not installed or not in PATH. Please install Docker Desktop for Windows." -ForegroundColor Red
-    Write-Host "   Visit https://docs.docker.com/desktop/windows/install/ for installation instructions."
+    Write-Host "Error: Docker is not installed or not running." -ForegroundColor Red
+    Write-Host "Please install Docker Desktop for Windows and start it before running this script." -ForegroundColor Red
     exit 1
 }
-
-# Check if Docker Compose is installed
-try {
-    $composeVersion = docker-compose --version
-    Write-Host "✅ Docker Compose detected: $composeVersion" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Docker Compose is not installed or not in PATH." -ForegroundColor Red
-    Write-Host "   It should be included with Docker Desktop for Windows."
-    exit 1
-}
-
-Write-Host ""
 
 # Create necessary directories
-Write-Host "Creating necessary directories..." -ForegroundColor Yellow
-New-Item -Path "data" -ItemType Directory -Force | Out-Null
-New-Item -Path "models" -ItemType Directory -Force | Out-Null
-New-Item -Path "mosquitto\config" -ItemType Directory -Force | Out-Null
-New-Item -Path "mosquitto\data" -ItemType Directory -Force | Out-Null
-New-Item -Path "mosquitto\log" -ItemType Directory -Force | Out-Null
+Write-Host "Creating required directories..." -ForegroundColor Yellow
+if (-not (Test-Path -Path "config")) {
+    New-Item -Path "config" -ItemType Directory | Out-Null
+}
 
-# Create Mosquitto configuration
-Write-Host "Configuring Mosquitto MQTT broker..." -ForegroundColor Yellow
-@"
-listener 1883
-allow_anonymous true
+# Check if we need to create mosquitto.conf
+if (-not (Test-Path -Path "config\mosquitto.conf")) {
+    Write-Host "Creating Mosquitto configuration..." -ForegroundColor Yellow
+    $mosquittoConfig = @"
+# Mosquitto MQTT Configuration for Swarmonomicon
+
+# Basic configuration
 persistence true
 persistence_location /mosquitto/data/
 log_dest file /mosquitto/log/mosquitto.log
-"@ | Out-File -FilePath "mosquitto\config\mosquitto.conf" -Encoding ASCII
+log_dest stdout
 
-# Check for OpenAI API key
-$apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")
-if ([string]::IsNullOrEmpty($apiKey)) {
-    Write-Host "⚠️ OpenAI API key not found in environment." -ForegroundColor Yellow
-    Write-Host "   Some features may not work without it."
-    
-    $setKey = Read-Host "Would you like to enter an OpenAI API key now? (y/n)"
-    
-    if ($setKey -eq "y" -or $setKey -eq "Y") {
-        $apiKey = Read-Host "Enter your OpenAI API key"
-        "OPENAI_API_KEY=$apiKey" | Out-File -FilePath ".env" -Encoding ASCII
-        Write-Host "✅ API key saved to .env file." -ForegroundColor Green
-    } else {
-        "OPENAI_API_KEY=" | Out-File -FilePath ".env" -Encoding ASCII
-        Write-Host "⚠️ No API key set. You can edit the .env file later to add it." -ForegroundColor Yellow
+# Default listener
+listener 1883
+protocol mqtt
+
+# WebSockets listener for web clients
+listener 9001
+protocol websockets
+
+# Allow anonymous connections with no authentication
+# IMPORTANT: This is for development only
+# For production, use password_file or another authentication method
+allow_anonymous true
+"@
+    $mosquittoConfig | Out-File -FilePath "config\mosquitto.conf" -Encoding utf8
+    Write-Host "Mosquitto configuration created." -ForegroundColor Green
+}
+
+# Model to use
+$MODEL = "qwen2.5-7b-instruct"
+Write-Host "Will configure to download model: $MODEL" -ForegroundColor Yellow
+
+# Check WSL2 for optimal performance
+$wsl_version = wsl --status | Select-String -Pattern "Default Version" -CaseSensitive
+if ($wsl_version -match "2") {
+    Write-Host "WSL2 detected. Docker should run optimally." -ForegroundColor Green
+} else {
+    Write-Host "Warning: WSL2 not detected or cannot be verified. Docker may not run optimally." -ForegroundColor Yellow
+    Write-Host "Consider upgrading to WSL2 for better performance." -ForegroundColor Yellow
+}
+
+# Start the Docker containers
+Write-Host "Starting Docker containers..." -ForegroundColor Yellow
+docker-compose up -d
+
+# Wait for Ollama to be ready
+Write-Host "Waiting for Ollama service to be ready..." -ForegroundColor Yellow
+$attempt = 0
+$max_attempts = 30
+$ready = $false
+
+while ($attempt -lt $max_attempts -and -not $ready) {
+    try {
+        docker-compose exec -T ollama curl -sf http://localhost:11434/api/version | Out-Null
+        $ready = $true
+        Write-Host "Ollama is ready!" -ForegroundColor Green
+    } catch {
+        $attempt++
+        Write-Host "Waiting for Ollama... (Attempt $attempt/$max_attempts)" -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
     }
+}
+
+if (-not $ready) {
+    Write-Host "Warning: Ollama service didn't become ready in time. You may need to pull the models manually." -ForegroundColor Yellow
 } else {
-    "OPENAI_API_KEY=$apiKey" | Out-File -FilePath ".env" -Encoding ASCII
-    Write-Host "✅ Using OpenAI API key from environment." -ForegroundColor Green
+    # Pull the model
+    Write-Host "Pulling the $MODEL model... (This may take a while depending on your internet connection)" -ForegroundColor Yellow
+    docker-compose exec -T ollama ollama pull $MODEL
+    Write-Host "Model pulling initiated. It may continue in the background." -ForegroundColor Green
 }
 
-# Check for RL features
-$enableRL = Read-Host "Do you want to enable Reinforcement Learning features? (y/n)"
+# Check service health
+Write-Host "Checking service health..." -ForegroundColor Yellow
+docker-compose ps
 
-# Show setup summary
+Write-Host "=== Setup Complete ===" -ForegroundColor Green
+Write-Host "Swarmonomicon is now running with Docker!" -ForegroundColor Green
 Write-Host ""
-Write-Host "=================================================="
-Write-Host "🚀 Setup Summary" -ForegroundColor Cyan
-Write-Host "=================================================="
-Write-Host "Platform: Windows"
-if ($apiKey) {
-    $firstFour = $apiKey.Substring(0, [Math]::Min(4, $apiKey.Length))
-    Write-Host "OpenAI API key: $firstFour... ($($apiKey.Length) chars)"
-} else {
-    Write-Host "OpenAI API key: Not set"
-}
-Write-Host "RL features: $enableRL"
-Write-Host "Directories created:"
-Write-Host "  - .\data"
-Write-Host "  - .\models"
-Write-Host "  - .\mosquitto\config"
-Write-Host "  - .\mosquitto\data"
-Write-Host "  - .\mosquitto\log"
+Write-Host "Access the services at:" -ForegroundColor Cyan
+Write-Host "- Web interface: http://localhost:3000" -ForegroundColor Cyan
+Write-Host "- MQTT: localhost:1883 (or ws://localhost:9001 for WebSockets)" -ForegroundColor Cyan
+Write-Host "- MongoDB: localhost:27017" -ForegroundColor Cyan
 Write-Host ""
-
-# Start services
-Write-Host "Starting services..." -ForegroundColor Yellow
-
-if ($enableRL -eq "y" -or $enableRL -eq "Y") {
-    $profiles = "--profile windows --profile rl"
-} else {
-    $profiles = "--profile windows"
-}
-
-# Start Docker Compose
-try {
-    $command = "docker-compose up -d $profiles"
-    Write-Host "Running: $command" -ForegroundColor DarkGray
-    Invoke-Expression $command
-    
-    Write-Host ""
-    Write-Host "✅ Services started successfully!" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Error starting services: $_" -ForegroundColor Red
-    exit 1
-}
-
+Write-Host "To see logs: docker-compose logs -f" -ForegroundColor Cyan
+Write-Host "To stop all services: docker-compose down" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "=================================================="
-Write-Host "📋 Usage Instructions" -ForegroundColor Cyan
-Write-Host "=================================================="
-Write-Host "To start all services:              docker-compose up -d"
-Write-Host "To start specific service:          docker-compose up -d swarm"
-Write-Host "To start RL training:               docker-compose --profile rl up -d"
-Write-Host "To view logs:                       docker-compose logs -f"
-Write-Host "To stop all services:               docker-compose down"
-Write-Host "To rebuild (after code changes):    docker-compose build"
-Write-Host ""
-Write-Host "Access web interface:               http://localhost:8080"
-Write-Host "Access MCP Todo server:             http://localhost:8081"
-Write-Host "MQTT broker:                        localhost:1883"
-Write-Host ""
-Write-Host "Directories mounted:"
-Write-Host "  - .\data:/app/data (persistent data)"
-Write-Host "  - .\models:/app/models (RL models)"
-Write-Host ""
-Write-Host "Happy coding! 🧙‍♂️" -ForegroundColor Magenta 
+Write-Host "For more information, see DOCKER.md file." -ForegroundColor Cyan 

@@ -142,6 +142,25 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 5. Start the server with `cargo run`
 6. The server will start on [http://localhost:3000](http://localhost:3000)
 
+### Docker Deployment
+We provide Docker support for easy deployment on any platform:
+
+```bash
+# On macOS/Linux:
+./docker-setup.sh
+
+# On Windows (using PowerShell):
+.\docker-setup.ps1
+```
+
+This will start:
+- The Swarmonomicon API server on port 3000
+- MongoDB for data storage
+- Mosquitto MQTT broker for messaging
+- Ollama for AI model serving
+
+For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
+
 ### Configuration
 The system can be configured through environment variables:
 - `AI_ENDPOINT`: LLM API endpoint (default: http://127.0.0.1:1234)

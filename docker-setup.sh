@@ -1,133 +1,105 @@
 #!/bin/bash
-# Swarmonomicon Docker Setup Script
-# This script helps set up the Docker environment for Swarmonomicon
+# Setup script for Swarmonomicon Docker environment on macOS/Linux
 
-set -e  # Exit on error
+set -e
 
-# Detect OS
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    PLATFORM="macos"
-    echo "🍎 macOS detected"
-    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
-    PLATFORM="windows"
-    echo "🪟 Windows detected"
-else
-    PLATFORM="linux"
-    echo "🐧 Linux detected"
-fi
-
-# Print banner
-echo "=================================================="
-echo "🧙 Swarmonomicon Docker Setup"
-echo "=================================================="
-echo "This script will set up your Docker environment for Swarmonomicon."
-echo
+echo "=== Swarmonomicon Docker Setup ==="
+echo "This script will set up the Docker environment for Swarmonomicon."
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
-    echo "❌ Docker is not installed. Please install Docker first."
-    echo "   Visit https://docs.docker.com/get-docker/ for installation instructions."
+    echo "Error: Docker is not installed. Please install Docker first."
     exit 1
 fi
 
 # Check if Docker Compose is installed
 if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose is not installed. Please install Docker Compose first."
-    echo "   Visit https://docs.docker.com/compose/install/ for installation instructions."
+    echo "Error: Docker Compose is not installed. Please install Docker Compose first."
     exit 1
 fi
 
-echo "✅ Docker and Docker Compose are installed."
-echo
+# Check if Docker is running
+if ! docker info &> /dev/null; then
+    echo "Error: Docker is not running. Please start Docker first."
+    exit 1
+fi
 
 # Create necessary directories
-echo "Creating necessary directories..."
-mkdir -p data models mosquitto/config mosquitto/data mosquitto/log
+echo "Creating required directories..."
+mkdir -p config
 
-# Create Mosquitto configuration
-echo "Configuring Mosquitto MQTT broker..."
-cat > mosquitto/config/mosquitto.conf << EOL
-listener 1883
-allow_anonymous true
+# Check if we need to create mosquitto.conf
+if [ ! -f "config/mosquitto.conf" ]; then
+    echo "Creating Mosquitto configuration..."
+    cat > config/mosquitto.conf << EOF
+# Mosquitto MQTT Configuration for Swarmonomicon
+
+# Basic configuration
 persistence true
 persistence_location /mosquitto/data/
 log_dest file /mosquitto/log/mosquitto.log
-EOL
+log_dest stdout
 
-# Check for OpenAI API key
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "⚠️  OpenAI API key not found in environment."
-    echo "   Some features may not work without it."
-    
-    read -p "Would you like to enter an OpenAI API key now? (y/n): " SET_KEY
-    
-    if [[ "$SET_KEY" == "y" || "$SET_KEY" == "Y" ]]; then
-        read -p "Enter your OpenAI API key: " API_KEY
-        echo "OPENAI_API_KEY=$API_KEY" > .env
-        echo "✅ API key saved to .env file."
-    else
-        echo "OPENAI_API_KEY=" > .env
-        echo "⚠️  No API key set. You can edit the .env file later to add it."
+# Default listener
+listener 1883
+protocol mqtt
+
+# WebSockets listener for web clients
+listener 9001
+protocol websockets
+
+# Allow anonymous connections with no authentication
+# IMPORTANT: This is for development only
+# For production, use password_file or another authentication method
+allow_anonymous true
+EOF
+    echo "Mosquitto configuration created."
+fi
+
+# Check for models.txt and download required models
+echo "Checking if Ollama models need to be pre-downloaded..."
+MODEL="qwen2.5-7b-instruct"
+echo "Will configure to download model: $MODEL"
+
+# Start the Docker containers
+echo "Starting Docker containers..."
+docker-compose up -d
+
+# Wait for Ollama to be ready
+echo "Waiting for Ollama service to be ready..."
+attempt=0
+max_attempts=30
+while [ $attempt -lt $max_attempts ]; do
+    if docker-compose exec -T ollama curl -sf http://localhost:11434/api/version &> /dev/null; then
+        echo "Ollama is ready!"
+        break
     fi
+    attempt=$((attempt+1))
+    echo "Waiting for Ollama... (Attempt $attempt/$max_attempts)"
+    sleep 5
+done
+
+if [ $attempt -eq $max_attempts ]; then
+    echo "Warning: Ollama service didn't become ready in time. You may need to pull the models manually."
 else
-    echo "OPENAI_API_KEY=$OPENAI_API_KEY" > .env
-    echo "✅ Using OpenAI API key from environment."
+    # Pull the model
+    echo "Pulling the $MODEL model... (This may take a while depending on your internet connection)"
+    docker-compose exec -T ollama ollama pull $MODEL
+    echo "Model pulling initiated. It may continue in the background."
 fi
 
-# Check for RL features
-read -p "Do you want to enable Reinforcement Learning features? (y/n): " ENABLE_RL
+echo "Checking service health..."
+docker-compose ps
 
-# Show setup summary
-echo
-echo "=================================================="
-echo "🚀 Setup Summary"
-echo "=================================================="
-echo "Platform detected: $PLATFORM"
-echo "OpenAI API key: ${OPENAI_API_KEY:0:4}... (${#OPENAI_API_KEY} chars)"
-echo "RL features: ${ENABLE_RL}"
-echo "Directories created:"
-echo "  - ./data"
-echo "  - ./models"
-echo "  - ./mosquitto/config"
-echo "  - ./mosquitto/data"
-echo "  - ./mosquitto/log"
-echo
-
-# Start services
-echo "Starting services..."
-
-if [[ "$ENABLE_RL" == "y" || "$ENABLE_RL" == "Y" ]]; then
-    PROFILES="--profile $PLATFORM --profile rl"
-else
-    PROFILES="--profile $PLATFORM"
-fi
-
-# On Windows, use winpty if available
-if [[ "$PLATFORM" == "windows" && -x "$(command -v winpty)" ]]; then
-    winpty docker-compose up -d $PROFILES
-else
-    docker-compose up -d $PROFILES
-fi
-
-echo
-echo "✅ Services started successfully!"
-echo
-echo "=================================================="
-echo "📋 Usage Instructions"
-echo "=================================================="
-echo "To start all services:              docker-compose up -d"
-echo "To start specific service:          docker-compose up -d swarm"
-echo "To start RL training:               docker-compose --profile rl up -d"
-echo "To view logs:                       docker-compose logs -f"
-echo "To stop all services:               docker-compose down"
-echo "To rebuild (after code changes):    docker-compose build"
-echo
-echo "Access web interface:               http://localhost:8080"
-echo "Access MCP Todo server:             http://localhost:8081"
-echo "MQTT broker:                        localhost:1883"
-echo
-echo "Directories mounted:"
-echo "  - ./data:/app/data (persistent data)"
-echo "  - ./models:/app/models (RL models)"
-echo
-echo "Happy coding! 🧙‍♂️"
+echo "=== Setup Complete ==="
+echo "Swarmonomicon is now running with Docker!"
+echo ""
+echo "Access the services at:"
+echo "- Web interface: http://localhost:3000"
+echo "- MQTT: localhost:1883 (or ws://localhost:9001 for WebSockets)"
+echo "- MongoDB: localhost:27017"
+echo ""
+echo "To see logs: docker-compose logs -f"
+echo "To stop all services: docker-compose down"
+echo ""
+echo "For more information, see DOCKER.md file."
