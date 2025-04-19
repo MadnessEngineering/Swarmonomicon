@@ -44,6 +44,7 @@ pub trait Environment {
 
 /// Q-Learning agent implementation
 #[cfg(feature = "rl")]
+#[derive(Clone)]
 pub struct QLearningAgent<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + for<'de> Deserialize<'de>> {
     q_table: HashMap<(S, A), f64>,
     learning_rate: f64,
@@ -94,14 +95,14 @@ impl<S: State + Serialize + for<'de> Deserialize<'de>, A: Action + Serialize + f
 
     /// Update Q-value based on experience
     pub fn update(&mut self, state: &S, action: &A, reward: f64, next_state: &S) -> f64 {
-        // Get valid actions for the next state (simplified for now)
-        let next_valid_actions = vec![
+        // Get valid actions for the next state (for a real implementation, you would pass these in)
+        let valid_actions = vec![
             A::from_index(0).unwrap(),
             A::from_index(1).unwrap(),
         ];
 
         // First, find the maximum Q-value for the next state
-        let next_max_q = next_valid_actions
+        let next_max_q = valid_actions
             .iter()
             .map(|a| self.q_table.get(&(next_state.clone(), a.clone())).unwrap_or(&0.0))
             .fold(f64::NEG_INFINITY, |a, &b| a.max(b))
