@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use plotters::prelude::*;
 use crate::agents::rl::model::config::{TrainingHistory, TrainingMetrics};
 
+#[derive(Clone)]
 pub struct VisualizationTools {
     output_dir: PathBuf,
 }
@@ -20,33 +21,36 @@ impl VisualizationTools {
     /// Generate reward plot from training history
     pub fn plot_rewards(&self, history: &TrainingHistory) -> Result<PathBuf> {
         let output_path = self.output_dir.join("rewards.png");
-        let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
-        let rewards: Vec<f64> = history.metrics.iter().map(|m| m.reward).collect();
         
-        let min_e = episodes.iter().min().copied().unwrap_or(0);
-        let max_e = episodes.iter().max().copied().unwrap_or(100);
-        let min_r = rewards.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
-        let max_r = rewards.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(1.0);
+        {
+            let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
+            root.fill(&WHITE)?;
 
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Training Rewards", ("sans-serif", 30).into_font())
-            .margin(10)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(min_e as f32..max_e as f32, min_r..max_r)?;
+            let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
+            let rewards: Vec<f64> = history.metrics.iter().map(|m| m.reward).collect();
+            
+            let min_e = episodes.iter().min().copied().unwrap_or(0);
+            let max_e = episodes.iter().max().copied().unwrap_or(100);
+            let min_r = rewards.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
+            let max_r = rewards.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(1.0);
 
-        chart.configure_mesh()
-            .x_desc("Episode")
-            .y_desc("Reward")
-            .draw()?;
+            let mut chart = ChartBuilder::on(&root)
+                .caption("Training Rewards", ("sans-serif", 30).into_font())
+                .margin(10)
+                .x_label_area_size(30)
+                .y_label_area_size(30)
+                .build_cartesian_2d(min_e as f32..max_e as f32, min_r..max_r)?;
 
-        chart.draw_series(LineSeries::new(
-            episodes.iter().zip(rewards.iter()).map(|(e, r)| (*e as f32, *r)),
-            &RED,
-        ))?;
+            chart.configure_mesh()
+                .x_desc("Episode")
+                .y_desc("Reward")
+                .draw()?;
+
+            chart.draw_series(LineSeries::new(
+                episodes.iter().zip(rewards.iter()).map(|(e, r)| (*e as f32, *r)),
+                &RED,
+            ))?;
+        }
 
         Ok(output_path)
     }
@@ -54,33 +58,36 @@ impl VisualizationTools {
     /// Generate score plot from training history
     pub fn plot_scores(&self, history: &TrainingHistory) -> Result<PathBuf> {
         let output_path = self.output_dir.join("scores.png");
-        let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
-        let scores: Vec<i32> = history.metrics.iter().map(|m| m.score).collect();
         
-        let min_e = episodes.iter().min().copied().unwrap_or(0);
-        let max_e = episodes.iter().max().copied().unwrap_or(100);
-        let min_s = scores.iter().min().copied().unwrap_or(0);
-        let max_s = scores.iter().max().copied().unwrap_or(1);
+        {
+            let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
+            root.fill(&WHITE)?;
 
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Training Scores", ("sans-serif", 30).into_font())
-            .margin(10)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(min_e as f32..max_e as f32, min_s as f32..max_s as f32)?;
+            let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
+            let scores: Vec<i32> = history.metrics.iter().map(|m| m.score).collect();
+            
+            let min_e = episodes.iter().min().copied().unwrap_or(0);
+            let max_e = episodes.iter().max().copied().unwrap_or(100);
+            let min_s = scores.iter().min().copied().unwrap_or(0);
+            let max_s = scores.iter().max().copied().unwrap_or(1);
 
-        chart.configure_mesh()
-            .x_desc("Episode")
-            .y_desc("Score")
-            .draw()?;
+            let mut chart = ChartBuilder::on(&root)
+                .caption("Training Scores", ("sans-serif", 30).into_font())
+                .margin(10)
+                .x_label_area_size(30)
+                .y_label_area_size(30)
+                .build_cartesian_2d(min_e as f32..max_e as f32, min_s as f32..max_s as f32)?;
 
-        chart.draw_series(LineSeries::new(
-            episodes.iter().zip(scores.iter()).map(|(e, s)| (*e as f32, *s as f32)),
-            &BLUE,
-        ))?;
+            chart.configure_mesh()
+                .x_desc("Episode")
+                .y_desc("Score")
+                .draw()?;
+
+            chart.draw_series(LineSeries::new(
+                episodes.iter().zip(scores.iter()).map(|(e, s)| (*e as f32, *s as f32)),
+                &BLUE,
+            ))?;
+        }
 
         Ok(output_path)
     }
@@ -88,33 +95,36 @@ impl VisualizationTools {
     /// Generate epsilon plot from training history
     pub fn plot_epsilon(&self, history: &TrainingHistory) -> Result<PathBuf> {
         let output_path = self.output_dir.join("epsilon.png");
-        let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
-        let epsilons: Vec<f64> = history.metrics.iter().map(|m| m.epsilon).collect();
         
-        let min_e = episodes.iter().min().copied().unwrap_or(0);
-        let max_e = episodes.iter().max().copied().unwrap_or(100);
-        let min_eps = 0.0; // Epsilon is always positive
-        let max_eps = epsilons.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(1.0);
+        {
+            let root = BitMapBackend::new(&output_path, (800, 600)).into_drawing_area();
+            root.fill(&WHITE)?;
 
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Epsilon Decay", ("sans-serif", 30).into_font())
-            .margin(10)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(min_e as f32..max_e as f32, min_eps..max_eps)?;
+            let episodes: Vec<usize> = history.metrics.iter().map(|m| m.episode).collect();
+            let epsilons: Vec<f64> = history.metrics.iter().map(|m| m.epsilon).collect();
+            
+            let min_e = episodes.iter().min().copied().unwrap_or(0);
+            let max_e = episodes.iter().max().copied().unwrap_or(100);
+            let min_eps = 0.0; // Epsilon is always positive
+            let max_eps = epsilons.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(1.0);
 
-        chart.configure_mesh()
-            .x_desc("Episode")
-            .y_desc("Epsilon")
-            .draw()?;
+            let mut chart = ChartBuilder::on(&root)
+                .caption("Epsilon Decay", ("sans-serif", 30).into_font())
+                .margin(10)
+                .x_label_area_size(30)
+                .y_label_area_size(30)
+                .build_cartesian_2d(min_e as f32..max_e as f32, min_eps..max_eps)?;
 
-        chart.draw_series(LineSeries::new(
-            episodes.iter().zip(epsilons.iter()).map(|(e, eps)| (*e as f32, *eps)),
-            &GREEN,
-        ))?;
+            chart.configure_mesh()
+                .x_desc("Episode")
+                .y_desc("Epsilon")
+                .draw()?;
+
+            chart.draw_series(LineSeries::new(
+                episodes.iter().zip(epsilons.iter()).map(|(e, eps)| (*e as f32, *eps)),
+                &GREEN,
+            ))?;
+        }
 
         Ok(output_path)
     }
