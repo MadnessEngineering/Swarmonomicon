@@ -31,6 +31,7 @@ Unintended Hilarity guaranteed[^2].
   - Haiku Agent: Creates haikus based on user input
   - Project Init Agent: Helps initialize new projects
   - Browser Agent: Handles browser automation tasks
+  - Reinforcement Learning Agent: Learns to play Flappy Bird using Q-learning
 
 - Independent Task Processing:
   - Each agent has its own todo list
@@ -238,8 +239,8 @@ The system uses a sophisticated task management system with AI enhancement capab
 ```rust
 pub struct TodoTask {
     pub id: String,
-    pub description: String,           // Original task description
-    pub enhanced_description: Option<String>,  // AI-enhanced version with additional context
+    pub description: String,
+    pub enhanced_description: Option<String>,
     pub priority: TaskPriority,
     pub source_agent: Option<String>,
     pub target_agent: String,
@@ -398,3 +399,63 @@ Changes made:
 - Fixed a "temporary value dropped while borrowed" error in `todo.rs` by assigning the default `target_agent` value to a variable before using it in `unwrap_or()`
 
 These changes allow for more flexible routing of todos based on the MQTT topic they are published to. The target agent can be determined from the topic path.
+
+## Reinforcement Learning System
+
+The framework includes a reinforcement learning system with the following features:
+
+### Core Components
+- Flexible agent, state, and environment abstractions
+- Q-learning implementation with configurable parameters
+- Model serialization and deserialization
+- Training configuration system
+- Performance visualization tools
+- Training metrics collection
+
+### Flappy Bird Example
+A complete implementation of Flappy Bird as a reinforcement learning environment:
+
+```bash
+# Train a Flappy Bird agent (no visualization)
+cargo run --bin train_flappy --features rl
+
+# Train with visualization
+cargo run --bin train_flappy --features rl -- -v
+
+# Train with custom configuration
+cargo run --bin train_flappy --features rl -- -c config.json -m metrics/
+
+# Use a trained model
+cargo run --bin train_flappy --features rl -- -m path/to/model.json
+```
+
+### Training Configuration
+The training configuration system allows for easy experimentation with different hyperparameters:
+
+```json
+{
+  "learning_rate": 0.1,
+  "discount_factor": 0.95,
+  "epsilon": 0.1,
+  "epsilon_decay": 0.999,
+  "min_epsilon": 0.01,
+  "episodes": 1000,
+  "visualize": false,
+  "checkpoint_freq": 100,
+  "checkpoint_path": "models",
+  "save_metrics": true,
+  "metrics_path": "metrics"
+}
+```
+
+### Visualization Tools
+The framework includes tools for visualizing training progress:
+- Real-time reward, score, and epsilon plots
+- HTML training reports with key metrics
+- Training history serialization for further analysis
+
+### Extensibility
+The RL system is designed to be easily extended:
+- Implement the `State` and `Action` traits for new environments
+- Create custom environment implementations by implementing the `Environment` trait
+- Add new agent algorithms by extending the architecture
