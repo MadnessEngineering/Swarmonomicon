@@ -304,6 +304,75 @@ Response:
 
 The task will be enhanced during processing by the target agent, adding technical details and context while preserving the original description.
 
+#### Enhanced Todo Worker
+
+The todo_worker has been significantly improved with the following features:
+
+1. **Robust Error Handling**
+   - Graceful recovery from MQTT connection issues
+   - Automatic reconnection with configurable retry limits
+   - Detailed error reporting via MQTT topics
+   - Timeout detection for stalled task processing
+
+2. **Advanced Metrics Collection**
+   - Success rate tracking and health status monitoring
+   - Priority-based metrics (tracking of Critical/High/Medium/Low tasks)
+   - Processing time measurements for performance analysis
+   - Timeout detection and reporting
+   - Periodic metrics publishing to MQTT topics
+
+3. **Health Monitoring**
+   - Live health status publishing (`health/todo_worker` topic)
+   - Configurable health thresholds based on success rate
+   - Detailed diagnostic information for troubleshooting
+
+4. **Task Prioritization**
+   - Efficient task processing based on priority
+   - Detailed tracking of tasks by priority levels
+   - Performance metrics for each priority level
+
+5. **Control Interface**
+   - Remote status checking via MQTT commands
+   - Control commands for runtime configuration
+   - Synchronous and asynchronous processing models
+
+Example metrics output (published to `metrics/todo_worker`):
+```json
+{
+  "tasks_processed": 127,
+  "tasks_succeeded": 120,
+  "tasks_failed": 5,
+  "tasks_timeout": 2,
+  "success_rate": 94.49,
+  "uptime_seconds": 3600,
+  "critical_tasks_processed": 10,
+  "high_tasks_processed": 32,
+  "medium_tasks_processed": 55,
+  "low_tasks_processed": 30,
+  "healthy": true,
+  "timestamp": "2023-04-11T15:30:45Z"
+}
+```
+
+The worker can be controlled remotely by publishing commands to the `todo_worker/control` topic:
+```json
+{"command": "status"}
+```
+
+Response (published to `todo_worker/status`):
+```json
+{
+  "tasks_processed": 127,
+  "tasks_succeeded": 120,
+  "tasks_failed": 5,
+  "tasks_timeout": 2,
+  "success_rate": 94.49,
+  "uptime_seconds": 3600,
+  "healthy": true,
+  "timestamp": "2023-04-11T15:30:45Z"
+}
+```
+
 ## Usage
 
 ### Starting the Server
