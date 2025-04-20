@@ -97,5 +97,9 @@ name = "train_flappy"
 path = "src/bin/train_flappy.rs"
 required-features = ["rl"]
 
+[[example]]
+name = "mcp_todo_client"
+path = "examples/mcp_todo_client_example.rs"
+
 [build-dependencies]
 pkg-config = "0.3"
