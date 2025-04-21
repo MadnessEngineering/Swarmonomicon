@@ -92,6 +92,10 @@ name = "test_mcp_todo_publish"
 path = "src/bin/test_mcp_todo_publish.rs"
 
 [[bin]]
+name = "add_todo"
+path = "src/bin/add_todo.rs"
+
+[[bin]]
 name = "train_flappy"
 path = "src/bin/train_flappy.rs"
 required-features = ["rl"]
