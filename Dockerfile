@@ -2,7 +2,7 @@
 # Multi-platform build for macOS and Windows
 
 # Build stage
-FROM rust:1.72-slim as builder
+FROM rust:1.77-slim as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,8 +32,8 @@ RUN mkdir -p src && \
 # Copy the actual source code
 COPY . .
 
-# Build the application
-RUN cargo build --release
+# Build the application with optimizations
+RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3" cargo build --release
 
 # Create runtime image
 FROM debian:bookworm-slim
@@ -42,6 +42,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder
@@ -63,6 +64,10 @@ ENV MQTT_PORT=1883
 RUN useradd -m swarmuser
 RUN chown -R swarmuser:swarmuser /app
 USER swarmuser
+
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
 
 # Expose the API port
 EXPOSE 3000
@@ -86,6 +91,6 @@ FROM runtime as windows
 # Usage instructions added as Docker labels
 LABEL maintainer="Danedens31@gmail.com"
 LABEL description="Swarmonomicon - Agent Swarm and Eventbase"
-LABEL version="0.1.3"
-LABEL usage.common="docker run -p 8080:8080 -p 1883:1883 swarmonomicon"
-LABEL usage.rl="docker run -p 8080:8080 -p 1883:1883 -v $(pwd)/models:/app/models swarmonomicon /app/train_flappy" 
+LABEL version="0.1.4"
+LABEL usage.common="docker run -p 3000:3000 -p 1883:1883 swarmonomicon"
+LABEL usage.rl="docker run -p 3000:3000 -p 1883:1883 -v $(pwd)/models:/app/models swarmonomicon /app/train_flappy" 

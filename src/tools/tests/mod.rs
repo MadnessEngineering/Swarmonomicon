@@ -3,9 +3,6 @@ use crate::tools::GPTBatchTool;
 use async_openai::types::ChatCompletionFunctions;
 use serde_json::json;
 
-// Import our new test module
-pub mod mcp_todo_client_test;
-
 #[tokio::test]
 async fn test_gpt_batch_tool_integration() {
     let registry = ToolRegistry::create_default_tools().await.unwrap();

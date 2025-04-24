@@ -17,6 +17,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
 
   # Mosquitto MQTT broker for messaging
   mosquitto:
@@ -35,6 +40,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
 
   # Ollama for local AI processing
   ollama:
@@ -52,6 +62,9 @@ services:
               driver: nvidia
               count: all
               device_ids: ["0"]
+        limits:
+          memory: 8G
+          cpus: '4'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
       interval: 30s
@@ -63,6 +76,8 @@ services:
   swarm:
     build:
       context: .
+      dockerfile: Dockerfile
+    image: swarmonomicon/main:latest
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -74,6 +89,11 @@ services:
       - RTK_MONGO_DB=swarmonomicon
       - MQTT_HOST=mosquitto
       - MQTT_PORT=1883
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
     depends_on:
       mongodb:
         condition: service_healthy
@@ -86,6 +106,8 @@ services:
   todo_worker:
     build:
       context: .
+      dockerfile: Dockerfile
+    image: swarmonomicon/todo_worker:latest
     restart: unless-stopped
     command: /app/todo_worker
     environment:
@@ -97,6 +119,11 @@ services:
       - MQTT_HOST=mosquitto
       - MQTT_PORT=1883
       - TODO_CHECK_INTERVAL_SECS=30
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
     depends_on:
       mongodb:
         condition: service_healthy
@@ -109,6 +136,8 @@ services:
   mcp_todo_server:
     build:
       context: .
+      dockerfile: Dockerfile
+    image: swarmonomicon/mcp_todo_server:latest
     restart: unless-stopped
     command: /app/mcp_todo_server
     environment:
@@ -117,6 +146,11 @@ services:
       - AWSPORT=27017
       - AI_ENDPOINT=http://ollama:11434/api/generate
       - AI_MODEL=qwen2.5-7b-instruct
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
     depends_on:
       mongodb:
         condition: service_healthy

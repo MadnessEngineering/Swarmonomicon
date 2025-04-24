@@ -10,7 +10,6 @@ mod screenshot_detection;
 pub mod todo;
 mod goose;
 mod gpt_batch;
-mod mcp_todo_client;
 
 #[cfg(feature = "yolo")]
 pub mod yolo;
@@ -22,7 +21,6 @@ pub use screenshot_detection::ScreenshotDetectionTool;
 pub use todo::TodoTool;
 pub use goose::GooseTool;
 pub use gpt_batch::GPTBatchTool;
-pub use mcp_todo_client::McpTodoClientTool;
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -99,16 +97,6 @@ impl ToolRegistry {
         // Register Todo tool
         let todo_tool = TodoTool::new().await?;
         registry.register("todo".to_string(), todo_tool);
-
-        // Register MCP Todo Client tool
-        match McpTodoClientTool::new().await {
-            Ok(mcp_todo_tool) => {
-                registry.register("mcp_todo".to_string(), mcp_todo_tool);
-            },
-            Err(e) => {
-                tracing::warn!("Failed to initialize MCP Todo Client tool: {}", e);
-            }
-        }
 
         // Register Goose tool
         registry.register("goose".to_string(), GooseTool::new());

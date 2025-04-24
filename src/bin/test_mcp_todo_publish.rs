@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     // Set up MQTT client
-    let mut mqtt_options = MqttOptions::new(cli.client_id, cli.host, cli.port);
+    let mut mqtt_options = MqttOptions::new(cli.client_id, cli.host.clone(), cli.port);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
     mqtt_options.set_clean_session(true);
     

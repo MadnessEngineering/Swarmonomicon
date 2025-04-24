@@ -1,6 +1,6 @@
 # Docker Deployment Guide for Swarmonomicon
 
-This guide provides instructions for deploying the Swarmonomicon project using Docker on macOS and Windows platforms.
+This guide provides instructions for deploying the Swarmonomicon project using Docker on macOS (Intel and Apple Silicon) and Windows platforms.
 
 ## Prerequisites
 
@@ -19,20 +19,29 @@ This guide provides instructions for deploying the Swarmonomicon project using D
    cd Swarmonomicon
    ```
 
-2. Start the services:
+2. Run the setup script:
    ```bash
-   docker-compose up -d
+   # For macOS/Linux
+   ./docker-setup.sh
+   
+   # For Windows
+   .\docker-setup.ps1
    ```
 
-3. Access the services:
+3. Start the services:
+   ```bash
+   ./start-docker.sh
+   ```
+
+4. Access the services:
    - Web interface: http://localhost:3000
    - MQTT: localhost:1883 (or ws://localhost:9001 for WebSockets)
    - MongoDB: localhost:27017
    - Ollama API: http://localhost:11434/api
 
-4. Pull the required AI model:
+5. Pull the required AI model:
    ```bash
-   docker-compose exec ollama ollama pull qwen2.5-7b-instruct
+   docker compose exec ollama ollama pull qwen2.5-7b-instruct
    ```
 
 ## Configuration
@@ -61,12 +70,27 @@ The Docker setup uses these persistent volumes:
 - `mosquitto_log`: MQTT broker logs
 - `ollama_models`: AI models for Ollama
 
+## Resource Management
+
+The Docker Compose file includes resource limits for each service:
+
+| Service | Memory Limit | CPU Limit |
+|---------|--------------|-----------|
+| MongoDB | 1GB | 1 core |
+| Mosquitto | 256MB | 0.5 core |
+| Ollama | 8GB | 4 cores |
+| Swarm | 1GB | 1 core |
+| Todo Worker | 512MB | 0.5 core |
+| MCP Todo Server | 512MB | 0.5 core |
+
+You can adjust these limits in the `docker-compose.yml` file based on your system's capabilities.
+
 ## Platform-Specific Notes
 
 ### macOS
 
 - The Docker image runs natively on both Intel and Apple Silicon (M1/M2/M3) Macs
-- For Apple Silicon, GPU acceleration is available through Metal
+- For Apple Silicon, the setup script automatically configures the environment
 - Performance may vary based on machine specifications
 
 ### Windows
@@ -75,23 +99,31 @@ The Docker setup uses these persistent volumes:
 - For NVIDIA GPU support, update to the latest NVIDIA drivers and install NVIDIA Container Toolkit
 - The Docker bridge network requires allowing connections through Windows Firewall
 
+## Helper Scripts
+
+The setup creates these helper scripts:
+
+- `start-docker.sh` - Start the Docker environment
+- `stop-docker.sh` - Stop the Docker environment
+- `view-logs.sh` - View logs from containers (use with service name to see specific logs)
+
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Ollama model download issues**:
    ```bash
-   docker-compose logs ollama
+   ./view-logs.sh ollama
    ```
    If you see disk space or network errors, try downloading directly:
    ```bash
-   docker-compose exec ollama ollama pull qwen2.5-7b-instruct
+   docker compose exec ollama ollama pull qwen2.5-7b-instruct
    ```
 
 2. **MongoDB connection failures**:
    Check if MongoDB is healthy:
    ```bash
-   docker-compose ps mongodb
+   docker compose ps mongodb
    ```
    Verify the container is "healthy" in the status column.
 
@@ -106,7 +138,7 @@ The Docker setup uses these persistent volumes:
    ```
 
 4. **Container resource limits**:
-   If containers are crashing due to insufficient resources, increase the memory allocation in Docker Desktop settings.
+   If containers are crashing due to insufficient resources, increase the memory allocation in the `docker-compose.yml` file.
 
 ## Production Deployment
 
@@ -130,9 +162,9 @@ To update to a new version:
 
 2. Rebuild and restart the containers:
    ```bash
-   docker-compose down
-   docker-compose build
-   docker-compose up -d
+   ./stop-docker.sh
+   docker compose build
+   ./start-docker.sh
    ```
 
 ## Health Checks
@@ -140,7 +172,7 @@ To update to a new version:
 The Docker setup includes health checks for all services. To view the current health status:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 For detailed health check logs:

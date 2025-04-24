@@ -10,7 +10,7 @@ use std::error::Error as StdError;
 use std::process::Command;
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use serde_json::json;
 use std::time::Instant;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -143,51 +143,53 @@ async fn main() -> Result<()> {
     });
 
     // Set up graceful shutdown channel
-    let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
     
     // Set up ctrl-c handler
-    let shutdown_tx_clone = shutdown_tx.clone();
+    let shutdown_tx_ctrl_c = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Err(e) = tokio::signal::ctrl_c().await {
             tracing::error!("Failed to listen for ctrl-c: {}", e);
             return;
         }
         tracing::info!("Received shutdown signal, initiating graceful shutdown...");
-        let _ = shutdown_tx_clone.send(());
+        let _ = shutdown_tx_ctrl_c.send(());
     });
 
     // Main event loop
     loop {
         tokio::select! {
             // Check for shutdown signal
-            _ = &mut shutdown_rx => {
-                tracing::info!("Shutdown signal received, closing MQTT connection...");
+            result = shutdown_rx.recv() => {
+                if result.is_ok() {
+                    tracing::info!("Shutdown signal received, closing MQTT connection...");
                 
-                // Publish final metrics and shutdown status
-                let shutdown_payload = json!({
-                    "status": "shutdown",
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "final_metrics": metrics.as_json()
-                }).to_string();
-                
-                if let Err(e) = client.publish(
-                    "mcp_server/status", 
-                    QoS::AtLeastOnce, 
-                    false, 
-                    shutdown_payload
-                ).await {
-                    tracing::error!("Failed to publish shutdown status: {}", e);
+                    // Publish final metrics and shutdown status
+                    let shutdown_payload = json!({
+                        "status": "shutdown",
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "final_metrics": metrics.as_json()
+                    }).to_string();
+                    
+                    if let Err(e) = client.publish(
+                        "mcp_server/status", 
+                        QoS::AtLeastOnce, 
+                        false, 
+                        shutdown_payload
+                    ).await {
+                        tracing::error!("Failed to publish shutdown status: {}", e);
+                    }
+                    
+                    // Disconnect from MQTT
+                    if let Err(e) = client.disconnect().await {
+                        tracing::error!("Error disconnecting from MQTT: {}", e);
+                    }
+                    
+                    // Allow time for final messages to be sent
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tracing::info!("Graceful shutdown complete");
+                    break;
                 }
-                
-                // Disconnect from MQTT
-                if let Err(e) = client.disconnect().await {
-                    tracing::error!("Error disconnecting from MQTT: {}", e);
-                }
-                
-                // Allow time for final messages to be sent
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                tracing::info!("Graceful shutdown complete");
-                break;
             }
             
             // Handle MQTT events

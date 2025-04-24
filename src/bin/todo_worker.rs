@@ -19,7 +19,7 @@ use tracing_subscriber::{self, fmt::format::FmtSpan};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::timeout;
 use std::time::SystemTime;
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 
 // Constants for configuration
 const DEFAULT_MQTT_HOST: &str = "localhost";
@@ -317,55 +317,57 @@ async fn setup_and_run_mqtt_loop(
     };
 
     // Main event loop with graceful shutdown support
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
     
     // Set up graceful shutdown on ctrl-c
-    let shutdown_tx_clone = shutdown_tx.clone();
+    let shutdown_tx_ctrl_c = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Err(e) = tokio::signal::ctrl_c().await {
             error!("Failed to listen for ctrl-c: {}", e);
             return;
         }
         info!("Received shutdown signal, initiating graceful shutdown...");
-        let _ = shutdown_tx_clone.send(());
+        let _ = shutdown_tx_ctrl_c.send(());
     });
     
     loop {
         tokio::select! {
             // Check for shutdown signal
-            _ = &mut shutdown_rx => {
-                info!("Shutdown signal received, closing MQTT connection...");
-                
-                // Report final metrics
-                if let Err(e) = report_metrics(&metrics, &client).await {
-                    error!("Failed to report final metrics: {}", e);
+            result = shutdown_rx.recv() => {
+                if result.is_ok() {
+                    info!("Shutdown signal received, closing MQTT connection...");
+                    
+                    // Report final metrics
+                    if let Err(e) = report_metrics(&metrics, &client).await {
+                        error!("Failed to report final metrics: {}", e);
+                    }
+                    
+                    // Publish shutdown status
+                    let shutdown_payload = json!({
+                        "status": "shutdown",
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "final_metrics": metrics.get_metrics_json().await
+                    }).to_string();
+                    
+                    if let Err(e) = client.publish(
+                        "todo_worker/status", 
+                        QoS::AtLeastOnce, 
+                        false, 
+                        shutdown_payload
+                    ).await {
+                        error!("Failed to publish shutdown status: {}", e);
+                    }
+                    
+                    // Disconnect from MQTT
+                    if let Err(e) = client.disconnect().await {
+                        error!("Error disconnecting from MQTT: {}", e);
+                    }
+                    
+                    // Allow time for final messages to be sent
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    info!("Graceful shutdown complete");
+                    break Ok(());
                 }
-                
-                // Publish shutdown status
-                let shutdown_payload = json!({
-                    "status": "shutdown",
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "final_metrics": metrics.get_metrics_json().await
-                }).to_string();
-                
-                if let Err(e) = client.publish(
-                    "todo_worker/status", 
-                    QoS::AtLeastOnce, 
-                    false, 
-                    shutdown_payload
-                ).await {
-                    error!("Failed to publish shutdown status: {}", e);
-                }
-                
-                // Disconnect from MQTT
-                if let Err(e) = client.disconnect().await {
-                    error!("Error disconnecting from MQTT: {}", e);
-                }
-                
-                // Allow time for final messages to be sent
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                info!("Graceful shutdown complete");
-                break;
             }
             
             // Handle MQTT events
