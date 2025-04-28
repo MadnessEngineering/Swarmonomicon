@@ -86,7 +86,7 @@ async fn publish_todo(
     
     println!("Publishing to topic {} with payload: {}", topic, payload);
     
-    client.publish(topic, QoS::AtLeastOnce, false, payload.to_string()).await
+    client.publish(topic, QoS::ExactlyOnce, false, payload.to_string()).await
         .map_err(|e| anyhow!("Failed to publish todo: {}", e))
 }
 
@@ -99,7 +99,7 @@ async fn send_status_request(client: &AsyncClient, target: &str) -> Result<()> {
     
     println!("Requesting status from {}", target);
     
-    client.publish(topic, QoS::AtLeastOnce, false, payload.to_string()).await
+    client.publish(topic, QoS::ExactlyOnce, false, payload.to_string()).await
         .map_err(|e| anyhow!("Failed to request status: {}", e))
 }
 
@@ -112,7 +112,7 @@ async fn send_shutdown_command(client: &AsyncClient, target: &str) -> Result<()>
     
     println!("Sending shutdown command to {}", target);
     
-    client.publish(topic, QoS::AtLeastOnce, false, payload.to_string()).await
+    client.publish(topic, QoS::ExactlyOnce, false, payload.to_string()).await
         .map_err(|e| anyhow!("Failed to send shutdown command: {}", e))
 }
 
@@ -167,12 +167,12 @@ async fn main() -> Result<()> {
     println!("Connected to MQTT broker at {}:{}", cli.host, cli.port);
     
     // Subscribe to response topics
-    client.subscribe("mcp/+/response", QoS::AtLeastOnce).await?;
-    client.subscribe("mcp/+/error", QoS::AtLeastOnce).await?;
-    client.subscribe("agent/+/todo/response", QoS::AtLeastOnce).await?;
-    client.subscribe("agent/+/todo/error", QoS::AtLeastOnce).await?;
-    client.subscribe("mcp_server/status", QoS::AtLeastOnce).await?;
-    client.subscribe("todo_worker/status", QoS::AtLeastOnce).await?;
+    client.subscribe("mcp/+/response", QoS::ExactlyOnce).await?;
+    client.subscribe("mcp/+/error", QoS::ExactlyOnce).await?;
+    client.subscribe("agent/+/todo/response", QoS::ExactlyOnce).await?;
+    client.subscribe("agent/+/todo/error", QoS::ExactlyOnce).await?;
+    client.subscribe("mcp_server/status", QoS::ExactlyOnce).await?;
+    client.subscribe("todo_worker/status", QoS::ExactlyOnce).await?;
     
     // For a system that uses ACK, wait a bit to ensure subscriptions are processed
     tokio::time::sleep(Duration::from_millis(500)).await;

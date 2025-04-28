@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 
     // Subscribe to "mcp/*" topic with retry logic
     for attempt in 1..=3 {
-        match client.subscribe("mcp/#", QoS::AtLeastOnce).await {
+        match client.subscribe("mcp/#", QoS::ExactlyOnce).await {
             Ok(_) => {
                 tracing::info!("Successfully subscribed to mcp/#");
                 break;
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
     }
     
     // Also subscribe to control topic
-    client.subscribe("mcp_server/control", QoS::AtLeastOnce).await
+    client.subscribe("mcp_server/control", QoS::ExactlyOnce).await
         .map_err(|e| anyhow!("Failed to subscribe to control topic: {}", e))?;
 
     tracing::info!("MCP Todo Server started. Listening for new tasks...");
@@ -135,7 +135,7 @@ async fn main() -> Result<()> {
             let metrics_json = metrics_cloned.as_json();
             let _ = metrics_client.publish(
                 "metrics/mcp_todo_server",
-                QoS::AtLeastOnce,
+                QoS::ExactlyOnce,
                 false,
                 metrics_json.to_string()
             ).await;
@@ -173,7 +173,7 @@ async fn main() -> Result<()> {
                     
                     if let Err(e) = client.publish(
                         "mcp_server/status", 
-                        QoS::AtLeastOnce, 
+                        QoS::ExactlyOnce, 
                         false, 
                         shutdown_payload
                     ).await {
@@ -218,7 +218,7 @@ async fn main() -> Result<()> {
                                             
                                             if let Err(e) = client.publish(
                                                 "mcp_server/status", 
-                                                QoS::AtLeastOnce, 
+                                                QoS::ExactlyOnce, 
                                                 false, 
                                                 status_payload
                                             ).await {
@@ -297,7 +297,7 @@ async fn main() -> Result<()> {
                                             
                                             if let Err(e) = client.publish(
                                                 response_topic,
-                                                QoS::AtLeastOnce,
+                                                QoS::ExactlyOnce,
                                                 false,
                                                 response_payload
                                             ).await {
@@ -318,7 +318,7 @@ async fn main() -> Result<()> {
                                             
                                             if let Err(e) = client.publish(
                                                 error_topic,
-                                                QoS::AtLeastOnce,
+                                                QoS::ExactlyOnce,
                                                 false,
                                                 error_payload
                                             ).await {

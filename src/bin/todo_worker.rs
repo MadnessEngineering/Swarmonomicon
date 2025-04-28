@@ -217,7 +217,7 @@ async fn main() -> Result<()> {
                     
                     let _ = client.publish(
                         "metrics/todo_worker/error",
-                        QoS::AtLeastOnce,
+                        QoS::ExactlyOnce,
                         false,
                         error_metrics.to_string()
                     ).await;
@@ -275,9 +275,9 @@ async fn setup_and_run_mqtt_loop(
     let client = Arc::new(client);
 
     // Subscribe to the topics
-    client.subscribe("agent/+/todo/process", QoS::AtLeastOnce).await?;
+    client.subscribe("agent/+/todo/process", QoS::ExactlyOnce).await?;
     info!("Subscribed to topic: agent/+/todo/process");
-    client.subscribe("todo_worker/control", QoS::AtLeastOnce).await?;
+    client.subscribe("todo_worker/control", QoS::ExactlyOnce).await?;
     info!("Subscribed to topic: todo_worker/control");
     
     // Create default agents
@@ -351,7 +351,7 @@ async fn setup_and_run_mqtt_loop(
                     
                     if let Err(e) = client.publish(
                         "todo_worker/status", 
-                        QoS::AtLeastOnce, 
+                        QoS::ExactlyOnce, 
                         false, 
                         shutdown_payload
                     ).await {
@@ -443,7 +443,7 @@ async fn handle_control_message(
                         let status = metrics.get_metrics_json().await;
                         client.publish(
                             "todo_worker/status",
-                            QoS::AtLeastOnce,
+                            QoS::ExactlyOnce,
                             false,
                             status.to_string()
                         ).await?;
@@ -455,7 +455,7 @@ async fn handle_control_message(
                         let status = metrics.get_metrics_json().await;
                         client.publish(
                             "todo_worker/metrics_reset_response",
-                            QoS::AtLeastOnce,
+                            QoS::ExactlyOnce,
                             false,
                             json!({
                                 "status": "acknowledged",
@@ -468,7 +468,7 @@ async fn handle_control_message(
                         warn!("Unknown control command: {}", unknown);
                         client.publish(
                             "todo_worker/error",
-                            QoS::AtLeastOnce,
+                            QoS::ExactlyOnce,
                             false,
                             json!({
                                 "error": format!("Unknown command: {}", unknown),
@@ -483,7 +483,7 @@ async fn handle_control_message(
             error!("Failed to parse control message: {}", e);
             client.publish(
                 "todo_worker/error",
-                QoS::AtLeastOnce,
+                QoS::ExactlyOnce,
                 false,
                 json!({
                     "error": format!("Invalid control message: {}", e),
@@ -551,7 +551,7 @@ async fn process_agent_message(
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }).to_string();
             
-            if let Err(e) = client.publish(error_topic, QoS::AtLeastOnce, false, error_payload).await {
+            if let Err(e) = client.publish(error_topic, QoS::ExactlyOnce, false, error_payload).await {
                 error!("Failed to publish error message: {}", e);
             }
             
@@ -598,7 +598,7 @@ async fn process_agent_message(
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }).to_string();
             
-            if let Err(e) = client.publish(error_topic, QoS::AtLeastOnce, false, error_payload).await {
+            if let Err(e) = client.publish(error_topic, QoS::ExactlyOnce, false, error_payload).await {
                 error!("Failed to publish error message: {}", e);
             }
         },
@@ -616,7 +616,7 @@ async fn process_agent_message(
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }).to_string();
             
-            if let Err(e) = client.publish(error_topic, QoS::AtLeastOnce, false, error_payload).await {
+            if let Err(e) = client.publish(error_topic, QoS::ExactlyOnce, false, error_payload).await {
                 error!("Failed to publish timeout error message: {}", e);
             }
             
@@ -659,7 +659,7 @@ async fn process_todo_for_agent(
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }).to_string();
             
-            mqtt_client.publish(response_topic, QoS::AtLeastOnce, false, response_payload).await
+            mqtt_client.publish(response_topic, QoS::ExactlyOnce, false, response_payload).await
                 .context("Failed to publish response")?;
             
             // Mark task as completed
@@ -732,7 +732,7 @@ async fn check_agent_tasks(
                     let task_json = serde_json::to_string(&task_json_value)?;
                     
                     // Publish the task to the appropriate topic
-                    mqtt_client.publish(topic, QoS::AtLeastOnce, false, task_json).await?;
+                    mqtt_client.publish(topic, QoS::ExactlyOnce, false, task_json).await?;
                     
                     // Spawn a background task to handle the permit release after processing
                     tokio::spawn(async move {
@@ -799,13 +799,13 @@ async fn report_metrics(
     let metrics_json = metrics.get_metrics_json().await;
     
     let metrics_topic = "metrics/todo_worker";
-    mqtt_client.publish(metrics_topic, QoS::AtLeastOnce, false, metrics_json.to_string()).await?;
+    mqtt_client.publish(metrics_topic, QoS::ExactlyOnce, false, metrics_json.to_string()).await?;
     info!("Published metrics: {}", metrics_json);
     
     // Also publish health status
     let health_status = if metrics.is_healthy() { "healthy" } else { "unhealthy" };
     let health_topic = "health/todo_worker";
-    mqtt_client.publish(health_topic, QoS::AtLeastOnce, false, health_status).await?;
+    mqtt_client.publish(health_topic, QoS::ExactlyOnce, false, health_status).await?;
     
     Ok(())
 }
