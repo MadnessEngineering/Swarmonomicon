@@ -118,7 +118,7 @@ async fn send_shutdown_command(client: &AsyncClient, target: &str) -> Result<()>
 
 async fn wait_for_response(
     event_loop: &mut rumqttc::EventLoop, 
-    response_topic: &str, 
+    response_type: &str, 
     timeout_seconds: u64,
 ) -> Result<()> {
     let timeout = Duration::from_secs(timeout_seconds);
@@ -137,7 +137,10 @@ async fn wait_for_response(
                     
                     println!("Received message on topic {}: {}", topic, payload);
                     
-                    if topic.contains(response_topic) {
+                    // Match different response topic patterns
+                    if (topic.starts_with("response/") && topic.contains(response_type)) || 
+                       (topic.contains("todo/response") && response_type == "todo") ||
+                       (topic.contains("status") && response_type == "status") {
                         println!("Got response on expected topic!");
                         return Ok(());
                     }
@@ -167,12 +170,12 @@ async fn main() -> Result<()> {
     println!("Connected to MQTT broker at {}:{}", cli.host, cli.port);
     
     // Subscribe to response topics
-    client.subscribe("mcp/+/response", QoS::ExactlyOnce).await?;
-    client.subscribe("mcp/+/error", QoS::ExactlyOnce).await?;
+    client.subscribe("response/+/todo", QoS::ExactlyOnce).await?;
+    client.subscribe("response/+/error", QoS::ExactlyOnce).await?;
     client.subscribe("agent/+/todo/response", QoS::ExactlyOnce).await?;
     client.subscribe("agent/+/todo/error", QoS::ExactlyOnce).await?;
-    client.subscribe("mcp_server/status", QoS::ExactlyOnce).await?;
-    client.subscribe("todo_worker/status", QoS::ExactlyOnce).await?;
+    client.subscribe("response/mcp_server/status", QoS::ExactlyOnce).await?;
+    client.subscribe("response/todo_worker/status", QoS::ExactlyOnce).await?;
     
     // For a system that uses ACK, wait a bit to ensure subscriptions are processed
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -185,7 +188,7 @@ async fn main() -> Result<()> {
             
             if *wait > 0 {
                 println!("Waiting for completion (timeout: {} seconds)...", wait);
-                wait_for_response(&mut eventloop, "todo/response", *wait).await?;
+                wait_for_response(&mut eventloop, "todo", *wait).await?;
             }
         },
         Commands::Status { target } => {

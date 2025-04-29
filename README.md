@@ -565,3 +565,24 @@ The RL system is designed to be easily extended:
 - Implement the `State` and `Action` traits for new environments
 - Create custom environment implementations by implementing the `Environment` trait
 - Add new agent algorithms by extending the architecture
+
+### MQTT Topic Structure
+
+The system uses MQTT for internal communication between components with a carefully designed topic structure to prevent recursive message loops:
+
+- `mcp/+` - Topics for incoming MCP commands to be processed
+- `response/+/todo` - Response topics for successful todo processing
+- `response/+/error` - Error response topics
+- `response/mcp_server/status` - Server status response topic
+- `metrics/response/mcp_todo_server` - Metrics reporting topic
+
+The separation between command topics (mcp/) and response topics (response/) prevents the system from processing its own response messages and creating unwanted recursion.
+
+#### QoS Settings
+
+All MQTT communications use QoS 2 (ExactlyOnce) to ensure:
+- Messages are delivered exactly once
+- No duplicate message processing occurs
+- System reliability is maintained
+
+This is especially important for the todo processing system where duplicate messages could create redundant tasks.

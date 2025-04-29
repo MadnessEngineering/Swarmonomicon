@@ -22,9 +22,9 @@ struct McpTodoRequest {
 }
 
 // Maximum number of concurrent task processing
-const MAX_CONCURRENT_TASKS: usize = 5;
+const MAX_CONCURRENT_TASKS: usize = 1;
 // Maximum number of concurrent AI enhancements
-const MAX_CONCURRENT_AI: usize = 2;
+const MAX_CONCURRENT_AI: usize = 1;
 // Task metrics reporting interval
 const METRICS_REPORTING_INTERVAL: u64 = 30;
 
@@ -61,7 +61,7 @@ impl TaskMetrics {
     fn as_json(&self) -> serde_json::Value {
         let now = Instant::now();
         let uptime = now.duration_since(self.start_time);
-        
+
         json!({
             "tasks_received": self.tasks_received.load(Ordering::Relaxed),
             "tasks_processed": self.tasks_processed.load(Ordering::Relaxed),
@@ -85,13 +85,13 @@ async fn main() -> Result<()> {
     // Create semaphores for rate limiting
     let task_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
     let ai_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_AI));
-    
+
     // Initialize metrics
     let metrics = Arc::new(TaskMetrics::new());
 
     let aws_ip = std::env::var("AWSIP").expect("AWSIP environment variable not set");
     let aws_port = std::env::var("AWSPORT").expect("AWSPORT environment variable not set").parse::<u16>().expect("AWSPORT must be a number");
-    
+
     // Connect to MQTT broker
     let mut mqtt_options = MqttOptions::new("mcp_todo_server", &aws_ip, aws_port);
     mqtt_options.set_keep_alive(Duration::from_secs(30));
@@ -100,11 +100,11 @@ async fn main() -> Result<()> {
     let client = Arc::new(client);
     tracing::info!("Connecting to MQTT broker at {}:{}", aws_ip, aws_port);
 
-    // Subscribe to "mcp/*" topic with retry logic
+    // Subscribe to mcp/+ topic with retry logic
     for attempt in 1..=3 {
-        match client.subscribe("mcp/#", QoS::ExactlyOnce).await {
+        match client.subscribe("mcp/+", QoS::ExactlyOnce).await {
             Ok(_) => {
-                tracing::info!("Successfully subscribed to mcp/#");
+                tracing::info!("Successfully subscribed to mcp/+");
                 break;
             }
             Err(e) => {
@@ -116,10 +116,10 @@ async fn main() -> Result<()> {
             }
         }
     }
-    
-    // Also subscribe to control topic
-    client.subscribe("mcp_server/control", QoS::ExactlyOnce).await
-        .map_err(|e| anyhow!("Failed to subscribe to control topic: {}", e))?;
+
+    // // Also subscribe to control topic
+    // client.subscribe("mcp_server/control", QoS::ExactlyOnce).await
+    //     .map_err(|e| anyhow!("Failed to subscribe to control topic: {}", e))?;
 
     tracing::info!("MCP Todo Server started. Listening for new tasks...");
 
@@ -130,11 +130,11 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(Duration::from_secs(METRICS_REPORTING_INTERVAL));
         loop {
             interval.tick().await;
-            
+
             // Report metrics
             let metrics_json = metrics_cloned.as_json();
             let _ = metrics_client.publish(
-                "metrics/mcp_todo_server",
+                "metrics/response/mcp_todo_server",
                 QoS::ExactlyOnce,
                 false,
                 metrics_json.to_string()
@@ -144,7 +144,7 @@ async fn main() -> Result<()> {
 
     // Set up graceful shutdown channel
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
-    
+
     // Set up ctrl-c handler
     let shutdown_tx_ctrl_c = shutdown_tx.clone();
     tokio::spawn(async move {
@@ -163,35 +163,35 @@ async fn main() -> Result<()> {
             result = shutdown_rx.recv() => {
                 if result.is_ok() {
                     tracing::info!("Shutdown signal received, closing MQTT connection...");
-                
+
                     // Publish final metrics and shutdown status
                     let shutdown_payload = json!({
                         "status": "shutdown",
                         "timestamp": chrono::Utc::now().to_rfc3339(),
                         "final_metrics": metrics.as_json()
                     }).to_string();
-                    
+
                     if let Err(e) = client.publish(
-                        "mcp_server/status", 
-                        QoS::ExactlyOnce, 
-                        false, 
+                        "response/mcp_server/status",
+                        QoS::ExactlyOnce,
+                        false,
                         shutdown_payload
                     ).await {
                         tracing::error!("Failed to publish shutdown status: {}", e);
                     }
-                    
+
                     // Disconnect from MQTT
                     if let Err(e) = client.disconnect().await {
                         tracing::error!("Error disconnecting from MQTT: {}", e);
                     }
-                    
+
                     // Allow time for final messages to be sent
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     tracing::info!("Graceful shutdown complete");
                     break;
                 }
             }
-            
+
             // Handle MQTT events
             event_result = event_loop.poll() => {
                 match event_result {
@@ -199,7 +199,7 @@ async fn main() -> Result<()> {
                         if let Event::Incoming(rumqttc::Packet::Publish(publish)) = notification {
                             let topic = publish.topic.clone();
                             let payload = String::from_utf8_lossy(&publish.payload).to_string();
-                            
+
                             // Handle control messages
                             if topic == "mcp_server/control" {
                                 if let Ok(control_json) = serde_json::from_str::<serde_json::Value>(&payload) {
@@ -215,11 +215,11 @@ async fn main() -> Result<()> {
                                                 "timestamp": chrono::Utc::now().to_rfc3339(),
                                                 "metrics": metrics.as_json()
                                             }).to_string();
-                                            
+
                                             if let Err(e) = client.publish(
-                                                "mcp_server/status", 
-                                                QoS::ExactlyOnce, 
-                                                false, 
+                                                "response/mcp_server/status",
+                                                QoS::ExactlyOnce,
+                                                false,
                                                 status_payload
                                             ).await {
                                                 tracing::error!("Failed to publish status: {}", e);
@@ -229,11 +229,11 @@ async fn main() -> Result<()> {
                                     }
                                 }
                             }
-                            
+
                             // Handle normal MCP task requests
                             if topic.starts_with("mcp/") {
                                 tracing::info!("Received payload on {}: {}", topic, payload);
-                                
+
                                 // Increment the task received counter
                                 let task_count = metrics.increment_received();
                                 tracing::debug!("Task count: {}", task_count);
@@ -286,15 +286,15 @@ async fn main() -> Result<()> {
                                         Ok(result) => {
                                             tracing::info!("Successfully added todo: {}", description);
                                             metrics.increment_processed();
-                                            
+
                                             // Publish success response
-                                            let response_topic = format!("mcp/{}/response", target_agent);
+                                            let response_topic = format!("response/{}/todo", target_agent);
                                             let response_payload = json!({
                                                 "status": "success",
                                                 "message": result,
                                                 "timestamp": chrono::Utc::now().to_rfc3339()
                                             }).to_string();
-                                            
+
                                             if let Err(e) = client.publish(
                                                 response_topic,
                                                 QoS::ExactlyOnce,
@@ -307,15 +307,15 @@ async fn main() -> Result<()> {
                                         Err(e) => {
                                             tracing::error!("Failed to add todo: {}", e);
                                             metrics.increment_failed();
-                                            
+
                                             // Publish error response
-                                            let error_topic = format!("mcp/{}/error", target_agent);
+                                            let error_topic = format!("response/{}/error", target_agent);
                                             let error_payload = json!({
                                                 "status": "error",
                                                 "error": e.to_string(),
                                                 "timestamp": chrono::Utc::now().to_rfc3339()
                                             }).to_string();
-                                            
+
                                             if let Err(e) = client.publish(
                                                 error_topic,
                                                 QoS::ExactlyOnce,
