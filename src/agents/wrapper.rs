@@ -30,13 +30,38 @@ impl AgentWrapper {
 #[async_trait]
 impl TodoProcessor for AgentWrapper {
     async fn process_task(&self, task: TodoTask) -> Result<Message> {
+        tracing::info!("Processing task: {}", task.id);
+        
+        // Use enhanced description if available, otherwise use the original description
+        let description = match &task.enhanced_description {
+            Some(enhanced) if !enhanced.is_empty() => {
+                tracing::debug!("Using enhanced description for task {}", task.id);
+                enhanced.clone()
+            },
+            _ => {
+                tracing::debug!("Using original description for task {}", task.id);
+                task.description.clone()
+            }
+        };
+        
         // Convert the task to a message and process it
-        self.process_message(Message::new(task.description)).await
+        let message = Message::new(description);
+        
+        match self.process_message(message).await {
+            Ok(response) => {
+                tracing::info!("Successfully processed task {}", task.id);
+                Ok(response)
+            },
+            Err(e) => {
+                tracing::error!("Failed to process task {}: {}", task.id, e);
+                Err(e)
+            }
+        }
     }
 
     fn get_check_interval(&self) -> Duration {
-        // Default check interval of 5 seconds
-        Duration::from_secs(60)
+        // Set check interval to 30 seconds
+        Duration::from_secs(30)
     }
 
     fn get_todo_list(&self) -> &TodoList {

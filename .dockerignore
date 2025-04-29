@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Build artifacts
+target/
+debug/
+release/
+**/*.rs.bk
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Documentation
+README.md
+DOCKER.md
+docs/
+images/
+assets/
+
+# Large directories
+Omnispindle/
+projects/
+.specstory/
+.pytest_cache/
+
+# Local configuration
+.env
+.env.*
+config/
+*.local.toml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Large model files
+*.bin
+*.pt
+*.onnx
