@@ -16,8 +16,8 @@ services:
       - RTK_MONGO_URI=${RTK_MONGO_URI:-mongodb://AWS_IP_ADDRESS:27017}
       - RTK_MONGO_DB=swarmonomicon
       # Default remote MQTT connection - can be overridden
-      - MQTT_HOST=${MQTT_HOST:-AWS_IP_ADDRESS}
-      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_HOST=${AWSIP:-AWS_IP_ADDRESS}
+      - MQTT_PORT=${AWSPORT:-1883}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

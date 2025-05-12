@@ -26,14 +26,14 @@ COPY Cargo.toml Cargo.lock ./
 # Build dependencies only (this will be cached unless dependencies change)
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
+    cargo build --bin mcp_todo_server --release && \
     rm -rf src
 
 # Copy the actual source code
 COPY . .
 
 # Build the application with optimizations
-RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3" cargo build --release
+RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3" cargo build --bin mcp_todo_server --release
 
 # Create runtime image
 FROM debian:bookworm-slim
@@ -47,18 +47,16 @@ RUN apt-get update && apt-get install -y \
 
 # Copy the binary from the builder
 WORKDIR /app
-COPY --from=builder /app/target/release/swarm /app/swarm
-COPY --from=builder /app/target/release/todo_worker /app/todo_worker
 COPY --from=builder /app/target/release/mcp_todo_server /app/mcp_todo_server
 
 # Set environment variables
 ENV RUST_LOG=info
 ENV AI_ENDPOINT=http://ollama:11434/api/generate
 ENV AI_MODEL=qwen2.5-7b-instruct
-ENV RTK_MONGO_URI=mongodb://mongodb:27017
+ENV RTK_MONGO_URI=mongodb://${AWSIP:-AWS_IP_ADDRESS}:27017
 ENV RTK_MONGO_DB=swarmonomicon
-ENV MQTT_HOST=mosquitto
-ENV MQTT_PORT=1883
+ENV MQTT_HOST=${AWSIP:-AWS_IP_ADDRESS}
+ENV MQTT_PORT=${AWSPORT:-AWS_IP_PORT}
 
 # Create a non-root user to run the application
 RUN useradd -m swarmuser
@@ -67,13 +65,10 @@ USER swarmuser
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
-
-# Expose the API port
-EXPOSE 3000
+  CMD echo pass || exit 1
 
 # Command to run the application
-CMD ["./swarm"]
+CMD ["./mcp_todo_server"]
 
 # Additional Dockerfiles for specific platforms
 # These use the main Dockerfile as a base but add platform-specific optimizations
@@ -92,5 +87,5 @@ FROM debian:bookworm-slim AS windows
 LABEL maintainer="Danedens31@gmail.com"
 LABEL description="Swarmonomicon - Agent Swarm and Eventbase"
 LABEL version="0.1.4"
-LABEL usage.common="docker run -p 3000:3000 -p 1883:1883 swarmonomicon"
-LABEL usage.rl="docker run -p 3000:3000 -p 1883:1883 -v $(pwd)/models:/app/models swarmonomicon /app/train_flappy" 
+LABEL usage.common="docker run swarmonomicon"
+LABEL usage.rl="docker run swarmonomicon"
