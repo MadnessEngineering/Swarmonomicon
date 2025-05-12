@@ -1,5 +1,36 @@
 services:
-  # MongoDB for task storage
+  # Main MCP Todo Server service
+  mcp_todo_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: swarmonomicon/mcp_todo_server:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
+      - AI_MODEL=qwen2.5-7b-instruct
+      # Default remote MongoDB connection - can be overridden
+      - RTK_MONGO_URI=${RTK_MONGO_URI:-mongodb://AWS_IP_ADDRESS:27017}
+      - RTK_MONGO_DB=swarmonomicon
+      # Default remote MQTT connection - can be overridden
+      - MQTT_HOST=${MQTT_HOST:-AWS_IP_ADDRESS}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    profiles:
+      - all
+      - default
+
+  # Optional MongoDB for task storage (run with --profile mongodb)
   mongodb:
     image: mongo:6
     restart: unless-stopped
@@ -20,8 +51,11 @@ services:
         limits:
           memory: 1G
           cpus: '1'
+    profiles:
+      - mongodb
+      - all
 
-  # Mosquitto MQTT broker for messaging
+  # Optional Mosquitto MQTT broker for messaging (run with --profile mqtt)
   mosquitto:
     image: eclipse-mosquitto:2
     restart: unless-stopped
@@ -43,6 +77,9 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
+    profiles:
+      - mqtt
+      - all
 
 volumes:
   mongodb_data:

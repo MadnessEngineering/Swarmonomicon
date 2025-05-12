@@ -5,12 +5,17 @@ AWSIP=${AWSIP:-"AWS_IP_ADDRESS"}  # Replace with actual IP at runtime
 AWSPORT=${AWSPORT:-27017}
 MQTT_REMOTE_PORT=${MQTT_REMOTE_PORT:-1883}
 FORCE_LOCAL=false
+USE_DOCKER=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --force-local)
       FORCE_LOCAL=true
+      shift
+      ;;
+    --docker)
+      USE_DOCKER=true
       shift
       ;;
     --awsip=*)
@@ -23,7 +28,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--force-local] [--awsip=IP] [--awsport=PORT]"
+      echo "Usage: $0 [--force-local] [--docker] [--awsip=IP] [--awsport=PORT]"
       exit 1
       ;;
   esac
@@ -42,7 +47,7 @@ if [ "$FORCE_LOCAL" = false ]; then
     if [ $? -eq 0 ]; then
         echo "Remote MongoDB found at $AWSIP:$AWSPORT. Using remote instance."
         USE_LOCAL_MONGO=false
-        MONGO_URI="mongodb://$AWSIP:$AWSPORT"
+        MONGO_URI="mongodb://$AWSIP:27017"
     else
         echo "Remote MongoDB not available. Will use local Docker instance."
         MONGO_URI="mongodb://localhost:27017"
@@ -72,44 +77,66 @@ else
     MQTT_PORT="1883"
 fi
 
-# Start required services in Docker if needed
-if [ "$USE_LOCAL_MONGO" = true ] && [ "$USE_LOCAL_MQTT" = true ]; then
-    echo "Starting MongoDB and MQTT in Docker..."
-    docker compose up -d mongodb mosquitto
-elif [ "$USE_LOCAL_MONGO" = true ]; then
-    echo "Starting MongoDB in Docker..."
-    docker compose up -d mongodb
-elif [ "$USE_LOCAL_MQTT" = true ]; then
-    echo "Starting MQTT in Docker..."
-    docker compose up -d mosquitto
+if [ "$USE_DOCKER" = true ]; then
+    echo "Running MCP Todo Server using Docker..."
+    
+    # Set environment variables for Docker
+    export RTK_MONGO_URI=$MONGO_URI
+    export MQTT_HOST=$MQTT_HOST
+    export MQTT_PORT=$MQTT_PORT
+    
+    # Determine which profiles to use
+    PROFILES="default"
+    if [ "$USE_LOCAL_MONGO" = true ]; then
+        PROFILES="$PROFILES,mongodb"
+    fi
+    if [ "$USE_LOCAL_MQTT" = true ]; then
+        PROFILES="$PROFILES,mqtt"
+    fi
+    
+    # Start Docker Compose with appropriate profiles
+    echo "Starting Docker Compose with profiles: $PROFILES"
+    docker compose --profile $PROFILES up
 else
-    echo "Using remote services, no need to start Docker containers."
-fi
+    # Start required services in Docker if needed
+    if [ "$USE_LOCAL_MONGO" = true ] && [ "$USE_LOCAL_MQTT" = true ]; then
+        echo "Starting MongoDB and MQTT in Docker..."
+        docker compose --profile mongodb,mqtt up -d
+    elif [ "$USE_LOCAL_MONGO" = true ]; then
+        echo "Starting MongoDB in Docker..."
+        docker compose --profile mongodb up -d
+    elif [ "$USE_LOCAL_MQTT" = true ]; then
+        echo "Starting MQTT in Docker..."
+        docker compose --profile mqtt up -d
+    else
+        echo "Using remote services, no need to start Docker containers."
+    fi
 
-# Wait for local services to be healthy if any were started
-if [ "$USE_LOCAL_MONGO" = true ] || [ "$USE_LOCAL_MQTT" = true ]; then
-    echo "Waiting for Docker services to be healthy..."
-    # Initial delay to give services time to register
-    sleep 5
-    docker compose ps | grep "(healthy)" > /dev/null
-    while [ $? -ne 0 ]; do
-        echo "Waiting for services to become healthy..."
+    # Wait for local services to be healthy if any were started
+    if [ "$USE_LOCAL_MONGO" = true ] || [ "$USE_LOCAL_MQTT" = true ]; then
+        echo "Waiting for Docker services to be healthy..."
+        # Initial delay to give services time to register
         sleep 5
         docker compose ps | grep "(healthy)" > /dev/null
-    done
-    echo "Docker services are healthy."
+        while [ $? -ne 0 ]; do
+            echo "Waiting for services to become healthy..."
+            sleep 5
+            docker compose ps | grep "(healthy)" > /dev/null
+        done
+        echo "Docker services are healthy."
+    fi
+
+    echo "Starting MCP Todo Server locally..."
+
+    # Run the MCP Todo Server with the determined connection parameters
+    RUST_LOG=info \
+    AWSIP=$AWSIP \
+    AWSPORT=$AWSPORT \
+    AI_ENDPOINT=http://localhost:11434/api/generate \
+    AI_MODEL=qwen2.5-7b-instruct \
+    RTK_MONGO_URI=$MONGO_URI \
+    RTK_MONGO_DB=swarmonomicon \
+    MQTT_HOST=$MQTT_HOST \
+    MQTT_PORT=$MQTT_PORT \
+    ./target/release/mcp_todo_server
 fi
-
-echo "Starting MCP Todo Server..."
-
-# Run the MCP Todo Server with the determined connection parameters
-RUST_LOG=info \
-AWSIP=$AWSIP \
-AWSPORT=$AWSPORT \
-AI_ENDPOINT=http://localhost:11434/api/generate \
-AI_MODEL=qwen2.5-7b-instruct \
-RTK_MONGO_URI=$MONGO_URI \
-RTK_MONGO_DB=swarmonomicon \
-MQTT_HOST=$MQTT_HOST \
-MQTT_PORT=$MQTT_PORT \
-./target/release/mcp_todo_server
