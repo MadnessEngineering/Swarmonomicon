@@ -10,8 +10,8 @@ services:
     environment:
       - MONGO_INITDB_DATABASE=swarmonomicon
     healthcheck:
-      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
       timeout: 5s
       retries: 5
       start_period: 5s
@@ -34,7 +34,7 @@ services:
       - mosquitto_log:/mosquitto/log
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -p 1883 -t '$$SYS/#' -C 1 | grep -v Error || exit 1"]
-      interval: 10s
+      interval: 600s
       timeout: 5s
       retries: 5
       start_period: 5s
@@ -43,93 +43,6 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
-
-  # Main Swarmonomicon application
-  swarm:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: swarmonomicon/main:latest
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - RUST_LOG=info
-      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
-      - AI_MODEL=qwen2.5-7b-instruct
-      - RTK_MONGO_URI=mongodb://mongodb:27017
-      - RTK_MONGO_DB=swarmonomicon
-      - MQTT_HOST=mosquitto
-      - MQTT_PORT=1883
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '1'
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      mosquitto:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  # Todo Worker service
-  todo_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: swarmonomicon/todo_worker:latest
-    restart: unless-stopped
-    command: /app/todo_worker
-    environment:
-      - RUST_LOG=info
-      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
-      - AI_MODEL=qwen2.5-7b-instruct
-      - RTK_MONGO_URI=mongodb://mongodb:27017
-      - RTK_MONGO_DB=swarmonomicon
-      - MQTT_HOST=mosquitto
-      - MQTT_PORT=1883
-      - TODO_CHECK_INTERVAL_SECS=30
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      mosquitto:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  # MCP Todo Server service
-  mcp_todo_server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: swarmonomicon/mcp_todo_server:latest
-    restart: unless-stopped
-    command: /app/mcp_todo_server
-    environment:
-      - RUST_LOG=info
-      - AWSIP=mongodb
-      - AWSPORT=27017
-      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
-      - AI_MODEL=qwen2.5-7b-instruct
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      mosquitto:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 volumes:
   mongodb_data:
