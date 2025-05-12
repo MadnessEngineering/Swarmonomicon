@@ -146,7 +146,10 @@ Our Rust implementation aims to explore similar concepts of multi-agent systems,
 We provide Docker support for easy deployment on any platform:
 
 ```bash
-# On macOS/Linux:
+# Check if local Ollama is running and start services
+./run_services.sh
+
+# Alternatively, on macOS/Linux:
 ./docker-setup.sh
 
 # On Windows (using PowerShell):
@@ -157,7 +160,8 @@ This will start:
 - The Swarmonomicon API server on port 3000
 - MongoDB for data storage
 - Mosquitto MQTT broker for messaging
-- Ollama for AI model serving
+
+The system is configured to use your local Ollama instance (must be running at http://localhost:11434) via host.docker.internal. This allows you to maintain your models outside the Docker environment.
 
 For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
 

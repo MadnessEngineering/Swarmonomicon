@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MongoDB for task storage
   mongodb:
@@ -46,32 +44,6 @@ services:
           memory: 256M
           cpus: '0.5'
 
-  # Ollama for local AI processing
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-              driver: nvidia
-              count: all
-              device_ids: ["0"]
-        limits:
-          memory: 8G
-          cpus: '4'
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
   # Main Swarmonomicon application
   swarm:
     build:
@@ -83,7 +55,7 @@ services:
       - "3000:3000"
     environment:
       - RUST_LOG=info
-      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
       - AI_MODEL=qwen2.5-7b-instruct
       - RTK_MONGO_URI=mongodb://mongodb:27017
       - RTK_MONGO_DB=swarmonomicon
@@ -99,8 +71,8 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Todo Worker service
   todo_worker:
@@ -112,7 +84,7 @@ services:
     command: /app/todo_worker
     environment:
       - RUST_LOG=info
-      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
       - AI_MODEL=qwen2.5-7b-instruct
       - RTK_MONGO_URI=mongodb://mongodb:27017
       - RTK_MONGO_DB=swarmonomicon
@@ -129,8 +101,8 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # MCP Todo Server service
   mcp_todo_server:
@@ -144,7 +116,7 @@ services:
       - RUST_LOG=info
       - AWSIP=mongodb
       - AWSPORT=27017
-      - AI_ENDPOINT=http://ollama:11434/api/generate
+      - AI_ENDPOINT=http://host.docker.internal:11434/api/generate
       - AI_MODEL=qwen2.5-7b-instruct
     deploy:
       resources:
@@ -156,11 +128,10 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   mongodb_data:
   mosquitto_data:
   mosquitto_log:
-  ollama_models:

@@ -2,7 +2,7 @@
 # Multi-platform build for macOS and Windows
 
 # Build stage
-FROM rust:1.77-slim as builder
+FROM rust:1.77-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -79,12 +79,12 @@ CMD ["./swarm"]
 # These use the main Dockerfile as a base but add platform-specific optimizations
 
 # Create a macOS-specific Docker configuration
-FROM runtime as macos
+FROM debian:bookworm-slim AS macos
 # macOS-specific optimizations would go here
 # Note: Docker for Mac runs Linux containers, so this is more for organization
 
 # Create a Windows-specific Docker configuration
-FROM runtime as windows
+FROM debian:bookworm-slim AS windows
 # Windows-specific configurations would go here
 # Note: For true Windows containers, you would use a different base image
 
