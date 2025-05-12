@@ -26,7 +26,7 @@ const MAX_CONCURRENT_TASKS: usize = 1;
 // Maximum number of concurrent AI enhancements
 const MAX_CONCURRENT_AI: usize = 1;
 // Task metrics reporting interval
-const METRICS_REPORTING_INTERVAL: u64 = 30;
+const METRICS_REPORTING_INTERVAL: u64 = 300;
 
 // Simple metrics struct to track tasks
 struct TaskMetrics {
