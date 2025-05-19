@@ -26,14 +26,14 @@ COPY Cargo.toml Cargo.lock ./
 # Build dependencies only (this will be cached unless dependencies change)
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    cargo build --bin mcp_todo_server --release && \
+    cargo build --bin mqtt_intake --release && \
     rm -rf src
 
 # Copy the actual source code
 COPY . .
 
 # Build the application with optimizations
-RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3" cargo build --bin mcp_todo_server --release
+RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3" cargo build --bin mqtt_intake --release
 
 # Create runtime image
 FROM debian:bookworm-slim
@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy the binary from the builder
 WORKDIR /app
-COPY --from=builder /app/target/release/mcp_todo_server /app/mcp_todo_server
+COPY --from=builder /app/target/release/mqtt_intake /app/mqtt_intake
 
 # Set environment variables
 ENV RUST_LOG=info
@@ -68,7 +68,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD echo pass || exit 1
 
 # Command to run the application
-CMD ["./mcp_todo_server"]
+CMD ["./mqtt_intake"]
 
 # Additional Dockerfiles for specific platforms
 # These use the main Dockerfile as a base but add platform-specific optimizations
@@ -79,7 +79,7 @@ FROM debian:bookworm-slim AS macos
 # Note: Docker for Mac runs Linux containers, so this is more for organization
 
 # Create a Windows-specific Docker configuration
-FROM debian:bookworm-slim AS windows
+# FROM debian:bookworm-slim AS windows
 # Windows-specific configurations would go here
 # Note: For true Windows containers, you would use a different base image
 

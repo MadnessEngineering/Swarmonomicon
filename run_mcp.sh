@@ -138,5 +138,5 @@ else
     RTK_MONGO_DB=swarmonomicon \
     MQTT_HOST=$MQTT_HOST \
     MQTT_PORT=$MQTT_PORT \
-    ./target/release/mcp_todo_server
+    ./target/release/mqtt_intake
 fi
