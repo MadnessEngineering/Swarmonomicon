@@ -1,0 +1,38 @@
+FROM rust:slim-bullseye as builder
+
+WORKDIR /usr/src/swarmonomicon
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    cmake \
+    gcc \
+    g++ \
+    libc6-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy source to build dependencies
+RUN mkdir -p src && \
+    echo "fn main() {println!(\"Hello, world!\");}" > src/main.rs && \
+    echo "pub fn add(a: i32, b: i32) -> i32 { a + b }" > src/lib.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Copy the actual source code
+COPY . .
+
+# Build the binaries
+RUN cargo build --release
+
+# Copy the binaries to an output directory
+RUN mkdir -p /output && \
+    find /usr/src/swarmonomicon/target/release -maxdepth 1 -type f -executable \
+    -not -name "*.d" -not -name "*.rlib" -not -name "*.so" -not -name "*.dylib" \
+    -not -name "*.dll" -not -name "*.a" -not -name "build" \
+    -exec cp {} /output/ \; 

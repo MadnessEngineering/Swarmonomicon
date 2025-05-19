@@ -165,6 +165,16 @@ The system is configured to use your local Ollama instance (must be running at h
 
 For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
 
+### Cross-Compilation for EC2 Deployment
+We provide tools for cross-compiling the project on your local machine and deploying it to an EC2 instance:
+
+```bash
+# Build and deploy to EC2
+./build_and_deploy.sh
+```
+
+For detailed cross-compilation instructions, see [CROSS_COMPILATION.md](CROSS_COMPILATION.md).
+
 ### Configuration
 The system can be configured through environment variables:
 - `AI_ENDPOINT`: LLM API endpoint (default: http://127.0.0.1:1234)

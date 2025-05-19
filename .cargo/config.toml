@@ -1,0 +1,12 @@
+[build]
+# Set the default target to Linux on x86_64
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
