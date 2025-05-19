@@ -17,12 +17,21 @@ RUN apt-get update && apt-get install -y \
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Create dummy source to build dependencies
-RUN mkdir -p src && \
-    echo "fn main() {println!(\"Hello, world!\");}" > src/main.rs && \
-    echo "pub fn add(a: i32, b: i32) -> i32 { a + b }" > src/lib.rs && \
-    cargo build --release && \
-    rm -rf src
+# Create dummy source
+RUN mkdir -p src/bin
+RUN echo 'fn main() { println!("Hello, world!"); }' > src/main.rs
+RUN echo 'pub fn add(a: i32, b: i32) -> i32 { a + b }' > src/lib.rs
+RUN echo 'fn main() { println!("Swarm"); }' > src/bin/swarm.rs
+RUN echo 'fn main() { println!("Todo Worker"); }' > src/bin/todo_worker.rs
+RUN echo 'fn main() { println!("MCP Todo Server"); }' > src/bin/mcp_todo_server.rs
+RUN echo 'fn main() { println!("Test MCP Todo Publish"); }' > src/bin/test_mcp_todo_publish.rs
+RUN echo 'fn main() { println!("Train Flappy"); }' > src/bin/train_flappy.rs
+
+# Build dependencies
+RUN cargo build --release
+
+# Remove the dummy source
+RUN rm -rf src
 
 # Copy the actual source code
 COPY . .
