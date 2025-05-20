@@ -168,12 +168,17 @@ For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
 ### Cross-Compilation for EC2 Deployment
 We provide tools for cross-compiling the project on your local machine and deploying it to an EC2 instance:
 
-```bash
-# Build and deploy to EC2
-./build_and_deploy.sh
-```
+1. **Docker-based cross-compilation** (see [CROSS_COMPILATION.md](CROSS_COMPILATION.md))
+2. **WSL-based cross-compilation** (see [WSL_BUILD.md](WSL_BUILD.md)) - Recommended for Windows users or when EC2 instances have limited resources
 
-For detailed cross-compilation instructions, see [CROSS_COMPILATION.md](CROSS_COMPILATION.md).
+To build on Windows and deploy to EC2:
+```bash
+# Test your WSL environment
+./test_wsl.sh
+
+# Build directly in WSL and deploy (recommended)
+./build_direct_wsl.sh
+```
 
 ### Configuration
 The system can be configured through environment variables:
