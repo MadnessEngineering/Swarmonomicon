@@ -171,6 +171,7 @@ We provide tools for cross-compiling the project on your local machine and deplo
 1. **Docker-based cross-compilation** (see [CROSS_COMPILATION.md](CROSS_COMPILATION.md))
 2. **WSL-based cross-compilation** (see [WSL_BUILD.md](WSL_BUILD.md)) - For building on Mac and deploying via Windows
 3. **Direct Windows building** (see [WINDOWS_BUILD.md](WINDOWS_BUILD.md)) - For when you're already on Windows
+4. **Direct macOS building** (see [MACOS_TO_EC2.md](MACOS_TO_EC2.md)) - Cross-compile directly from macOS to Linux
 
 To build on Windows and deploy to EC2:
 ```bash
@@ -182,6 +183,9 @@ To build on Windows and deploy to EC2:
 # When building via Mac with access to Windows:
 ./test_wsl.sh
 ./build_direct_wsl.sh
+
+# Direct build from macOS to EC2:
+./build_macos_to_ec2.sh
 ```
 
 ### Configuration
