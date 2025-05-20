@@ -42,7 +42,7 @@ This script will:
 - Build a Docker image with the appropriate compilation environment
 - Compile all binaries in the project
 - Extract the compiled binaries
-- Transfer them to your EC2 instance at `~/swarmonomicon/`
+- Transfer them to your EC2 instance at `~/Swarmonomicon/`
 - Optionally restart the services on your EC2 instance
 
 ### How It Works

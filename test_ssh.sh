@@ -15,15 +15,15 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}SSH connection successful!${NC}"
     
     # Check if the swarmonomicon directory exists on the remote server
-    echo -e "${YELLOW}Checking for swarmonomicon directory on EC2...${NC}"
+    echo -e "${YELLOW}Checking for Swarmonomicon directory on EC2...${NC}"
     
-    ssh eaws "if [ -d ~/swarmonomicon ]; then echo 'exists'; else echo 'not_found'; fi" > /tmp/dir_check.txt
+    ssh eaws "if [ -d ~/Swarmonomicon ]; then echo 'exists'; else echo 'not_found'; fi" > /tmp/dir_check.txt
     
     if grep -q "exists" /tmp/dir_check.txt; then
-        echo -e "${GREEN}Found swarmonomicon directory on EC2.${NC}"
+        echo -e "${GREEN}Found Swarmonomicon directory on EC2.${NC}"
     else
-        echo -e "${YELLOW}Creating swarmonomicon directory on EC2...${NC}"
-        ssh eaws "mkdir -p ~/swarmonomicon"
+        echo -e "${YELLOW}Creating Swarmonomicon directory on EC2...${NC}"
+        ssh eaws "mkdir -p ~/Swarmonomicon"
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}Directory created successfully.${NC}"
