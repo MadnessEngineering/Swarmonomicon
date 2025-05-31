@@ -4,6 +4,3 @@
 [submodule "examples_to_delete/balena-cl-interactive"]
 	path = projects/rust/balena-cl-interactive
 	url = https://github.com/DanEdens/balena-cl-interactive.git
-[submodule "Omnispindle"]
-	path = Omnispindle
-	url = https://github.com/DanEdens/Omnispindle.git
