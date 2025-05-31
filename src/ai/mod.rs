@@ -52,12 +52,13 @@ Output ONLY the enhanced description, no other text."#;
 
     // Predict task priority
     let priority_prompt = r#"You are a task priority classifier. Analyze the task and determine its priority level.
-Output ONLY one of these priority levels, with no other text: "inital", "high", "medium", or "low".
+Output ONLY one of these priority levels, with no other text: "inital", "low", "medium", "high", or "critical".
 Use these guidelines:
 - Inital: Tasks that are new and not yet able to be compared to other tasks
-- High: Important tasks that significantly impact functionality or performance
+- Low: Nice to have features, documentation, or cosmetic issues
 - Medium: Standard development work or minor improvements
-- Low: Nice to have features, documentation, or cosmetic issues"#;
+- High: Important tasks that significantly impact functionality or performance
+- Critical: Tasks that are urgent and impact system functionality or security"#;
 
     let priority_messages = vec![HashMap::from([
         ("role".to_string(), "user".to_string()),
@@ -67,9 +68,10 @@ Use these guidelines:
     let priority_response = ai_client.chat(priority_prompt, priority_messages).await?;
     let priority = match priority_response.trim().to_lowercase().as_str() {
         "inital" => TaskPriority::Inital,
-        "high" => TaskPriority::High,
-        "medium" => TaskPriority::Medium,
         "low" => TaskPriority::Low,
+        "medium" => TaskPriority::Medium,
+        "high" => TaskPriority::High,
+        "critical" => TaskPriority::Critical,
         _ => TaskPriority::Medium, // Default to Medium for any unexpected response
     };
 

@@ -35,6 +35,8 @@ pub struct TodoTask {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskPriority {
+    #[serde(rename = "Inital")]
+    Inital,
     #[serde(rename = "Low")]
     Low,
     #[serde(rename = "Medium")]

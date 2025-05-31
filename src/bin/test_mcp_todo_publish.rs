@@ -64,9 +64,11 @@ enum Commands {
 
 fn parse_priority(priority_str: &str) -> TaskPriority {
     match priority_str.to_lowercase().as_str() {
-        "critical" => TaskPriority::Critical,
-        "high" => TaskPriority::High,
+        "inital" => TaskPriority::Inital,
         "low" => TaskPriority::Low,
+        "medium" => TaskPriority::Medium,
+        "high" => TaskPriority::High,
+        "critical" => TaskPriority::Critical,
         _ => TaskPriority::Medium,
     }
 }

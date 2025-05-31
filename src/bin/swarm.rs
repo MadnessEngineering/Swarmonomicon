@@ -126,6 +126,11 @@ async fn handle_git_command(
         status: TaskStatus::Pending,
         created_at: Utc::now().timestamp(),
         completed_at: None,
+        due_date: None,
+        duration_minutes: None,
+        notes: None,
+        ticket: None,
+        last_modified: Some(Utc::now().timestamp()),
     };
     let agent = reg.get("git").ok_or_else(|| anyhow!("Git agent not found"))?;
     agent.process_task(task).await.map_err(|e| anyhow!(e))?;
@@ -148,6 +153,11 @@ async fn handle_init_command(
         status: TaskStatus::Pending,
         created_at: Utc::now().timestamp(),
         completed_at: None,
+        due_date: None,
+        duration_minutes: None,
+        notes: None,
+        ticket: None,
+        last_modified: Some(Utc::now().timestamp()),
     };
     let agent = reg.get("greeter").ok_or_else(|| anyhow!("Greeter agent not found"))?;
     agent.process_task(task).await.map_err(|e| anyhow!(e))?;
@@ -171,6 +181,11 @@ async fn handle_message(
         status: TaskStatus::Pending,
         created_at: Utc::now().timestamp(),
         completed_at: None,
+        due_date: None,
+        duration_minutes: None,
+        notes: None,
+        ticket: None,
+        last_modified: Some(Utc::now().timestamp()),
     };
     agent.process_task(task).await.map_err(|e| anyhow!(e))?;
     Ok(())

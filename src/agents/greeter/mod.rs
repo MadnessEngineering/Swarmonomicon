@@ -230,6 +230,11 @@ mod tests {
             status: crate::types::TaskStatus::Pending,
             created_at: chrono::Utc::now().timestamp(),
             completed_at: None,
+            due_date: None,
+            duration_minutes: None,
+            notes: None,
+            ticket: None,
+            last_modified: Some(chrono::Utc::now().timestamp()),
         };
 
         // Add task to todo list

@@ -93,6 +93,10 @@ name = "test_mcp_todo_publish"
 path = "src/bin/test_mcp_todo_publish.rs"
 
 [[bin]]
+name = "mqtt_intake"
+path = "src/bin/mqtt_intake.rs"
+
+[[bin]]
 name = "train_flappy"
 path = "src/bin/train_flappy.rs"
 required-features = ["rl"]

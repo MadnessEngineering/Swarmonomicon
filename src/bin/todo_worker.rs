@@ -38,10 +38,11 @@ struct Metrics {
     tasks_succeeded: AtomicU64,
     tasks_failed: AtomicU64,
     tasks_timeout: AtomicU64,
-    critical_tasks_processed: AtomicU64,
-    high_tasks_processed: AtomicU64,
-    medium_tasks_processed: AtomicU64,
+    inital_tasks_processed: AtomicU64,
     low_tasks_processed: AtomicU64,
+    medium_tasks_processed: AtomicU64,
+    high_tasks_processed: AtomicU64,
+    critical_tasks_processed: AtomicU64,
     start_time: Instant,
     last_report_time: Mutex<Instant>,
 }
@@ -54,10 +55,11 @@ impl Metrics {
             tasks_succeeded: AtomicU64::new(0),
             tasks_failed: AtomicU64::new(0),
             tasks_timeout: AtomicU64::new(0),
-            critical_tasks_processed: AtomicU64::new(0),
-            high_tasks_processed: AtomicU64::new(0),
-            medium_tasks_processed: AtomicU64::new(0),
+            inital_tasks_processed: AtomicU64::new(0),
             low_tasks_processed: AtomicU64::new(0),
+            medium_tasks_processed: AtomicU64::new(0),
+            high_tasks_processed: AtomicU64::new(0),
+            critical_tasks_processed: AtomicU64::new(0),
             start_time: now,
             last_report_time: Mutex::new(now),
         }
@@ -81,10 +83,11 @@ impl Metrics {
 
     fn increment_priority_counter(&self, priority: &TaskPriority) {
         match priority {
-            TaskPriority::Critical => self.critical_tasks_processed.fetch_add(1, Ordering::Relaxed),
-            TaskPriority::High => self.high_tasks_processed.fetch_add(1, Ordering::Relaxed),
-            TaskPriority::Medium => self.medium_tasks_processed.fetch_add(1, Ordering::Relaxed),
+            TaskPriority::Inital => self.inital_tasks_processed.fetch_add(1, Ordering::Relaxed),
             TaskPriority::Low => self.low_tasks_processed.fetch_add(1, Ordering::Relaxed),
+            TaskPriority::Medium => self.medium_tasks_processed.fetch_add(1, Ordering::Relaxed),
+            TaskPriority::High => self.high_tasks_processed.fetch_add(1, Ordering::Relaxed),
+            TaskPriority::Critical => self.critical_tasks_processed.fetch_add(1, Ordering::Relaxed),
         };
     }
 
@@ -123,10 +126,11 @@ impl Metrics {
             "tasks_timeout": tasks_timeout,
             "success_rate": success_rate,
             "uptime_seconds": uptime.as_secs(),
-            "critical_tasks_processed": self.critical_tasks_processed.load(Ordering::Relaxed),
-            "high_tasks_processed": self.high_tasks_processed.load(Ordering::Relaxed),
-            "medium_tasks_processed": self.medium_tasks_processed.load(Ordering::Relaxed),
+            "inital_tasks_processed": self.inital_tasks_processed.load(Ordering::Relaxed),
             "low_tasks_processed": self.low_tasks_processed.load(Ordering::Relaxed),
+            "medium_tasks_processed": self.medium_tasks_processed.load(Ordering::Relaxed),
+            "high_tasks_processed": self.high_tasks_processed.load(Ordering::Relaxed),
+            "critical_tasks_processed": self.critical_tasks_processed.load(Ordering::Relaxed),
             "healthy": self.is_healthy(),
             "timestamp": chrono::Utc::now().to_rfc3339()
         })
@@ -561,6 +565,7 @@ async fn process_agent_message(
     
     // Get priority level as a string for logging
     let priority_str = match &task.priority {
+        TaskPriority::Inital => "inital",
         TaskPriority::Low => "low",
         TaskPriority::Medium => "medium",
         TaskPriority::High => "high",
@@ -837,11 +842,13 @@ mod tests {
         assert_eq!(metrics.tasks_timeout.load(Ordering::Relaxed), 1);
         
         // Test priority counters
+        metrics.increment_priority_counter(&TaskPriority::Inital);
         metrics.increment_priority_counter(&TaskPriority::Low);
         metrics.increment_priority_counter(&TaskPriority::Medium);
         metrics.increment_priority_counter(&TaskPriority::High);
         metrics.increment_priority_counter(&TaskPriority::Critical);
         
+        assert_eq!(metrics.inital_tasks_processed.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.low_tasks_processed.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.medium_tasks_processed.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.high_tasks_processed.load(Ordering::Relaxed), 1);
