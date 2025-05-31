@@ -26,21 +26,36 @@ pub struct TodoTask {
     pub status: TaskStatus,
     pub created_at: i64,
     pub completed_at: Option<i64>,
+    pub due_date: Option<String>,
+    pub duration_minutes: Option<i32>,
+    pub notes: Option<String>,
+    pub ticket: Option<String>,
+    pub last_modified: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskPriority {
+    #[serde(rename = "Low")]
     Low,
+    #[serde(rename = "Medium")]
     Medium,
+    #[serde(rename = "High")]
     High,
+    #[serde(rename = "Critical")]
     Critical,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TaskStatus {
+    #[serde(rename = "initial")]
+    Initial,
+    #[serde(rename = "pending")]
     Pending,
-    InProgress,
+    #[serde(rename = "review")]
+    Review,
+    #[serde(rename = "completed")]
     Completed,
+    #[serde(rename = "failed")]
     Failed,
 }
 
@@ -95,8 +110,9 @@ impl TodoList {
         };
         let update = doc! {
             "$set": {
-                "status": "Completed",
-                "completed_at": DateTime::now()
+                "status": "completed",
+                "completed_at": DateTime::now(),
+                "last_modified": Utc::now().timestamp()
             }
         };
         self.collection.update_one(filter, update, None).await?;
@@ -109,7 +125,8 @@ impl TodoList {
         };
         let update = doc! {
             "$set": {
-                "status": "Failed"
+                "status": "failed",
+                "last_modified": Utc::now().timestamp()
             }
         };
         self.collection.update_one(filter, update, None).await?;
@@ -160,6 +177,11 @@ impl TodoList {
             status: TaskStatus::Pending,
             created_at: Utc::now().timestamp(),
             completed_at: None,
+            due_date: None,
+            duration_minutes: None,
+            notes: None,
+            ticket: None,
+            last_modified: Some(Utc::now().timestamp()),
         };
 
         // Only attempt AI enhancement if a client is provided

@@ -17,11 +17,37 @@ use serde_json::Value;
 use uuid::Uuid;
 use regex::Regex;
 use crate::ai::{AiProvider, DefaultAiClient, LocalAiClient};
+use serde::{Serialize, Deserialize};
 // use langgraph::{Graph, Node};
+
+// Logging structures to align with Omnispindle schema
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ChangeEntry {
+    field: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_value: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_value: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    operation: String,
+    #[serde(rename = "todoId")]
+    todo_id: String,
+    description: String,
+    project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    changes: Option<Vec<ChangeEntry>>,
+    #[serde(rename = "userAgent")]
+    user_agent: String,
+}
 
 #[derive(Clone)]
 pub struct TodoTool {
     collection: Arc<Collection<TodoTask>>,
+    logs_collection: Arc<Collection<LogEntry>>,
     ai_client: Arc<Box<dyn AiProvider + Send + Sync>>,
 }
 
@@ -36,8 +62,9 @@ impl TodoTool {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
-        // Create a unique index on the description field
+        // Create a unique index on the description field for todos
         let index = IndexModel::builder()
             .keys(doc! { "description": 1 })
             .options(Some(IndexOptions::builder().unique(true).build()))
@@ -46,8 +73,28 @@ impl TodoTool {
             .await
             .map_err(|e| anyhow!("Failed to create index: {}", e))?;
 
+        // Create indexes for the logs collection
+        let timestamp_index = IndexModel::builder()
+            .keys(doc! { "timestamp": -1 })
+            .build();
+        let operation_index = IndexModel::builder()
+            .keys(doc! { "operation": 1 })
+            .build();
+        let todo_id_index = IndexModel::builder()
+            .keys(doc! { "todoId": 1 })
+            .build();
+        let project_index = IndexModel::builder()
+            .keys(doc! { "project": 1 })
+            .build();
+
+        logs_collection.create_index(timestamp_index, None).await.ok();
+        logs_collection.create_index(operation_index, None).await.ok();
+        logs_collection.create_index(todo_id_index, None).await.ok();
+        logs_collection.create_index(project_index, None).await.ok();
+
         Ok(Self {
             collection,
+            logs_collection,
             ai_client: Arc::new(Box::new(DefaultAiClient::new())),
         })
     }
@@ -56,6 +103,18 @@ impl TodoTool {
         self.ai_client = Arc::new(Box::new(client));
         self
     }
+
+    // Normalize project name to align with Omnispindle validation logic
+    fn normalize_project_name(project: &str) -> String {
+        project
+            .trim()
+            .to_lowercase()
+            .replace(' ', "_")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect()
+    }
+
     // The enhance_with_ai method is quite long and could be split into smaller functions:
     // async fn get_ai_enhancement(&self, description: &str) -> Result<String> {
     //     // ... first AI call logic ...
@@ -108,6 +167,7 @@ impl TodoTool {
 
         // Use the provided project if available, otherwise use the predicted one
         let final_project = project.map(|p| p.to_string()).unwrap_or(predicted_project);
+        let normalized_project = Self::normalize_project_name(&final_project);
 
         tracing::debug!("Creating new TodoTask with description: {}", enhanced_description);
         let new_todo = TodoTask {
@@ -115,18 +175,36 @@ impl TodoTool {
             description: description.to_string(),
             enhanced_description: Some(enhanced_description.clone()),
             priority: priority.clone(),
-            project: Some(final_project),
-            source_agent: Some("mcp_server".to_string()),
+            project: Some(normalized_project.clone()),
+            source_agent: Some("swarmonomicon_agent".to_string()),
             target_agent: target_agent.to_string(),
             status: TaskStatus::Pending,
             created_at: now.timestamp(),
             completed_at: None,
+            due_date: None,
+            duration_minutes: None,
+            notes: context.map(|s| s.to_string()),
+            ticket: None,
+            last_modified: Some(now.timestamp()),
         };
 
         tracing::debug!("Attempting to insert todo into database");
         match self.collection.insert_one(new_todo.clone(), None).await {
             Ok(_) => {
                 tracing::info!("Successfully inserted todo into database: {}", enhanced_description);
+                
+                // Log the todo creation
+                if let Err(e) = self.log_todo_action(
+                    "create",
+                    &new_todo.id,
+                    description,
+                    &normalized_project,
+                    None,
+                    "swarmonomicon_agent"
+                ).await {
+                    tracing::warn!("Failed to log todo creation: {}", e);
+                }
+                
                 Ok(format!("Added new todo: {}", description))
             },
             Err(e) => {
@@ -139,21 +217,39 @@ impl TodoTool {
 
                     tracing::debug!("Attempting to insert with unique ID: {}", unique_id);
                     let fallback_todo = TodoTask {
-                        id: unique_id,
+                        id: unique_id.clone(),
                         description: new_todo.description,
                         enhanced_description: new_todo.enhanced_description,
                         priority: new_todo.priority,
-                        project: new_todo.project,
+                        project: new_todo.project.clone(),
                         source_agent: new_todo.source_agent,
                         target_agent: new_todo.target_agent,
                         status: new_todo.status,
                         created_at: new_todo.created_at,
                         completed_at: new_todo.completed_at,
+                        due_date: new_todo.due_date,
+                        duration_minutes: new_todo.duration_minutes,
+                        notes: new_todo.notes,
+                        ticket: new_todo.ticket,
+                        last_modified: new_todo.last_modified,
                     };
 
                     match self.collection.insert_one(fallback_todo.clone(), None).await {
                         Ok(_) => {
                             tracing::info!("Successfully inserted todo with unique ID into database: {}", enhanced_description);
+                            
+                            // Log the todo creation with unique ID
+                            if let Err(e) = self.log_todo_action(
+                                "create",
+                                &unique_id,
+                                description,
+                                &normalized_project,
+                                None,
+                                "swarmonomicon_agent"
+                            ).await {
+                                tracing::warn!("Failed to log todo creation: {}", e);
+                            }
+                            
                             Ok(format!("Added new todo: {}", description))
                         },
                         Err(e) => {
@@ -195,27 +291,110 @@ impl TodoTool {
 
     async fn update_todo_status(&self, description: &str, status: TaskStatus) -> Result<String> {
         let now = Utc::now();
+        
+        // First, get the original todo to track changes
+        let original_todo = self.collection
+            .find_one(doc! { "description": description }, None)
+            .await
+            .map_err(|e| anyhow!("Failed to find todo: {}", e))?;
+            
+        let original_todo = match original_todo {
+            Some(todo) => todo,
+            None => return Err(anyhow!("Todo with description '{}' not found", description)),
+        };
+
         let status_bson = to_bson(&status)
             .map_err(|e| anyhow!("Failed to convert status to BSON: {}", e))?;
 
+        // Prepare the update document
+        let mut update_doc = doc! {
+            "status": status_bson,
+            "last_modified": now.timestamp()
+        };
+
+        // If marking as completed, also set completed_at and calculate duration
+        if status == TaskStatus::Completed {
+            update_doc.insert("completed_at", now.timestamp());
+        }
+
         let update_result = self.collection.update_one(
             doc! { "description": description },
-            doc! {
-                "$set": {
-                    "status": status_bson,
-                    "updated_at": now.timestamp()
-                }
-            },
+            doc! { "$set": update_doc },
             None,
         )
         .await
         .map_err(|e| anyhow!("Failed to update todo: {}", e))?;
 
         if update_result.modified_count == 1 {
+            // Create changes array for logging
+            let mut changes = Vec::new();
+            
+            // Track status change
+            if original_todo.status != status {
+                changes.push(ChangeEntry {
+                    field: "status".to_string(),
+                    old_value: Some(serde_json::to_value(&original_todo.status).unwrap_or(serde_json::Value::Null)),
+                    new_value: Some(serde_json::to_value(&status).unwrap_or(serde_json::Value::Null)),
+                });
+            }
+            
+            // Track completed_at change if applicable
+            if status == TaskStatus::Completed && original_todo.completed_at.is_none() {
+                changes.push(ChangeEntry {
+                    field: "completed_at".to_string(),
+                    old_value: None,
+                    new_value: Some(serde_json::to_value(now.timestamp()).unwrap_or(serde_json::Value::Null)),
+                });
+            }
+
+            // Determine operation type and log
+            let operation = if status == TaskStatus::Completed { "complete" } else { "update" };
+            let project = original_todo.project.as_deref().unwrap_or("unknown");
+            
+            if let Err(e) = self.log_todo_action(
+                operation,
+                &original_todo.id,
+                &original_todo.description,
+                project,
+                if changes.is_empty() { None } else { Some(changes) },
+                "swarmonomicon_agent"
+            ).await {
+                tracing::warn!("Failed to log todo status update: {}", e);
+            }
+            
             Ok(format!("Updated todo status to {:?}", status))
         } else {
             Err(anyhow!("Todo with description '{}' not found", description))
         }
+    }
+
+    // Log todo action to align with Omnispindle logging schema
+    async fn log_todo_action(
+        &self,
+        operation: &str,
+        todo_id: &str,
+        description: &str,
+        project: &str,
+        changes: Option<Vec<ChangeEntry>>,
+        user_agent: &str,
+    ) -> Result<()> {
+        let log_entry = LogEntry {
+            timestamp: chrono::Utc::now(),
+            operation: operation.to_string(),
+            todo_id: todo_id.to_string(),
+            description: description.to_string(),
+            project: project.to_lowercase(), // Normalize project name
+            changes,
+            user_agent: user_agent.to_string(),
+        };
+
+        self.logs_collection
+            .insert_one(log_entry, None)
+            .await
+            .map_err(|e| anyhow!("Failed to log todo action: {}", e))?;
+
+        tracing::debug!("Logged {} operation for todo {}", operation, todo_id);
+        Ok(())
     }
 }
 
@@ -270,10 +449,12 @@ mod tests {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
         let ai_client = DefaultAiClient::new();
         let tool = TodoTool {
             collection,
+            logs_collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
 
@@ -306,11 +487,13 @@ mod tests {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
         // Create tool with qwen2.5 model
         let ai_client = DefaultAiClient::new();
         let tool = TodoTool {
             collection,
+            logs_collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
 
@@ -391,10 +574,12 @@ mod tests {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
         let ai_client = DefaultAiClient::new();
         let tool = TodoTool {
             collection: collection.clone(),
+            logs_collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
 
@@ -415,21 +600,21 @@ mod tests {
         let todo = result.expect("Todo should exist");
         assert_eq!(todo.project, Some("test_project".to_string()));
 
-        // Test adding a todo without project
+        // Test adding a todo without project - it should get AI-predicted project
         let mut params = HashMap::new();
         params.insert("command".to_string(), "add".to_string());
         params.insert("description".to_string(), "No project todo".to_string());
 
         let _ = tool.execute(params).await?;
 
-        // Find the todo and verify the project field is None
+        // Find the todo and verify the project field has some value (AI-predicted)
         let result = collection.find_one(
             doc! { "description": "No project todo" },
             None
         ).await?;
 
         let todo = result.expect("Todo should exist");
-        assert_eq!(todo.project, None);
+        assert!(todo.project.is_some(), "Project should be populated by AI prediction");
 
         // Cleanup
         drop(tool);
@@ -444,10 +629,12 @@ mod tests {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
         let ai_client = DefaultAiClient::new();
         let tool = TodoTool {
             collection,
+            logs_collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
 
@@ -505,10 +692,12 @@ mod tests {
             .map_err(|e| anyhow!("Failed to connect to MongoDB: {}", e))?;
         let db = client.database("swarmonomicon_test");
         let collection = Arc::new(db.collection::<TodoTask>("todos"));
+        let logs_collection = Arc::new(db.collection::<LogEntry>("todo_logs"));
 
         let ai_client = DefaultAiClient::new();
         let tool = TodoTool {
             collection: collection.clone(),
+            logs_collection,
             ai_client: Arc::new(Box::new(ai_client) as Box<dyn AiProvider + Send + Sync>),
         };
 
