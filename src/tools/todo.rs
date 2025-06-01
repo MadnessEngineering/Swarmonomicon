@@ -133,16 +133,16 @@ impl TodoTool {
 
     async fn predict_project(&self, description: &str) -> Result<String> {
         let (_, _, project) = crate::ai::enhance_todo_description(
-            description, 
+            description,
             self.ai_client.as_ref().as_ref()
         ).await?;
-        
+
         Ok(project)
     }
 
     async fn enhance_with_ai(&self, description: &str) -> Result<(String, TaskPriority, String)> {
         tracing::debug!("Enhancing todo description with AI: {}", description);
-        
+
         // Use the shared enhancement function
         crate::ai::enhance_todo_description(description, self.ai_client.as_ref().as_ref()).await
     }
@@ -192,7 +192,7 @@ impl TodoTool {
         match self.collection.insert_one(new_todo.clone(), None).await {
             Ok(_) => {
                 tracing::info!("Successfully inserted todo into database: {}", enhanced_description);
-                
+
                 // Log the todo creation
                 if let Err(e) = self.log_todo_action(
                     "create",
@@ -204,7 +204,7 @@ impl TodoTool {
                 ).await {
                     tracing::warn!("Failed to log todo creation: {}", e);
                 }
-                
+
                 Ok(format!("Added new todo: {}", description))
             },
             Err(e) => {
@@ -237,7 +237,7 @@ impl TodoTool {
                     match self.collection.insert_one(fallback_todo.clone(), None).await {
                         Ok(_) => {
                             tracing::info!("Successfully inserted todo with unique ID into database: {}", enhanced_description);
-                            
+
                             // Log the todo creation with unique ID
                             if let Err(e) = self.log_todo_action(
                                 "create",
@@ -249,7 +249,7 @@ impl TodoTool {
                             ).await {
                                 tracing::warn!("Failed to log todo creation: {}", e);
                             }
-                            
+
                             Ok(format!("Added new todo: {}", description))
                         },
                         Err(e) => {
@@ -291,13 +291,13 @@ impl TodoTool {
 
     async fn update_todo_status(&self, description: &str, status: TaskStatus) -> Result<String> {
         let now = Utc::now();
-        
+
         // First, get the original todo to track changes
         let original_todo = self.collection
             .find_one(doc! { "description": description }, None)
             .await
             .map_err(|e| anyhow!("Failed to find todo: {}", e))?;
-            
+
         let original_todo = match original_todo {
             Some(todo) => todo,
             None => return Err(anyhow!("Todo with description '{}' not found", description)),
@@ -328,7 +328,7 @@ impl TodoTool {
         if update_result.modified_count == 1 {
             // Create changes array for logging
             let mut changes = Vec::new();
-            
+
             // Track status change
             if original_todo.status != status {
                 changes.push(ChangeEntry {
@@ -337,7 +337,7 @@ impl TodoTool {
                     new_value: Some(serde_json::to_value(&status).unwrap_or(serde_json::Value::Null)),
                 });
             }
-            
+
             // Track completed_at change if applicable
             if status == TaskStatus::Completed && original_todo.completed_at.is_none() {
                 changes.push(ChangeEntry {
@@ -350,7 +350,7 @@ impl TodoTool {
             // Determine operation type and log
             let operation = if status == TaskStatus::Completed { "complete" } else { "update" };
             let project = original_todo.project.as_deref().unwrap_or("unknown");
-            
+
             if let Err(e) = self.log_todo_action(
                 operation,
                 &original_todo.id,
@@ -361,7 +361,7 @@ impl TodoTool {
             ).await {
                 tracing::warn!("Failed to log todo status update: {}", e);
             }
-            
+
             Ok(format!("Updated todo status to {:?}", status))
         } else {
             Err(anyhow!("Todo with description '{}' not found", description))
@@ -641,7 +641,7 @@ mod tests {
         // Test project prediction with specific projects
         let test_cases = vec![
             (
-                "Update the README for Swarmonomicon with new API documentation", 
+                "Update the README for Swarmonomicon with new API documentation",
                 "Swarmonomicon", // Expected project
             ),
             (
@@ -656,26 +656,26 @@ mod tests {
 
         for (description, expected_project) in test_cases {
             let project = tool.predict_project(description).await?;
-            
+
             println!("\nTask description: {}", description);
             println!("Predicted project: {}", project);
-            
+
             // Check if the predicted project is either the expected one or another relevant project
             // This is to account for AI variance in predictions
             if project != expected_project {
                 println!("Note: Expected '{}' but got '{}' - AI predictions may vary", expected_project, project);
             }
-            
+
             // Just verify that we got a non-empty project name
             assert!(!project.is_empty(), "Project name should not be empty");
         }
-        
+
         // Test with a vague description that should default to madness_interactive
         let vague_description = "Fix a bug that was reported yesterday";
         let project = tool.predict_project(vague_description).await?;
         println!("\nVague description: {}", vague_description);
         println!("Predicted project: {}", project);
-        
+
         // Just verify we got a valid project name
         assert!(!project.is_empty(), "Project name should not be empty");
 
@@ -710,14 +710,14 @@ mod tests {
             doc! { "description": description },
             None
         ).await?;
-        
+
         let todo = result.expect("Todo should exist");
-        
+
         // Just verify it has a project, we don't enforce which one due to AI variance
         assert!(todo.project.is_some(), "Todo should have a project assigned");
         println!("Project assigned by AI: {:?}", todo.project);
-        
-        // Clean up 
+
+        // Clean up
         drop(tool);
         Ok(())
     }
@@ -727,7 +727,7 @@ mod tests {
 // pub struct TodoWorkflow {
 //     graph: Graph,
 // }
-// 
+//
 // impl TodoWorkflow {
 //     pub fn new() -> Self {
 //         let graph = Graph::new()
@@ -740,7 +740,7 @@ mod tests {
 //             .connect("enhance_description", "predict_project")
 //             .connect("predict_project", "determine_priority")
 //             .connect("determine_priority", "store_task");
-// 
+//
 //         Self { graph }
 //     }
 // }
