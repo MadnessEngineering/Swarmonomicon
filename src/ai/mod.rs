@@ -92,6 +92,7 @@ Your output should be ONLY the project name, nothing else. Options are:
 "hammerghost - MacOS automation menu in hammerspoon based on eventghost",  
 "quality_assurance - Quality assurance tasks",
 "spindlewrit - Writing and documentation project",
+"node_red_contrib_file_template - Node-red contrib for file manangement replacement of the HTML template node",
 "inventorium - Madnessinteractice.cc website and Todo Dashboard - React",
 
 If you're unsure, default to "madness_interactive"."#;
