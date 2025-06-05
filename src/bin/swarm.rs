@@ -63,7 +63,7 @@ enum Commands {
 
 async fn initialize_registry() -> Result<AgentRegistry> {
     let mut reg = agents::AgentRegistry::new();
-    
+
     let git_assistant = GitAssistantAgent::new(AgentConfig {
         name: "git".to_string(),
         public_description: "Git operations assistant".to_string(),
@@ -195,10 +195,10 @@ async fn interactive_mode(reg: &mut AgentRegistry) -> Result<()> {
     println!("Enter your message (or 'quit' to exit):");
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    
+
     while input.trim() != "quit" {
         handle_message(reg, input.trim().to_string()).await?;
-        
+
         println!("Enter your message (or 'quit' to exit):");
         input.clear();
         std::io::stdin().read_line(&mut input)?;
@@ -221,7 +221,7 @@ async fn main() -> Result<()> {
                 handle_git_command(&mut reg, git_message, branch_name, target_branch).await?;
             }
             Commands::Init { project_type, name, description } => {
-                let init_message = format!("Create {} project '{}' with description: {}", 
+                let init_message = format!("Create {} project '{}' with description: {}",
                     project_type, name, description);
                 handle_init_command(&mut reg, init_message).await?;
             }
@@ -291,7 +291,7 @@ mod tests {
                 downstream_agents: vec!["git".to_string()],
                 personality: None,
                 state_machine: None,
-            }).await?;
+            }).await.map_err(|e| anyhow!(e))?;
 
             registry.register("haiku".to_string(), Box::new(haiku_agent)).await?;
             #[cfg(feature = "project-agent")]

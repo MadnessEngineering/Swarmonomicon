@@ -100,7 +100,7 @@ pub async fn create_agent(config: AgentConfig) -> Result<Box<dyn Agent + Send + 
     match config.name.as_str() {
         #[cfg(feature = "project-agent")]
         "project" => {
-            let agent = ProjectAgent::new(config).await?;
+            let agent = ProjectAgent::new(config).await.map_err(|e| anyhow!("{}", e))?;
             Ok(Box::new(agent))
         }
         #[cfg(feature = "git-agent")]

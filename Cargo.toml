@@ -8,11 +8,12 @@ description = "Madness Interactive - Agent Swarm and Eventbase"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["greeter-agent", "haiku-agent", "git-agent"]
+default = ["greeter-agent", "haiku-agent", "git-agent", "project-agent"]
 rl = ["rand", "pixels", "winit", "winit_input_helper", "plotters"]
 greeter-agent = []
 haiku-agent = []
 git-agent = ["rand"]
+project-agent = []
 browser-agent = ["browser-agent-deps"]
 
 # Dependencies required by browser-agent
@@ -95,6 +96,10 @@ path = "src/bin/test_mcp_todo_publish.rs"
 [[bin]]
 name = "mqtt_intake"
 path = "src/bin/mqtt_intake.rs"
+
+[[bin]]
+name = "project_worker"
+path = "src/bin/project_worker.rs"
 
 [[bin]]
 name = "train_flappy"
