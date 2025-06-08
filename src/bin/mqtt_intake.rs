@@ -1,8 +1,7 @@
 use std::time::Duration;
 use std::collections::HashMap;
 use swarmonomicon::types::{TodoTask, TaskPriority, TaskStatus};
-use swarmonomicon::tools::todo::TodoTool;
-use swarmonomicon::tools::ToolExecutor;
+use swarmonomicon::tools::{TodoTool, ToolExecutor};
 use rumqttc::{MqttOptions, AsyncClient, QoS, Event};
 use serde::{Deserialize, Serialize};
 use tokio::{task, time, sync::Semaphore};
@@ -117,7 +116,7 @@ async fn main() -> Result<()> {
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
-    // Initialize TodoTool
+    // Initialize TodoTool - now using MCP server HTTP calls internally
     let todo_tool = Arc::new(TodoTool::new().await.map_err(|e| anyhow!("Failed to initialize TodoTool: {}", e))?);
 
     // Create semaphores for rate limiting
@@ -154,10 +153,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    // // Also subscribe to control topic
-    // client.subscribe("mcp_server/control", QoS::ExactlyOnce).await
-    //     .map_err(|e| anyhow!("Failed to subscribe to control topic: {}", e))?;
 
     tracing::info!("MCP Todo Server started. Listening for new tasks...");
 
@@ -277,11 +272,11 @@ async fn main() -> Result<()> {
                                 tracing::debug!("Task count: {}", task_count);
 
                                 // Clone necessary Arc's for the task
-                                let todo_tool = todo_tool.clone();
                                 let task_semaphore = task_semaphore.clone();
                                 let ai_semaphore = ai_semaphore.clone();
                                 let metrics = metrics.clone();
                                 let client = client.clone();
+                                let todo_tool = todo_tool.clone();
 
                                 // Spawn a new task to handle this request
                                 tokio::spawn(async move {
@@ -298,7 +293,7 @@ async fn main() -> Result<()> {
                                     // Try to parse as McpTodoRequest, if fails treat as plain text
                                     let description = match serde_json::from_str::<McpTodoRequest>(&payload) {
                                         Ok(request) => request.description,
-                                        Err(_) => payload,
+                                        Err(_) => payload, // Default priority for plain text
                                     };
 
                                     let target_agent = topic.split('/').nth(1).unwrap_or("user");
@@ -363,14 +358,6 @@ async fn main() -> Result<()> {
                                         }
                                     };
 
-                                    // Add todo using TodoTool with classified project
-                                    let mut params = HashMap::new();
-                                    params.insert("command".to_string(), "add".to_string());
-                                    params.insert("description".to_string(), description.clone());
-                                    params.insert("context".to_string(), "mcp_server".to_string());
-                                    params.insert("target_agent".to_string(), target_agent.to_string());
-                                    params.insert("project".to_string(), project_name.clone());
-
                                     // Acquire AI enhancement permit before processing
                                     let _ai_permit = match ai_semaphore.acquire().await {
                                         Ok(permit) => permit,
@@ -380,6 +367,14 @@ async fn main() -> Result<()> {
                                             return;
                                         }
                                     };
+
+                                    // Use TodoTool to add the todo - it will handle MCP server calls internally
+                                    let mut params = HashMap::new();
+                                    params.insert("command".to_string(), "add".to_string());
+                                    params.insert("description".to_string(), description.clone());
+                                    params.insert("context".to_string(), "mqtt_intake".to_string());
+                                    params.insert("target_agent".to_string(), target_agent.to_string());
+                                    params.insert("project".to_string(), project_name.clone());
 
                                     match todo_tool.execute(params).await {
                                         Ok(result) => {

@@ -46,6 +46,7 @@ mongodb = { version = "2.0", features = ["bson-chrono-0_4"] }
 async-std = "1.10"
 futures-util = "0.3"
 env_logger = "0.10"
+reqwest = { version = "0.11", features = ["json"] }
 
 anyhow = "1.0.68"
 
