@@ -15,6 +15,7 @@ use serde_json::Value;
 pub mod persistence;
 pub mod validation;
 pub mod recovery;
+pub mod agent_persistence;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedState {
@@ -138,18 +139,79 @@ impl StatePersistence for MongoStateManager {
 
 impl StateValidator for MongoStateManager {
     fn validate_state(&self, state: &PersistedState) -> Result<()> {
-        // TODO: Implement state validation
+        // Validate required fields
+        if state.agent_id.is_empty() {
+            return Err(anyhow!("Agent ID cannot be empty"));
+        }
+
+        if state.state_name.is_empty() {
+            return Err(anyhow!("State name cannot be empty"));
+        }
+
+        // Validate version is non-negative
+        if state.version < 0 {
+            return Err(anyhow!("State version cannot be negative"));
+        }
+
+        // Validate timestamps
+        if state.updated_at < state.created_at {
+            return Err(anyhow!("Updated timestamp cannot be before created timestamp"));
+        }
+
+        // Validate state_data if present
+        if let Some(data) = &state.state_data {
+            self.validate_data(data)?;
+        }
+
         Ok(())
     }
 
     fn validate_transition(&self, from: &str, to: &str) -> Result<()> {
-        // TODO: Implement transition validation
+        // Validate transition parameters
+        if from.is_empty() {
+            return Err(anyhow!("Source state cannot be empty"));
+        }
+
+        if to.is_empty() {
+            return Err(anyhow!("Target state cannot be empty"));
+        }
+
+        // Prevent self-transitions (optional rule, can be removed if needed)
+        if from == to {
+            return Err(anyhow!("State cannot transition to itself: {}", from));
+        }
+
         Ok(())
     }
 
     fn validate_data(&self, state_data: &Value) -> Result<()> {
-        // TODO: Implement data validation
-        Ok(())
+        // Basic validation that data is properly formed
+        match state_data {
+            Value::Object(map) => {
+                // Ensure all keys are valid strings
+                for (key, value) in map {
+                    if key.is_empty() {
+                        return Err(anyhow!("State data keys cannot be empty"));
+                    }
+
+                    // Recursively validate nested objects
+                    if let Value::Object(_) = value {
+                        self.validate_data(value)?;
+                    }
+                }
+                Ok(())
+            },
+            Value::Array(arr) => {
+                // Validate array elements
+                for item in arr {
+                    if let Value::Object(_) = item {
+                        self.validate_data(item)?;
+                    }
+                }
+                Ok(())
+            },
+            _ => Ok(()) // Primitive values are always valid
+        }
     }
 }
 
@@ -169,8 +231,75 @@ impl StateRecovery for MongoStateManager {
     }
 
     async fn replay_transitions(&self, agent_id: &str, from_version: i32) -> Result<PersistedState> {
-        // TODO: Implement transition replay
-        Err(anyhow!("Not implemented"))
+        // Get the base state at the specified version
+        let filter = doc! {
+            "agent_id": agent_id,
+            "version": from_version
+        };
+        let mut current_state = self.states
+            .find_one(filter, None)
+            .await?
+            .ok_or_else(|| anyhow!("State not found for agent {} at version {}", agent_id, from_version))?;
+
+        // Get all transitions after this version's timestamp
+        let transition_filter = doc! {
+            "agent_id": agent_id,
+            "timestamp": { "$gt": current_state.updated_at.timestamp() }
+        };
+        let options = mongodb::options::FindOptions::builder()
+            .sort(doc! { "timestamp": 1 })
+            .build();
+
+        let mut cursor = self.transitions.find(transition_filter, options).await?;
+
+        // Replay each successful transition
+        let mut transitions_applied = 0;
+        while let Some(transition) = cursor.try_next().await? {
+            if transition.success {
+                // Validate the transition
+                self.validate_transition(&transition.from_state, &transition.to_state)?;
+
+                // Ensure we're in the expected state before applying transition
+                if current_state.state_name != transition.from_state {
+                    return Err(anyhow!(
+                        "Invalid transition replay: expected state '{}' but found '{}'",
+                        transition.from_state,
+                        current_state.state_name
+                    ));
+                }
+
+                // Apply the transition
+                current_state.state_name = transition.to_state.clone();
+                current_state.updated_at = transition.timestamp;
+                current_state.version += 1;
+
+                // Add transition info to metadata
+                current_state.metadata.insert(
+                    "last_transition".to_string(),
+                    serde_json::to_value(&transition)?,
+                );
+
+                transitions_applied += 1;
+            }
+        }
+
+        // Add replay metadata
+        current_state.metadata.insert(
+            "replay_info".to_string(),
+            serde_json::json!({
+                "replayed_at": chrono::Utc::now().timestamp(),
+                "from_version": from_version,
+                "transitions_applied": transitions_applied,
+            }),
+        );
+
+        // Validate the final state before saving
+        self.validate_state(&current_state)?;
+
+        // Save the replayed state
+        self.save_state(current_state.clone()).await?;
+
+        Ok(current_state)
     }
 }
 

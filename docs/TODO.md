@@ -7,11 +7,15 @@
   - [ ] Fix `test_handle_transfer`
   - [ ] Fix `test_goose_tool`
   - [ ] Fix `test_state_transitions`
-- [ ] Improve State Management
-  - [ ] Implement proper state persistence
-  - [ ] Add state validation
+- [x] Improve State Management
+  - [x] Implement proper state persistence (MongoPersistence)
+  - [x] Add state validation (StateValidator with comprehensive checks)
+  - [x] Add state recovery mechanisms (checkpoints and replay)
+  - [x] Implement AgentStatePersistenceHelper for easy agent integration
+  - [x] Add version tracking to AgentStateManager
+  - [x] Document state persistence usage (see docs/state_persistence_guide.md)
   - [ ] Fix state transitions in HaikuAgent
-  - [ ] Add state recovery mechanisms
+  - [ ] Wire persistence into existing agents (optional enhancement)
 - [ ] Enhance Error Handling
   - [x] Add better error messages for MongoDB operations
   - [x] Improve error handling in task processing

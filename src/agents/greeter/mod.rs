@@ -21,8 +21,8 @@ pub struct GreeterAgent {
 impl GreeterAgent {
     pub fn new(config: AgentConfig) -> Self {
         Self {
+            state_manager: AgentStateManager::new(None).with_agent_id(config.name.clone()),
             config,
-            state_manager: AgentStateManager::new(None),
             ai_client: Box::new(DefaultAiClient::new()),
             conversation_history: Vec::new(),
             todo_list: block_on(TodoList::new()).expect("Failed to create TodoList"),

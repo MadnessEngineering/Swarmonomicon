@@ -217,10 +217,12 @@ pub trait Agent: Send + Sync {
     }
 }
 
-// Implement a basic agent state manager
+// Implement a basic agent state manager with optional persistence
 pub struct AgentStateManager {
     current_state: Option<String>,
     state_machine: Option<StateMachine>,
+    agent_id: String,
+    version: i32,
 }
 
 impl AgentStateManager {
@@ -229,7 +231,14 @@ impl AgentStateManager {
         Self {
             current_state,
             state_machine,
+            agent_id: "unknown".to_string(),
+            version: 0,
         }
+    }
+
+    pub fn with_agent_id(mut self, agent_id: String) -> Self {
+        self.agent_id = agent_id;
+        self
     }
 
     pub fn transition(&mut self, event: &str) -> Option<&State> {
@@ -237,6 +246,7 @@ impl AgentStateManager {
             if let Some(current) = state_machine.states.get(current_state) {
                 if let Some(next_state) = current.transitions.as_ref().and_then(|transitions| transitions.get(event)) {
                     self.current_state = Some(next_state.clone());
+                    self.version += 1;
                     return state_machine.states.get(next_state);
                 }
             }
@@ -254,6 +264,19 @@ impl AgentStateManager {
 
     pub fn get_current_state_name(&self) -> Option<&str> {
         self.current_state.as_deref()
+    }
+
+    pub fn get_version(&self) -> i32 {
+        self.version
+    }
+
+    pub fn get_agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn set_state(&mut self, state_name: String) {
+        self.current_state = Some(state_name);
+        self.version += 1;
     }
 }
 
