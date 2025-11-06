@@ -5,6 +5,7 @@
     "I like those 5 ideas you had, Lets make todo items for each, treating each discription as if it's a prompt for yoursellf to buildout the feature from a fresh converstation, incase we run out of room! Than lets start fixing the state persistence issues",
     "Okay reset limit, lets finish",
     "Lets work on #1. Nice work",
-    "yes lets keep going"
+    "yes lets keep going",
+    "Can we add Todo, complete message, and lessons learned?"
   ]
 }
