@@ -40,6 +40,7 @@ pub mod wrapper;
 #[cfg(feature = "rl")]
 pub mod rl;
 pub mod learning;
+pub mod learning_service;
 
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
