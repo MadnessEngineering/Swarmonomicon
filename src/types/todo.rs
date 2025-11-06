@@ -33,7 +33,7 @@ pub struct TodoTask {
     pub last_modified: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TaskPriority {
     #[serde(rename = "Inital")]
     Inital,

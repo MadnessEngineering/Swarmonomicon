@@ -41,6 +41,7 @@ pub mod wrapper;
 pub mod rl;
 pub mod learning;
 pub mod learning_service;
+pub mod task_intelligence;
 
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;

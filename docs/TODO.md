@@ -83,6 +83,18 @@
   - [x] Comprehensive documentation and usage guides
   - [x] Model persistence and learning analytics
   - [x] Backward compatible, feature-gated implementation
+- [x] **Complete ML Task Intelligence System** 🎯📊
+  - [x] TaskHistory with MongoDB-backed execution tracking
+  - [x] PriorityPredictor using k-NN ML for priority classification
+  - [x] TaskDecomposer with 4 decomposition strategies (ByPhase, ByComponent, ByIncrement, ByLayer)
+  - [x] DependencyLearner with automatic dependency discovery and graph building
+  - [x] TimePredictor with statistical estimation and confidence intervals
+  - [x] SmartTodoList as drop-in TodoList replacement with ML enhancements
+  - [x] TaskIntelligenceService integrating all task intelligence components
+  - [x] Feature extraction pipeline (keywords, complexity, urgency flags)
+  - [x] Confidence-based predictions with learning threshold (20+ tasks)
+  - [x] Comprehensive documentation (docs/task_intelligence_usage.md)
+  - [x] Backward compatible, works without ML enabled
 
 ## Lessons Learned 📝
 1. Agent implementation requires careful consideration of state management
@@ -109,8 +121,19 @@
 22. **Documentation First**: Write usage guides while context is fresh
 23. **Performance Overhead**: Learning adds <5ms overhead per interaction
 24. **Fail Gracefully**: Learning failures shouldn't break core functionality
+25. **Simple ML Wins**: k-NN outperforms complex models for small datasets (<1000 tasks)
+26. **Feature Engineering > Model Complexity**: Good features (keywords, complexity) drive accuracy
+27. **Learning Threshold**: Require minimum data (20+ tasks) before ML activation
+28. **Confidence Intervals**: Always provide uncertainty ranges, not just point estimates
+29. **Heuristic Bootstrapping**: Default rules provide immediate value, improve with data
+30. **Pattern-Based Generation**: Constrained decomposition (ByPhase, ByComponent) beats free-form
+31. **Dependency Rules**: Hybrid approach (defaults + learned) works better than pure ML
+32. **Statistical Prediction**: Mean/variance/percentiles sufficient for time estimation
+33. **k-NN Sweet Spot**: k=5 neighbors optimal for priority classification
 
-**See**: `docs/lessons_learned/agent-learning-implementation.md` for complete analysis
+**See**:
+- `docs/lessons_learned/agent-learning-implementation.md` for agent learning analysis
+- `docs/lessons_learned/task-intelligence-implementation.md` for task intelligence analysis
 
 ## Next Steps 🚀
 1. Focus on fixing remaining failing tests
