@@ -39,6 +39,7 @@ pub mod transfer;
 pub mod wrapper;
 #[cfg(feature = "rl")]
 pub mod rl;
+pub mod learning;
 
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
