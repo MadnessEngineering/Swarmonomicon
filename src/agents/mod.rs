@@ -42,6 +42,7 @@ pub mod rl;
 pub mod learning;
 pub mod learning_service;
 pub mod task_intelligence;
+pub mod swarm_coordination;
 
 pub use user_agent::UserAgent;
 pub use transfer::TransferService;
