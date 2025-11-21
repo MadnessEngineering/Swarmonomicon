@@ -47,7 +47,9 @@ next-env.d.ts
 /target
 todo_state.json
 /.idea
+/.cursor
 .specstory/.what-is-this.md
 /.specstory
 /examples_to_delete
 /.cursor
+/.claude/data
