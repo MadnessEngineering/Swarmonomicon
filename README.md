@@ -1,258 +1,335 @@
 # Swarmonomicon: The Mad Tinker's Codex
 
-
 ![Cover Art](docs/assets/Cover-Art.jpeg)
 
-🛠️ Welcome to the Swarmonomicon,\
-A fusion of meticulous craftsmanship and heavily version controlled chaos.\
-Inspired by OpenAI's Realtime Agents Demo, this project doesn't just reimagine agent collaboration—\
-It invites you to dive headfirst into the Uncharted 🌀 and the Unhinged. 🤖🦾
+> *A spellbook for those who believe the correct number of agents is always one more than you currently have.*
 
-Here, Rust-powered agents weave intricate patterns of logic, improvisation, and mischief.\
-It's a spellbook for Mad Tinkerers ready to push boundaries and embrace the unpredictable.\
-Throw UX in the trash, grab an extra keyboard, a bin of raspiberries and Buckle up.
+Swarmonomicon is a **Rust-powered multi-agent orchestration system** with priority task queues, MQTT coordination, and enough emergent behavior to keep you guessing. Inspired by OpenAI's Realtime Agents Demo and rebuilt from the substrate up in async Rust — because if you're going to summon a swarm, you might as well do it without a garbage collector.
 
-⚙️ Tinker responsibly. \
-Some assembly required[^1].\
-Unintended Hilarity guaranteed[^2].
+Each agent owns its own todo queue. Tasks cascade through priorities, get enhanced by local LLMs, classified into projects, and processed asynchronously while MQTT keeps the whole nervous system ticking. The machine learns. The machine *adapts*.[^1]
 
+[^1]: "Adapts" is a generous word. "Fails gracefully and tries again with exponential backoff" is more accurate. Both are features.
 
-[^1]: Always assume "some" means "extensive" when dealing with Tinkers.
+---
 
-[^2]: May cause mqtt related restructuring of your entire codebase[^3].
+## Where This Fits: The Madness Interactive Ecosystem
 
-[^3]: You're welcome, this is a feature not a bug.
-
-## Features current under development
-
-- Multiple specialized agents with different capabilities:
-  - Greeter Agent: Welcomes users and directs them to appropriate agents
-  - Git Assistant: Helps with git operations
-  - Haiku Agent: Creates haikus based on user input
-  - Project Init Agent: Helps initialize new projects
-  - Browser Agent: Handles browser automation tasks
-  - Reinforcement Learning Agent: Learns to play Flappy Bird using Q-learning
-
-- Todo Task System:
-  - Advanced task management with MongoDB backend
-  - AI-powered task enhancement and prioritization
-  - Priority-based processing (Critical, High, Medium, Low)
-  - Task status tracking (Pending, InProgress, Completed, Failed)
-  - Project-specific task organization
-  - Agent-specific task queues
-  - Graceful shutdown and reconnection handling
-  - Concurrent task processing with semaphore limiting
-  - Real-time metrics reporting via MQTT
-  - Health monitoring based on task success rates
-  - Command-line testing tools for task publishing
-
-- Independent Task Processing:
-  - Each agent has its own todo list
-  - Tasks are processed asynchronously in the background
-  - Agents can delegate tasks to other agents
-  - Priority-based task scheduling
-  - AI-powered task enhancement and prioritization
-  - Dual description system (original + enhanced)
-
-- Real-time Communication:
-  - WebSocket support for live updates
-  - Agent-to-agent communication
-  - Task delegation between agents
-  - Intelligent task routing based on enhanced descriptions
-
-- Extensible Architecture:
-  - Easy to add new agents
-  - Configurable task processing intervals
-  - Support for agent-specific state machines
-  - Flexible message routing
-  - AI-enhanced task processing capabilities
-  - Fallback mechanisms for AI enhancement failures
-  - GPT-4 Batch Processing Tool:
-    - Efficient handling of multiple AI requests
-    - Automatic request batching with configurable window (1 second default)
-    - Rate limiting (3500 requests/minute for GPT-4)
-    - Exponential backoff retry mechanism (max 3 retries)
-    - Support for OpenAI function calling
-    - Built-in token usage tracking
-    - Automatic error handling and recovery
-    - Concurrent request processing with configurable batch size
-    - Request pooling for optimal API usage
-
-
-## Inspiration and Credits
-
-This project is a Rust reimplementation inspired by the [OpenAI Realtime Agents Demo](https://github.com/openai/openai-realtime-agents). The original project, created by [Noah MacCallum](https://x.com/noahmacca)] and [Ilan Bigio](https://github.com/ibigio), demonstrates advanced agentic patterns built on top of a Realtime API.
-My version is designed with plans to later become a [Tinker](https://github.com/DanEdens/Tinker) module.
-Much of the theming ideas stem from [J.S. Morin's Twinborn and Black Ocean universes](https://www.jsmorin.com/)
-
-### Original Project Highlights
-The original OpenAI Realtime Agents project showcases:
-- Sequential agent handoffs
-- Background escalation to intelligent models
-- State machine-driven user interactions
-- Realtime voice application prototyping
-
-## Our Implementation
-
-Our Rust implementation aims to explore similar concepts of multi-agent systems, focusing on:
-- Websocket-based realtime communication
-- Modular agent system with configurable tools and behaviors
-- Async runtime using tokio
-
-
-### Current Implementation Status
-
-#### Completed ✅
-- Basic agent system with registry and transfer capabilities
-- Websocket communication layer
-- REST API endpoints for agent management
-- Greeter and Haiku example agents
-- Tool system with support for custom executors
-- Configuration management for agents and tools
-- Centralized AI client with LM Studio integration
-- Intelligent conversation handling with history
-- Git operations with AI-powered commit messages
-- Advanced Todo System with MongoDB integration and AI enhancements
-- Real-time metrics reporting for task processing
-- Graceful shutdown handling for all services
-- Concurrent task processing with resource limiting
-- Command-line tools for task publishing and status monitoring
-
-#### In Progress 🚧
-- Adding entry point for greeter
-- Enhance conversation context preservation
-- Improve error handling for AI communication
-- Add more sophisticated state machine transitions
-- Add additional agent types for specialized tasks
-- Implement task caching for better performance
-- Add support for distributed task processing
-
-## Setup
-
-### Prerequisites
-- Rust toolchain (latest stable)
-- LM Studio running locally (default: http://127.0.0.1:1234)
-- Git (for version control features)
-
-### Installation
-1. Clone the repository
-2. Install dependencies with `cargo build`
-3. Start LM Studio with the Qwen model
-4. Run tests with `cargo test`
-5. Start the server with `cargo run`
-6. The server will start on [http://localhost:3000](http://localhost:3000)
-
-### Docker Deployment
-We provide Docker support for easy deployment on any platform:
-
-```bash
-# Check if local Ollama is running and start services
-./run_services.sh
-
-# Alternatively, on macOS/Linux:
-./docker-setup.sh
-
-# On Windows (using PowerShell):
-.\docker-setup.ps1
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    madness_interactive                          │
+│                                                                 │
+│  ┌──────────────┐   MQTT (mcp/+)   ┌─────────────────────┐    │
+│  │  Omnispindle │ ───────────────► │   Swarmonomicon     │    │
+│  │  (MCP tools) │                  │  ┌───────────────┐  │    │
+│  └──────────────┘                  │  │  Agent Swarm  │  │    │
+│                                    │  │  Todo Queues  │  │    │
+│  ┌──────────────┐   REST API       │  │  MQTT Intake  │  │    │
+│  │  Inventorium │ ◄─────────────── │  └───────────────┘  │    │
+│  │  (Dashboard) │                  │         │            │    │
+│  └──────────────┘                  │         ▼            │    │
+│                                    │      MongoDB         │    │
+│                                    └─────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-This will start:
-- The Swarmonomicon API server on port 3000
-- MongoDB for data storage
-- Mosquitto MQTT broker for messaging
+- **Omnispindle** publishes tasks into Swarmonomicon via MQTT (`mcp/<agent>` topics)
+- **Swarmonomicon** classifies, enhances, queues, and processes those tasks
+- **Inventorium** reads the results via REST API to display in the dashboard
+- **MongoDB** (`RTK_MONGO_URI` / `RTK_MONGO_DB`) is the shared persistence layer
 
-The system is configured to use your local Ollama instance (must be running at http://localhost:11434) via host.docker.internal. This allows you to maintain your models outside the Docker environment.
+Swarmonomicon is a planned module of [Tinker](https://github.com/DanEdens/Tinker). It currently lives as a git submodule at `projects/common/Swarmonomicon`.
 
-For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
-
-### Cross-Compilation for EC2 Deployment
-We provide tools for cross-compiling the project on your local machine and deploying it to an EC2 instance:
-
-1. **Docker-based cross-compilation** (see [CROSS_COMPILATION.md](CROSS_COMPILATION.md))
-2. **WSL-based cross-compilation** (see [WSL_BUILD.md](WSL_BUILD.md)) - For building on Mac and deploying via Windows
-3. **Direct Windows building** (see [WINDOWS_BUILD.md](WINDOWS_BUILD.md)) - For when you're already on Windows
-4. **Direct macOS building** (see [MACOS_TO_EC2.md](MACOS_TO_EC2.md)) - Cross-compile directly from macOS to Linux
-
-To build on Windows and deploy to EC2:
-```bash
-# When already on Windows:
-./test_windows_setup.sh
-./build_from_windows.sh
-./deploy_to_ec2.sh
-
-# When building via Mac with access to Windows:
-./test_wsl.sh
-./build_direct_wsl.sh
-
-# Direct build from macOS to EC2:
-./build_macos_to_ec2.sh
-```
-
-### Configuration
-The system can be configured through environment variables:
-- `AI_ENDPOINT`: LLM API endpoint (default: http://127.0.0.1:1234)
-- `AI_MODEL`: Model to use (default: qwen2.5-7b-instruct)
-- `RUST_LOG`: Logging level (default: info)
+---
 
 ## Architecture
 
-### Core Components
+### The Agent System
 
-1. **Agent System**
-   - `AgentRegistry`: Manages available agents
-   - `TransferService`: Handles agent transfers and message routing
-   - `Agent` trait: Interface for implementing custom agents
-   - `AiClient`: Centralized LLM communication
+Each agent is an independent async entity implementing the `Agent` trait. Agents own their own todo queue, maintain state, and can delegate tasks to other agents. The `AgentRegistry` manages discovery; `TransferService` handles routing.
 
-2. **API Layer**
-   - REST endpoints for agent management
-   - Websocket handler for realtime communication
-   - Session management
-   - AI-powered conversation handling
+| Agent | Role |
+|---|---|
+| **Greeter** | Entry point. Routes incoming users and tasks to the right agent |
+| **Git Assistant** | AI-powered commit messages, branch ops, merge helpers |
+| **Haiku** | Creative generation demo. Also a useful smoke test |
+| **Project Init** | Scaffolds new projects with sane defaults |
+| **Browser** | Chromium automation (feature-flagged: `browser-agent`) |
+| **RL Agent** | Q-learning framework, ships with a Flappy Bird environment |
 
-3. **Tool System**
-   - `ToolExecutor` trait for implementing custom tools
-   - Support for async tool execution
-   - Mqtt topic structure for agent state exchange
+Agents are enabled via Cargo feature flags — compile only what your deployment needs.
 
-### Configuration
+### The Task Queue System
 
-Agent configurations are defined in code, with support for:
-- Custom instructions
-- Tool assignments
-- Downstream agent connections
-- State machine definitions (in progress)
+Tasks flow through a MongoDB-backed queue with atomic priority scheduling. The `get_next_task()` call does a `findOneAndUpdate` sorted by `priority DESC, created_at ASC` — highest urgency, oldest first, claimed atomically to prevent double-processing.
 
-## Contributing
+**Priority levels** (ordered lowest → highest):
 
-Contributions are welcome! Open Issues, I welcome them.
+```rust
+pub enum TaskPriority {
+    Initial,   // just arrived, not yet evaluated
+    Low,       // background, no rush
+    Medium,    // regular work
+    High,      // process soon
+    Critical,  // drop everything
+}
+```
 
-## License
-MIT
+**Task lifecycle:**
 
-## Subrepo Structure
+```
+Initial ──► Pending ──► Review ──► Completed
+                   └──────────────► Failed
+```
 
-Welcome, the few and the Mad, to the wondrous world of subrepos!\
-This project is but a cog in the grand machine of the [Madness Interactive](https://github.com/DanEdens/madness_interactive) repository—\
-A playground for my various Mad Science and other monstrosities of Automation.\
-Embrace the mess of modular development, each project is but a part of the glorious, interconnected ***machine***.
+**`TodoTask` structure:**
 
-Ferrum Corde!
+```rust
+pub struct TodoTask {
+    pub id: String,                            // UUID
+    pub description: String,                  // original, always preserved
+    pub enhanced_description: Option<String>, // AI-improved version
+    pub priority: TaskPriority,
+    pub project: Option<String>,              // auto-classified if absent
+    pub source_agent: Option<String>,
+    pub target_agent: String,
+    pub status: TaskStatus,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    pub due_date: Option<String>,
+    pub duration_minutes: Option<i32>,
+    pub notes: Option<String>,
+    pub ticket: Option<String>,
+    pub last_modified: Option<i64>,
+}
+```
 
-## Features
+**AI Enhancement Layer:** When an AI client is available, `create_task_with_enhancement()` calls the local LLM to:
+1. Rewrite the description with technical context
+2. Predict a better priority (only upgraded, never downgraded)
+3. Classify the task into a project (only set if not already provided)
 
-- Agent-based architecture for modular task handling
-- Tool registry for extensible functionality
-- State machine support for complex workflows
-- WebSocket API for real-time communication
-- CLI interface for common operations
+The original description is always preserved. The enhanced version is additive.
 
-### Git Operations
+### The MQTT Coordination Layer
 
-The framework includes a Git assistant agent that can be used via CLI:
+MQTT is the central nervous system. The `mqtt_intake` binary subscribes to `mcp/+` and turns inbound messages into queued tasks. The topic path encodes the target agent — `mcp/git_assistant` routes to the Git assistant, `mcp/greeter` to the greeter.
+
+**Full topic map:**
+
+| Direction | Topic | Purpose |
+|---|---|---|
+| **Inbound** | `mcp/+` | Task creation — subtopic becomes `target_agent` |
+| **Inbound** | `mcp_server/control` | `{"command": "status"}` or `{"command": "shutdown"}` |
+| **Inbound** | `project/classify` | Project worker classification request |
+| **Inbound** | `todo_worker/control` | Worker runtime control commands |
+| **Outbound** | `response/{agent}/todo` | Task successfully created |
+| **Outbound** | `response/{agent}/error` | Task creation failed |
+| **Outbound** | `response/mcp_server/status` | Server status / shutdown confirmation |
+| **Outbound** | `response/project/classify/{uuid}` | Per-request classification response |
+| **Outbound** | `metrics/response/mqtt_intake` | Periodic `TaskMetrics` JSON (every 300s) |
+| **Outbound** | `health/todo_worker` | Worker health status |
+
+The `response/` prefix is intentional — it separates commands from responses and prevents the intake from processing its own output.[^2] All communications use **QoS 2 (ExactlyOnce)**.
+
+[^2]: We learned this the hard way. The footnote from v0.1.0 that said "may cause mqtt related restructuring of your entire codebase" was autobiographical.
+
+**Task creation flow via MQTT:**
+
+```
+Publish to mcp/greeter
+      │
+      ▼
+mqtt_intake receives it
+      │
+      ├─► Subscribe to response/project/classify/{uuid}
+      ├─► Publish to project/classify (classification request)
+      ├─► Wait up to 30s for response
+      │   └─► Timeout? Default to "madness_interactive"
+      │
+      ▼
+TodoTool.execute() → MCP server → MongoDB insert
+      │
+      ├─► Publish response/greeter/todo (success)
+      └─► Publish response/greeter/error (failure)
+```
+
+**Periodic metrics** (published to `metrics/response/mqtt_intake`):
+
+```json
+{
+  "tasks_received": 127,
+  "tasks_processed": 120,
+  "tasks_failed": 5,
+  "classification_success_rate": 97.6,
+  "success_rate": 94.5,
+  "uptime_seconds": 3600,
+  "tasks_per_minute": 2.1
+}
+```
+
+### Swarm Intelligence
+
+Beyond individual agents, Swarmonomicon has a coordination layer for emergent multi-agent behavior:
+
+**Consensus Protocol** — Agents vote on actions using configurable strategies:
+
+| Strategy | Rule |
+|---|---|
+| `Majority` | >50% agreement required |
+| `Plurality` | Most votes wins, always resolves |
+| `Unanimous` | 100% agreement, or nothing |
+| `Weighted` | Votes weighted by agent expertise score |
+
+**Delegation** — Agents can hand off tasks mid-stream when a better-suited agent is available.
+
+**Emergence** — Behavioral patterns that arise from agent interaction, not explicit programming.
+
+**Shared Learning** — Knowledge propagates across the swarm. What one agent learns, the collective benefits from.
+
+**Swarm Metrics** — Coordination performance monitoring.
+
+### Task Intelligence
+
+A subsystem of AI-powered analyzers that operate on tasks before and during processing:
+
+| Component | Function |
+|---|---|
+| `SmartTodo` | AI-enhanced task processing with context injection |
+| `Decomposer` | Breaks complex tasks into ordered subtasks |
+| `PriorityPredictor` | ML-based priority estimation from task text |
+| `DependencyLearner` | Learns which tasks tend to block which |
+| `TimePredictor` | Estimates completion duration from history |
+| `TaskHistory` | Stores outcomes to feed the predictors |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Rust (latest stable)
+- MongoDB instance (set `RTK_MONGO_URI`)
+- MQTT broker (Mosquitto or hosted — set `AWSIP` / `AWSPORT`)
+- Optional: LM Studio or Ollama for AI enhancement
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RTK_MONGO_URI` | *(required)* | MongoDB connection string |
+| `RTK_MONGO_DB` | `swarmonomicon` | Database name |
+| `AWSIP` | *(required for MQTT)* | MQTT broker hostname/IP |
+| `AWSPORT` | *(required for MQTT)* | MQTT broker port |
+| `AI_ENDPOINT` | `http://127.0.0.1:1234` | LLM API endpoint |
+| `AI_MODEL` | `qwen2.5-7b-instruct` | Model name |
+| `RUST_LOG` | `info` | Log level |
+
+### Build & Run
 
 ```bash
-# Auto-generate commit message
+# Build everything
+cargo build
+
+# Run the API server (port 3000)
+cargo run --bin swarm
+
+# Run the MQTT intake listener
+cargo run --bin mqtt_intake
+
+# Run the background todo worker
+cargo run --bin todo_worker
+
+# Run the MCP JSON-RPC server
+cargo run --bin mcp_todo_server
+
+# Train a Flappy Bird RL agent
+cargo run --bin train_flappy --features rl
+
+# Train with visualization
+cargo run --bin train_flappy --features rl -- -v
+```
+
+### Docker (the lazy way)
+
+```bash
+# macOS/Linux
+./docker-setup.sh
+
+# Or directly:
+docker compose up -d
+```
+
+Starts: API server (port 3000), MongoDB, Mosquitto MQTT broker. Configured to use a local Ollama instance at `host.docker.internal:11434`.
+
+---
+
+## API Reference
+
+### Agent Management
+
+```
+GET  /api/agents              → list all agents
+GET  /api/agents/:name        → agent details
+POST /api/agents/:name/message → send a message to an agent
+POST /api/agents/:name/send   → send a command to an agent
+```
+
+### Task Management
+
+```
+GET  /api/agents/:name/tasks          → list all tasks for agent
+POST /api/agents/:name/tasks          → add task to agent's queue
+GET  /api/agents/:name/tasks/:task_id → get specific task
+```
+
+### WebSocket
+
+```
+GET /ws → real-time bidirectional communication
+```
+
+**Add a task:**
+
+```bash
+curl -X POST http://localhost:3000/api/agents/greeter/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Welcome new user — onboard to the lab",
+    "priority": "High",
+    "source_agent": null
+  }'
+```
+
+**Publish via MQTT:**
+
+```bash
+# Using mosquitto_pub
+mosquitto_pub -h $AWSIP -p $AWSPORT -t mcp/greeter \
+  -m '{"description": "Calibrate the flux capacitor", "priority": "Medium"}'
+
+# Plain text also works
+mosquitto_pub -h $AWSIP -p $AWSPORT -t mcp/git_assistant \
+  -m "Generate commit message for current changes"
+```
+
+**Control the worker remotely:**
+
+```bash
+# Check status
+mosquitto_pub -h $AWSIP -p $AWSPORT -t todo_worker/control \
+  -m '{"command": "status"}'
+
+# Graceful shutdown
+mosquitto_pub -h $AWSIP -p $AWSPORT -t mcp_server/control \
+  -m '{"command": "shutdown"}'
+```
+
+---
+
+## CLI (Git Assistant)
+
+```bash
+# Auto-generate commit message from staged changes
 swarm git
 
 # Commit with specific message
@@ -265,351 +342,78 @@ swarm git -b feature/new-branch
 swarm git -t main
 ```
 
-The Git assistant uses AI to generate meaningful commit messages based on the changes in your working directory.
+---
 
-## API Endpoints
+## Feature Flags
 
-### Agent Management
-- `GET /api/agents` - List all available agents
-- `GET /api/agents/:name` - Get details about a specific agent
-- `POST /api/agents/:name/message` - Send a message to an agent
-- `POST /api/agents/:name/send` - Send a command to an agent
+| Flag | Enables |
+|---|---|
+| `greeter-agent` | Greeter entry-point agent |
+| `git-agent` | Git operations assistant |
+| `haiku-agent` | Haiku generation agent |
+| `project-init-agent` | Project scaffolding agent |
+| `browser-agent` | Chromium browser automation |
+| `rl` | Reinforcement learning framework + Flappy Bird |
 
-### Task Management
-- `GET /api/agents/:name/tasks` - Get all tasks for an agent
-- `POST /api/agents/:name/tasks` - Add a task to an agent's todo list
-- `GET /api/agents/:name/tasks/:task_id` - Get details about a specific task
+Build only what you need:
 
-### WebSocket
-- `GET /ws` - WebSocket endpoint for real-time communication
-
-## Task System
-
-The system uses a sophisticated task management system with AI enhancement capabilities:
-
-#### Task Priority Levels
-- Critical: Highest priority tasks that need immediate attention
-- High: Important tasks that should be processed soon
-- Medium: Regular priority tasks
-- Low: Background tasks that can wait
-
-#### Task Status Flow
-1. Pending: Task has been added to the todo list
-2. InProgress: Task is currently being processed
-3. Completed: Task has been successfully completed
-4. Failed: Task processing failed
-
-#### Task Structure
-```rust
-pub struct TodoTask {
-    pub id: String,
-    pub description: String,
-    pub enhanced_description: Option<String>,
-    pub priority: TaskPriority,
-    pub source_agent: Option<String>,
-    pub target_agent: String,
-    pub status: TaskStatus,
-    pub created_at: i64,
-    pub completed_at: Option<i64>,
-}
-```
-
-#### AI Enhancement System
-
-The system implements a layered approach to AI task enhancement:
-
-1. Infrastructure Layer (API/Worker):
-   - Handles basic task creation and routing
-   - No AI enhancement at this level
-   - Preserves original task descriptions
-
-2. Agent Layer:
-   - Implements AI enhancement during task processing
-   - Adds technical details and context
-   - Maintains task integrity
-
-3. Storage Layer:
-   - MongoDB-based persistent storage
-   - Configurable database via RTK_MONGO_DB
-   - Stores both original and enhanced descriptions
-
-#### Task Creation
-
-Tasks can be created through multiple channels:
-1. API endpoints
-2. MQTT messages
-3. Agent-to-agent delegation
-
-Example API request:
 ```bash
-curl -X POST http://localhost:3000/api/agents/greeter/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Welcome new user John",
-    "priority": "High",
-    "source_agent": null
-  }'
+cargo build --features "git-agent,greeter-agent"
 ```
 
-Response:
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "description": "Welcome new user John",
-  "enhanced_description": null,
-  "priority": "High",
-  "source_agent": null,
-  "target_agent": "greeter",
-  "status": "Pending",
-  "created_at": 1677721600,
-  "completed_at": null
-}
-```
+---
 
-The task will be enhanced during processing by the target agent, adding technical details and context while preserving the original description.
+## Worker Binaries
 
-#### Enhanced Todo Worker
+| Binary | Purpose |
+|---|---|
+| `swarm` | Main API server — REST + WebSocket |
+| `mqtt_intake` | MQTT listener → task queue bridge |
+| `todo_worker` | Background task processor |
+| `mcp_todo_server` | MCP JSON-RPC server for AI tool calls |
+| `project_worker` | Project classification service |
+| `train_flappy` | RL training runner |
+| `test_mcp_todo_publish` | Dev tool for testing task publishing |
 
-The todo_worker has been significantly improved with the following features:
+The `todo_worker` uses a semaphore-limited concurrency model (`MAX_CONCURRENT_TASKS = 1` by default, configurable) with exponential backoff on failures, per-priority metrics, and health status published to `health/todo_worker`.
 
-1. **Robust Error Handling**
-   - Graceful recovery from MQTT connection issues
-   - Automatic reconnection with configurable retry limits
-   - Detailed error reporting via MQTT topics
-   - Timeout detection for stalled task processing
+---
 
-2. **Advanced Metrics Collection**
-   - Success rate tracking and health status monitoring
-   - Priority-based metrics (tracking of Critical/High/Medium/Low tasks)
-   - Processing time measurements for performance analysis
-   - Timeout detection and reporting
-   - Periodic metrics publishing to MQTT topics
+## Deployment
 
-3. **Health Monitoring**
-   - Live health status publishing (`health/todo_worker` topic)
-   - Configurable health thresholds based on success rate
-   - Detailed diagnostic information for troubleshooting
+Production runs on AWS EC2 (`eaws`) behind nginx and pm2. Several build/deploy paths are supported:
 
-4. **Task Prioritization**
-   - Efficient task processing based on priority
-   - Detailed tracking of tasks by priority levels
-   - Performance metrics for each priority level
-
-5. **Control Interface**
-   - Remote status checking via MQTT commands
-   - Control commands for runtime configuration
-   - Synchronous and asynchronous processing models
-
-Example metrics output (published to `metrics/todo_worker`):
-```json
-{
-  "tasks_processed": 127,
-  "tasks_succeeded": 120,
-  "tasks_failed": 5,
-  "tasks_timeout": 2,
-  "success_rate": 94.49,
-  "uptime_seconds": 3600,
-  "critical_tasks_processed": 10,
-  "high_tasks_processed": 32,
-  "medium_tasks_processed": 55,
-  "low_tasks_processed": 30,
-  "healthy": true,
-  "timestamp": "2023-04-11T15:30:45Z"
-}
-```
-
-The worker can be controlled remotely by publishing commands to the `todo_worker/control` topic:
-```json
-{"command": "status"}
-```
-
-Response (published to `todo_worker/status`):
-```json
-{
-  "tasks_processed": 127,
-  "tasks_succeeded": 120,
-  "tasks_failed": 5,
-  "tasks_timeout": 2,
-  "success_rate": 94.49,
-  "uptime_seconds": 3600,
-  "healthy": true,
-  "timestamp": "2023-04-11T15:30:45Z"
-}
-```
-
-## Usage
-
-### Starting the Server
 ```bash
-cargo run --bin swarm
+# macOS → EC2 cross-compilation
+./build_macos_to_ec2.sh
+
+# WSL build
+./build_direct_wsl.sh
+
+# Deploy to EC2
+./deploy_to_ec2.sh
 ```
 
-### Adding a Task via API
-```bash
-curl -X POST http://localhost:3000/api/agents/greeter/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Welcome new user John",
-    "priority": "High",
-    "source_agent": null
-  }'
-```
+See `CROSS_COMPILATION.md`, `MACOS_TO_EC2.md`, `WSL_BUILD.md`, `WINDOWS_BUILD.md`, and `EC2_BUILD_README.md` for platform-specific guides. See `DOCKER.md` for container deployment.
 
-The response will include both the original and AI-enhanced descriptions:
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "description": "Welcome new user John",
-  "enhanced_description": "Initiate personalized welcome sequence for new user John, including system introduction and available agent overview. Ensure proper onboarding experience and gather initial user preferences for future interactions.",
-  "priority": "High",
-  "source_agent": null,
-  "target_agent": "greeter",
-  "status": "Pending",
-  "created_at": 1677721600,
-  "completed_at": null
-}
-```
-
-### Getting Tasks for an Agent
-```bash
-curl http://localhost:3000/api/agents/greeter/tasks
-```
-
-## Development
-
-### Prerequisites
-- Rust 1.70 or higher
-- Cargo
-- Optional: Chrome/Chromium (for browser automation features)
-
-### Building
-```bash
-cargo build
-```
-
-### Running Tests
-```bash
-cargo test
-```
-
-### Feature Flags
-- `git-agent`: Enable Git assistant functionality
-- `haiku-agent`: Enable Haiku generation
-- `greeter-agent`: Enable Greeter agent
-- `browser-agent`: Enable browser automation
-- `project-init-agent`: Enable project initialization
-
-## Architecture
-
-The system uses a modular architecture where each agent is an independent entity that can:
-1. Process messages directly
-2. Handle tasks asynchronously
-3. Delegate work to other agents
-4. Maintain its own state and todo list
-
-Each agent runs in its own async task, processing its todo list at configurable intervals. This allows for true parallel processing and independent operation.
+---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+Open issues. Pull requests welcome. If you're adding an agent, implement the `Agent` trait, register it in the `AgentRegistry`, and add a feature flag. If you're touching MQTT topic structure, update the topic map in this README.
+
+The one rule: don't route UI operations through MCP, and don't call REST API from AI chat responses. See [CLAUDE.md](../../CLAUDE.md) for the full architecture contract.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT. Tinker responsibly.
 
-## MCP Topic Routing
+---
 
-Added support for subscribing to `mcp/*` topics in the MCP Todo Server and routing todos to the appropriate target agent based on the topic path.
+## Subrepo Structure
 
-Changes made:
-- Updated the MQTT subscription in `mqtt_intake.rs` from `mcp/todo` to `mcp/*` to subscribe to all mcp topics
-- Parse the topic path from received messages and pass it to the `TodoTool.add_todo()` method as the `target_agent` parameter
-- Modified the `TodoTool.add_todo()` method to accept a `target_agent` parameter and use it when creating new `TodoTask` instances
-- Fixed a "temporary value dropped while borrowed" error in `todo.rs` by assigning the default `target_agent` value to a variable before using it in `unwrap_or()`
+This project is a cog in the grand machine of [Madness Interactive](https://github.com/DanEdens/madness_interactive) — a monorepo of mad science, automation, and carefully version-controlled chaos. Each subproject is modular, each is interconnected, and together they form something greater than the sum of their parts.[^3]
 
-These changes allow for more flexible routing of todos based on the MQTT topic they are published to. The target agent can be determined from the topic path.
+[^3]: Or at least noisier. The MQTT broker never sleeps.
 
-## Reinforcement Learning System
-
-The framework includes a reinforcement learning system with the following features:
-
-### Core Components
-- Flexible agent, state, and environment abstractions
-- Q-learning implementation with configurable parameters
-- Model serialization and deserialization
-- Training configuration system
-- Performance visualization tools
-- Training metrics collection
-
-### Flappy Bird Example
-A complete implementation of Flappy Bird as a reinforcement learning environment:
-
-```bash
-# Train a Flappy Bird agent (no visualization)
-cargo run --bin train_flappy --features rl
-
-# Train with visualization
-cargo run --bin train_flappy --features rl -- -v
-
-# Train with custom configuration
-cargo run --bin train_flappy --features rl -- -c config.json -m metrics/
-
-# Use a trained model
-cargo run --bin train_flappy --features rl -- -m path/to/model.json
-```
-
-### Training Configuration
-The training configuration system allows for easy experimentation with different hyperparameters:
-
-```json
-{
-  "learning_rate": 0.1,
-  "discount_factor": 0.95,
-  "epsilon": 0.1,
-  "epsilon_decay": 0.999,
-  "min_epsilon": 0.01,
-  "episodes": 1000,
-  "visualize": false,
-  "checkpoint_freq": 100,
-  "checkpoint_path": "models",
-  "save_metrics": true,
-  "metrics_path": "metrics"
-}
-```
-
-### Visualization Tools
-The framework includes tools for visualizing training progress:
-- Real-time reward, score, and epsilon plots
-- HTML training reports with key metrics
-- Training history serialization for further analysis
-
-### Extensibility
-The RL system is designed to be easily extended:
-- Implement the `State` and `Action` traits for new environments
-- Create custom environment implementations by implementing the `Environment` trait
-- Add new agent algorithms by extending the architecture
-
-### MQTT Topic Structure
-
-The system uses MQTT for internal communication between components with a carefully designed topic structure to prevent recursive message loops:
-
-- `mcp/+` - Topics for incoming MCP commands to be processed
-- `response/+/todo` - Response topics for successful todo processing
-- `response/+/error` - Error response topics
-- `response/mcp_server/status` - Server status response topic
-- `metrics/response/mqtt_intake` - Metrics reporting topic
-
-The separation between command topics (mcp/) and response topics (response/) prevents the system from processing its own response messages and creating unwanted recursion.
-
-#### QoS Settings
-
-All MQTT communications use QoS 2 (ExactlyOnce) to ensure:
-- Messages are delivered exactly once
-- No duplicate message processing occurs
-- System reliability is maintained
-
-This is especially important for the todo processing system where duplicate messages could create redundant tasks.
+**Ferrum Corde.**
